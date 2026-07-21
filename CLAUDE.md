@@ -1,0 +1,51 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Projektüberblick
+
+Kurvenconnect ist eine mobile App (Android & iOS) für Fußballfans im deutschsprachigen Raum. Ziel ist eine zentrale Plattform für das gemeinsame Stadion- und Spieltagserlebnis: Communitys rund um Vereine, gemeinsame Beiträge, Fahrgemeinschaften und Spieltagsveranstaltungen.
+
+**Aktueller Stand:** Das Repository befindet sich in der Setup-Phase — es existiert noch kein App-Code, kein `package.json` und kein Expo-Projekt. Diese Datei beschreibt den geplanten Stack und die Architektur, damit zukünftige Änderungen von Anfang an konsistent damit umgesetzt werden.
+
+## Geplanter Technologie-Stack
+
+- React Native mit Expo
+- TypeScript (strikter Modus, siehe unten)
+- Expo Router für Navigation (dateibasiertes Routing)
+- Supabase als Backend (Auth, Datenbank, Storage)
+- PostgreSQL als Datenbank (über Supabase)
+- Supabase Auth für Registrierung/Login
+- Supabase Storage für Profilbilder und spätere Medien
+- Git/GitHub für Versionsverwaltung
+
+Sobald das Expo-Projekt aufgesetzt ist, sollten die üblichen Befehle (`npx expo start`, `npx tsc --noEmit`, Linter, Tests) hier ergänzt werden — aktuell existieren sie noch nicht im Repo.
+
+## Geplante Architektur
+
+- **Navigation:** Expo Router — Routen ergeben sich aus der Dateistruktur unter `app/`. Auth-Flow (Login/Registrierung) und der eigentliche App-Bereich sollten als getrennte Routengruppen angelegt werden, sobald das Projekt existiert.
+- **Backend-Zugriff:** Supabase-Client zentral initialisieren (ein Client, nicht pro Feature neu erzeugen), Zugriff auf Auth/DB/Storage darüber bündeln.
+- **Datenmodell (grob):** Nutzer/Profile (mit Lieblingsverein), Gruppen/Communitys, Beiträge, Kommentare, Fahrgemeinschaften, Veranstaltungen. Tickettausch sowie Vertrauens-/Bewertungs-/Verifizierungssysteme sind spätere Phasen und noch nicht Teil der Kernarchitektur.
+- **Umgebungsvariablen:** Supabase-URL und -Keys über `.env` (nicht eingecheckt); eine `.env.example` mit Platzhaltern muss gepflegt und aktuell gehalten werden, sobald echte Variablen hinzukommen.
+
+## MVP-Funktionsumfang (erste Ausbaustufe)
+
+- Registrierung und Login
+- Benutzerprofil, Lieblingsverein auswählen
+- Gruppen erstellen und beitreten
+- Beiträge innerhalb von Gruppen
+- Fahrgemeinschaften anbieten und suchen
+
+Tickettausch und Zahlungsfunktionen sind explizit **nicht** Teil des MVP und erst in einer späteren Phase zu implementieren — nicht vorzeitig umsetzen, auch nicht als Grundgerüst.
+
+## Arbeitsregeln für Änderungen
+
+- Vor größeren Änderungen zuerst einen Plan erstellen, statt direkt loszuimplementieren.
+- Nicht die gesamte App auf einmal umsetzen — immer nur eine klar begrenzte Funktion pro Schritt.
+- Nach jedem Schritt prüfen, ob die App noch startet/funktioniert, bevor weitergemacht wird.
+- Neue Bibliotheken nur mit klarer Begründung installieren, nicht vorsorglich.
+- Keine Passwörter, API-Keys oder Tokens in Git speichern — ausschließlich über `.env` (die nicht committet wird); `.env.example` ohne echte Zugangsdaten aktuell halten.
+- TypeScript strikt verwenden, mit aussagekräftigen Typen statt `any`.
+- Verständliche, sprechende Datei-, Funktions- und Variablennamen verwenden.
+- Sicherheitskritische Funktionen (Auth, Rechteprüfung, Datenzugriff) besonders sorgfältig umsetzen und reviewen.
+- Nach jeder Änderung TypeScript-Prüfung, Linter und vorhandene Tests ausführen, sobald diese im Projekt eingerichtet sind.
