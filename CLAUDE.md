@@ -49,3 +49,4 @@ Tickettausch und Zahlungsfunktionen sind explizit **nicht** Teil des MVP und ers
 - Verständliche, sprechende Datei-, Funktions- und Variablennamen verwenden.
 - Sicherheitskritische Funktionen (Auth, Rechteprüfung, Datenzugriff) besonders sorgfältig umsetzen und reviewen.
 - Nach jeder Änderung TypeScript-Prüfung, Linter und vorhandene Tests ausführen, sobald diese im Projekt eingerichtet sind.
+- Bei Unklarheiten Rückfragen stellen und Antwortoptionen mit Ideen für Lösungen vorschlagen
