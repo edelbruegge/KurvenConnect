@@ -4,13 +4,13 @@ import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'rea
 import { Avatar } from '@/components/feed/avatar';
 import { CategoryBadge } from '@/components/feed/category-badge';
 import { FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
-import { feedPosts } from '@/data/feed-posts';
+import { useFeedPosts } from '@/context/feed-posts-context';
 
 export default function PostDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string }>();
-  const postId = Number(params.id);
-  const post = feedPosts.find((item) => item.id === postId);
+  const { getPostById } = useFeedPosts();
+  const post = params.id ? getPostById(params.id) : undefined;
 
   if (!post) {
     return (

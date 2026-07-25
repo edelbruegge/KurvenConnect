@@ -1,5 +1,14 @@
 export type FeedPostCategory = 'Beitrag' | 'Ticket' | 'Fahrt' | 'Gesuch';
 
+export type NewFeedPost = {
+  category: FeedPostCategory;
+  description: string;
+  hasImage?: boolean;
+  ticketDetails?: TicketDetails;
+  tripDetails?: FahrtDetails;
+  requestDetails?: GesuchDetails;
+};
+
 export type TicketDetails = {
   price: string;
   game: string;
@@ -18,7 +27,7 @@ export type GesuchDetails = {
 };
 
 export type FeedPost = {
-  id: number;
+  id: string;
   user: string;
   initials: string;
   time: string;
@@ -34,7 +43,7 @@ export type FeedPost = {
 
 export const feedPosts: FeedPost[] = [
   {
-    id: 1,
+    id: '1',
     user: 'Mina K.',
     initials: 'MK',
     time: 'vor 12 Min.',
@@ -45,7 +54,7 @@ export const feedPosts: FeedPost[] = [
     comments: 6,
   },
   {
-    id: 2,
+    id: '2',
     user: 'Luca R.',
     initials: 'LR',
     time: 'vor 27 Min.',
@@ -57,7 +66,7 @@ export const feedPosts: FeedPost[] = [
     hasImage: true,
   },
   {
-    id: 3,
+    id: '3',
     user: 'Nora T.',
     initials: 'NT',
     time: 'vor 41 Min.',
@@ -73,7 +82,7 @@ export const feedPosts: FeedPost[] = [
     },
   },
   {
-    id: 4,
+    id: '4',
     user: 'David S.',
     initials: 'DS',
     time: 'vor 1 Std.',
@@ -90,7 +99,7 @@ export const feedPosts: FeedPost[] = [
     },
   },
   {
-    id: 5,
+    id: '5',
     user: 'Sina P.',
     initials: 'SP',
     time: 'vor 1 Std.',
