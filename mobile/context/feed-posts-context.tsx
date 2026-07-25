@@ -1,17 +1,19 @@
 import React, { createContext, useContext, useMemo, useState } from 'react';
 
-import { feedPosts, type FeedPost, type NewFeedPost } from '@/data/feed-posts';
+import { feedPosts, type FeedComment, type FeedPost, type NewFeedPost } from '@/data/feed-posts';
 
 type FeedPostsContextValue = {
   posts: FeedPost[];
   addPost: (post: NewFeedPost) => void;
   getPostById: (id: string) => FeedPost | undefined;
+  toggleLike: (postId: string) => void;
+  addComment: (postId: string, text: string) => void;
 };
 
 const FeedPostsContext = createContext<FeedPostsContextValue | undefined>(undefined);
 
 export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
-  const [posts, setPosts] = useState<FeedPost[]>(() => feedPosts.map((post) => ({ ...post })));
+  const [posts, setPosts] = useState<FeedPost[]>(() => feedPosts.map((post) => ({ ...post, comments: [...post.comments] })));
 
   const addPost = (post: NewFeedPost) => {
     const newPost: FeedPost = {
@@ -20,7 +22,8 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       initials: 'MB',
       time: 'gerade eben',
       likes: 0,
-      comments: 0,
+      likedByCurrentUser: false,
+      comments: [],
       ...post,
     };
 
@@ -29,11 +32,60 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
 
   const getPostById = (id: string) => posts.find((post) => post.id === id);
 
+  const toggleLike = (postId: string) => {
+    setPosts((currentPosts) =>
+      currentPosts.map((post) => {
+        if (post.id !== postId) {
+          return post;
+        }
+
+        const nextLiked = !post.likedByCurrentUser;
+
+        return {
+          ...post,
+          likedByCurrentUser: nextLiked,
+          likes: Math.max(0, post.likes + (nextLiked ? 1 : -1)),
+        };
+      }),
+    );
+  };
+
+  const addComment = (postId: string, text: string) => {
+    const trimmedText = text.trim();
+
+    if (!trimmedText) {
+      return;
+    }
+
+    const newComment: FeedComment = {
+      id: `comment-temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      username: 'Marco B.',
+      initials: 'MB',
+      text: trimmedText,
+      timestamp: 'gerade eben',
+    };
+
+    setPosts((currentPosts) =>
+      currentPosts.map((post) => {
+        if (post.id !== postId) {
+          return post;
+        }
+
+        return {
+          ...post,
+          comments: [...post.comments, newComment],
+        };
+      }),
+    );
+  };
+
   const value = useMemo(
     () => ({
       posts,
       addPost,
       getPostById,
+      toggleLike,
+      addComment,
     }),
     [posts],
   );

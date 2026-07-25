@@ -1,5 +1,13 @@
 export type FeedPostCategory = 'Beitrag' | 'Ticket' | 'Fahrt' | 'Gesuch';
 
+export type FeedComment = {
+  id: string;
+  username: string;
+  initials: string;
+  text: string;
+  timestamp: string;
+};
+
 export type NewFeedPost = {
   category: FeedPostCategory;
   description: string;
@@ -34,7 +42,8 @@ export type FeedPost = {
   category: FeedPostCategory;
   description: string;
   likes: number;
-  comments: number;
+  likedByCurrentUser: boolean;
+  comments: FeedComment[];
   hasImage?: boolean;
   ticketDetails?: TicketDetails;
   tripDetails?: FahrtDetails;
@@ -51,7 +60,23 @@ export const feedPosts: FeedPost[] = [
     description:
       'Die Fansrunde vor dem Spiel wird heute wieder im Fanbereich starten. Wer kommt mit?',
     likes: 24,
-    comments: 6,
+    likedByCurrentUser: false,
+    comments: [
+      {
+        id: 'comment-1-1',
+        username: 'Lena',
+        initials: 'LE',
+        text: 'Ich bin dabei!',
+        timestamp: 'vor 5 Min.',
+      },
+      {
+        id: 'comment-1-2',
+        username: 'Phil',
+        initials: 'PH',
+        text: 'Treffen wir uns vor dem Tor?',
+        timestamp: 'vor 2 Min.',
+      },
+    ],
   },
   {
     id: '2',
@@ -62,7 +87,16 @@ export const feedPosts: FeedPost[] = [
     description:
       'Ein kurzer Blick auf die neue Stadion-Atmosphäre vor dem Heimspiel – Platz für späteres Bildmaterial.',
     likes: 18,
-    comments: 3,
+    likedByCurrentUser: true,
+    comments: [
+      {
+        id: 'comment-2-1',
+        username: 'Nora',
+        initials: 'NO',
+        text: 'Das sieht richtig stark aus.',
+        timestamp: 'vor 10 Min.',
+      },
+    ],
     hasImage: true,
   },
   {
@@ -74,7 +108,16 @@ export const feedPosts: FeedPost[] = [
     description:
       '2 Tickets für die Nordtribüne sind noch verfügbar. Direkt bei mir abzugeben.',
     likes: 11,
-    comments: 4,
+    likedByCurrentUser: false,
+    comments: [
+      {
+        id: 'comment-3-1',
+        username: 'Mika',
+        initials: 'MI',
+        text: 'Ich melde mich noch heute.',
+        timestamp: 'vor 15 Min.',
+      },
+    ],
     ticketDetails: {
       price: '€ 32 pro Ticket',
       game: 'Heimspiel gegen den Rivalen',
@@ -90,7 +133,16 @@ export const feedPosts: FeedPost[] = [
     description:
       'Ich fahre am Samstag mit 3 weiteren Fans zum Auswärtsspiel und nehme noch Mitfahrer auf.',
     likes: 15,
-    comments: 2,
+    likedByCurrentUser: false,
+    comments: [
+      {
+        id: 'comment-4-1',
+        username: 'Sina',
+        initials: 'SI',
+        text: 'Passt, ich komme mit.',
+        timestamp: 'vor 20 Min.',
+      },
+    ],
     tripDetails: {
       departure: 'Münster Hauptbahnhof',
       destination: 'Stadionplatz',
@@ -107,7 +159,23 @@ export const feedPosts: FeedPost[] = [
     description:
       'Suche noch ein Ticket für den Familienblock – möglichst nah am Feld.',
     likes: 9,
-    comments: 5,
+    likedByCurrentUser: false,
+    comments: [
+      {
+        id: 'comment-5-1',
+        username: 'Timo',
+        initials: 'TI',
+        text: 'Ich schaue gleich nach.',
+        timestamp: 'vor 8 Min.',
+      },
+      {
+        id: 'comment-5-2',
+        username: 'Ella',
+        initials: 'EL',
+        text: 'Ich habe noch was frei.',
+        timestamp: 'vor 3 Min.',
+      },
+    ],
     requestDetails: {
       requestedService: 'Ticket im Familienblock',
     },

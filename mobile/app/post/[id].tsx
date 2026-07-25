@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Avatar } from '@/components/feed/avatar';
 import { CategoryBadge } from '@/components/feed/category-badge';
@@ -9,8 +10,10 @@ import { useFeedPosts } from '@/context/feed-posts-context';
 export default function PostDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string }>();
-  const { getPostById } = useFeedPosts();
-  const post = params.id ? getPostById(params.id) : undefined;
+  const { posts, toggleLike, addComment } = useFeedPosts();
+  const [draftComment, setDraftComment] = useState('');
+
+  const post = params.id ? posts.find((entry) => entry.id === params.id) : undefined;
 
   if (!post) {
     return (
@@ -25,6 +28,15 @@ export default function PostDetailScreen() {
       </SafeAreaView>
     );
   }
+
+  const handleSubmitComment = () => {
+    if (!draftComment.trim()) {
+      return;
+    }
+
+    addComment(post.id, draftComment);
+    setDraftComment('');
+  };
 
   const renderDetails = () => {
     if (post.category === 'Ticket' && post.ticketDetails) {
@@ -62,6 +74,8 @@ export default function PostDetailScreen() {
     return null;
   };
 
+  const isCommentInputValid = draftComment.trim().length > 0;
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.container}>
@@ -86,11 +100,59 @@ export default function PostDetailScreen() {
           <Text style={styles.description}>{post.description}</Text>
 
           <View style={styles.metaRow}>
-            <Text style={styles.meta}>❤ {post.likes}</Text>
-            <Text style={styles.meta}>💬 {post.comments}</Text>
+            <Pressable
+              onPress={() => toggleLike(post.id)}
+              style={[styles.metaButton, post.likedByCurrentUser && styles.metaButtonActive]}
+            >
+              <Text style={[styles.metaButtonText, post.likedByCurrentUser && styles.metaButtonTextActive]}>
+                {post.likedByCurrentUser ? '♥' : '♡'} {post.likes}
+              </Text>
+            </Pressable>
+            <Text style={styles.meta}>💬 {post.comments.length}</Text>
           </View>
 
           {renderDetails()}
+        </View>
+
+        <View style={styles.commentsSection}>
+          <Text style={styles.commentsTitle}>Kommentare</Text>
+
+          <View style={styles.commentComposer}>
+            <TextInput
+              value={draftComment}
+              onChangeText={setDraftComment}
+              placeholder="Kurz einen Kommentar schreiben…"
+              placeholderTextColor={FeedColors.textSecondary}
+              multiline
+              style={styles.commentInput}
+            />
+            <Pressable
+              onPress={handleSubmitComment}
+              disabled={!isCommentInputValid}
+              style={[styles.commentButton, !isCommentInputValid && styles.commentButtonDisabled]}
+            >
+              <Text style={styles.commentButtonText}>Senden</Text>
+            </Pressable>
+          </View>
+
+          {post.comments.length > 0 ? (
+            post.comments.map((comment) => (
+              <View key={comment.id} style={styles.commentCard}>
+                <View style={styles.commentHeader}>
+                  <View style={styles.commentUserBlock}>
+                    <Avatar initials={comment.initials} />
+                    <View style={styles.commentUserInfo}>
+                      <Text style={styles.commentUsername}>{comment.username}</Text>
+                      <Text style={styles.commentTimestamp}>{comment.timestamp}</Text>
+                    </View>
+                  </View>
+                </View>
+                <Text style={styles.commentText}>{comment.text}</Text>
+              </View>
+            ))
+          ) : (
+            <Text style={styles.emptyComments}>Noch keine Kommentare. Sei der Erste.</Text>
+          )}
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -157,8 +219,29 @@ const styles = StyleSheet.create({
   },
   metaRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     marginBottom: Spacing.md,
     gap: Spacing.md,
+  },
+  metaButton: {
+    backgroundColor: FeedColors.imagePlaceholder,
+    borderRadius: Radii.round,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.xs,
+    borderWidth: 1,
+    borderColor: FeedColors.cardBorder,
+  },
+  metaButtonActive: {
+    backgroundColor: '#1F2937',
+    borderColor: '#F59E0B',
+  },
+  metaButtonText: {
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.meta,
+    fontWeight: '600',
+  },
+  metaButtonTextActive: {
+    color: '#F59E0B',
   },
   meta: {
     color: FeedColors.textSecondary,
@@ -179,6 +262,83 @@ const styles = StyleSheet.create({
     color: FeedColors.textSecondary,
     fontSize: FontSizes.meta,
     marginBottom: 4,
+  },
+  commentsSection: {
+    marginTop: Spacing.md,
+    backgroundColor: FeedColors.cardBackground,
+    borderRadius: Radii.lg,
+    padding: Spacing.md,
+    borderWidth: 1,
+    borderColor: FeedColors.cardBorder,
+  },
+  commentsTitle: {
+    color: FeedColors.textPrimary,
+    fontSize: FontSizes.body,
+    fontWeight: '600',
+    marginBottom: Spacing.sm,
+  },
+  commentComposer: {
+    marginBottom: Spacing.md,
+  },
+  commentInput: {
+    minHeight: 72,
+    borderWidth: 1,
+    borderColor: FeedColors.cardBorder,
+    borderRadius: Radii.md,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.sm,
+    color: FeedColors.textPrimary,
+    marginBottom: Spacing.sm,
+  },
+  commentButton: {
+    alignSelf: 'flex-start',
+    backgroundColor: FeedColors.textPrimary,
+    borderRadius: Radii.round,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+  },
+  commentButtonDisabled: {
+    opacity: 0.5,
+  },
+  commentButtonText: {
+    color: FeedColors.background,
+    fontSize: FontSizes.meta,
+    fontWeight: '700',
+  },
+  commentCard: {
+    backgroundColor: FeedColors.imagePlaceholder,
+    borderRadius: Radii.md,
+    padding: Spacing.sm,
+    marginBottom: Spacing.sm,
+  },
+  commentHeader: {
+    marginBottom: Spacing.xs,
+  },
+  commentUserBlock: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  commentUserInfo: {
+    marginLeft: Spacing.sm,
+  },
+  commentUsername: {
+    color: FeedColors.textPrimary,
+    fontSize: FontSizes.meta,
+    fontWeight: '600',
+  },
+  commentTimestamp: {
+    color: FeedColors.textSecondary,
+    fontSize: 11,
+    marginTop: 2,
+  },
+  commentText: {
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.meta,
+    lineHeight: 18,
+  },
+  emptyComments: {
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.meta,
   },
   errorContainer: {
     flex: 1,

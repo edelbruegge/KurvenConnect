@@ -36,7 +36,7 @@ export function FeedPostCard({ post, onPress }: FeedPostCardProps) {
 
       <View style={styles.footer}>
         <Text style={styles.meta}>❤ {post.likes}</Text>
-        <Text style={styles.meta}>💬 {post.comments}</Text>
+        <Text style={styles.meta}>💬 {post.comments.length}</Text>
       </View>
     </Pressable>
   );
@@ -94,12 +94,10 @@ const styles = StyleSheet.create({
   },
   footer: {
     flexDirection: 'row',
+    gap: Spacing.lg,
   },
   meta: {
     color: FeedColors.textSecondary,
     fontSize: FontSizes.meta,
-  },
-  metaSpacing: {
-    marginRight: Spacing.lg,
   },
 });
