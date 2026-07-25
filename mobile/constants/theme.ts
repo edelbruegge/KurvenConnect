@@ -27,6 +27,47 @@ export const Colors = {
   },
 };
 
+export const Spacing = {
+  xs: 6,
+  sm: 10,
+  md: 14,
+  lg: 18,
+  xl: 24,
+};
+
+export const Radii = {
+  sm: 8,
+  md: 12,
+  lg: 16,
+  round: 999,
+};
+
+export const FontSizes = {
+  title: 24,
+  subtitle: 13,
+  body: 14,
+  meta: 12,
+  badge: 11,
+  avatar: 14,
+};
+
+export const FeedColors = {
+  background: '#050505',
+  cardBackground: '#111827',
+  cardBorder: '#1F2937',
+  imagePlaceholder: '#1F2937',
+  textPrimary: '#F3F4F6',
+  textSecondary: '#9CA3AF',
+  badgeText: '#050505',
+};
+
+export const CategoryColors = {
+  Beitrag: '#F59E0B',
+  Ticket: '#34D399',
+  Fahrt: '#A78BFA',
+  Gesuch: '#FB7185',
+} as const;
+
 export const Fonts = Platform.select({
   ios: {
     /** iOS `UIFontDescriptorSystemDesignDefault` */
