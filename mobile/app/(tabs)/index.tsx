@@ -1,3 +1,4 @@
+import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
@@ -6,6 +7,12 @@ import { feedPosts } from '@/data/feed-posts';
 import { FeedColors, FontSizes, Spacing } from '@/constants/theme';
 
 export default function HomeScreen() {
+  const router = useRouter();
+
+  const handleOpenPost = (postId: number) => {
+    router.push({ pathname: '/post/[id]', params: { id: String(postId) } });
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.header}>
@@ -15,7 +22,7 @@ export default function HomeScreen() {
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         {feedPosts.map((post) => (
-          <FeedPostCard key={post.id} post={post} />
+          <FeedPostCard key={post.id} post={post} onPress={() => handleOpenPost(post.id)} />
         ))}
       </ScrollView>
     </SafeAreaView>

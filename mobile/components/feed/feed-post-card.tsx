@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Avatar } from '@/components/feed/avatar';
 import { CategoryBadge } from '@/components/feed/category-badge';
@@ -7,11 +7,12 @@ import type { FeedPost } from '@/data/feed-posts';
 
 type FeedPostCardProps = {
   post: FeedPost;
+  onPress?: () => void;
 };
 
-export function FeedPostCard({ post }: FeedPostCardProps) {
+export function FeedPostCard({ post, onPress }: FeedPostCardProps) {
   return (
-    <View style={styles.card}>
+    <Pressable onPress={onPress} style={styles.card}>
       <View style={styles.cardHeader}>
         <View style={styles.userBlock}>
           <View style={styles.avatarMargin}>
@@ -37,7 +38,7 @@ export function FeedPostCard({ post }: FeedPostCardProps) {
         <Text style={styles.meta}>❤ {post.likes}</Text>
         <Text style={styles.meta}>💬 {post.comments}</Text>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
