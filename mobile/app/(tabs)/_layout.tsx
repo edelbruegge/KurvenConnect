@@ -1,5 +1,6 @@
-import { Tabs } from 'expo-router';
+import { Tabs, useRouter } from 'expo-router';
 import React from 'react';
+import { Pressable, StyleSheet, View } from 'react-native';
 
 import { HapticTab } from '@/components/haptic-tab';
 import { IconSymbol } from '@/components/ui/icon-symbol';
@@ -8,6 +9,11 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
+  const router = useRouter();
+
+  const handleCreatePress = () => {
+    router.push('/create-post');
+  };
 
   return (
     <Tabs
@@ -31,6 +37,24 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="create"
+        options={{
+          title: '',
+          tabBarLabel: () => null,
+          tabBarButton: () => (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Beitrag erstellen"
+              onPress={handleCreatePress}
+              style={styles.createTabButton}>
+              <View style={styles.createTabIconContainer}>
+                <IconSymbol size={28} name="plus" color="#FFFFFF" />
+              </View>
+            </Pressable>
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="trips"
         options={{
           title: 'Fahrten',
@@ -47,3 +71,26 @@ export default function TabLayout() {
     </Tabs>
   );
 }
+
+const styles = StyleSheet.create({
+  createTabButton: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingBottom: 4,
+  },
+  createTabIconContainer: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: Colors.light.tint,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 4,
+    marginTop: -10,
+  },
+});

@@ -63,7 +63,6 @@ export const FeedColors = {
 
 export const CategoryColors = {
   Beitrag: '#F59E0B',
-  Ticket: '#34D399',
   Fahrt: '#A78BFA',
   Gesuch: '#FB7185',
 } as const;

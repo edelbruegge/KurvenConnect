@@ -2,6 +2,8 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Avatar } from '@/components/feed/avatar';
 import { CategoryBadge } from '@/components/feed/category-badge';
+import { PostMetadata } from '@/components/feed/post-metadata';
+import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors, FontSizes, FeedColors, Radii, Spacing } from '@/constants/theme';
 import type { FeedPost } from '@/data/feed-posts';
 
@@ -33,10 +35,17 @@ export function FeedPostCard({ post, onPress }: FeedPostCardProps) {
       ) : null}
 
       <Text style={styles.description}>{post.description}</Text>
+      <PostMetadata post={post} variant="compact" />
 
       <View style={styles.footer}>
-        <Text style={styles.meta}>❤ {post.likes}</Text>
-        <Text style={styles.meta}>💬 {post.comments.length}</Text>
+        <View style={styles.metaItem}>
+          <IconSymbol size={16} name={post.likedByCurrentUser ? 'heart.fill' : 'heart'} color={post.likedByCurrentUser ? '#F59E0B' : FeedColors.textSecondary} />
+          <Text style={styles.meta}>{post.likes}</Text>
+        </View>
+        <View style={styles.metaItem}>
+          <IconSymbol size={16} name="message" color={FeedColors.textSecondary} />
+          <Text style={styles.meta}>{post.comments.length}</Text>
+        </View>
       </View>
     </Pressable>
   );
@@ -90,11 +99,16 @@ const styles = StyleSheet.create({
     color: FeedColors.textPrimary,
     fontSize: FontSizes.body,
     lineHeight: 20,
-    marginBottom: Spacing.md,
+    marginBottom: Spacing.sm,
   },
   footer: {
     flexDirection: 'row',
     gap: Spacing.lg,
+  },
+  metaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   meta: {
     color: FeedColors.textSecondary,

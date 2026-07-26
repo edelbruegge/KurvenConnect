@@ -4,6 +4,8 @@ import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View 
 
 import { Avatar } from '@/components/feed/avatar';
 import { CategoryBadge } from '@/components/feed/category-badge';
+import { PostMetadata } from '@/components/feed/post-metadata';
+import { IconSymbol } from '@/components/ui/icon-symbol';
 import { FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
 import { useFeedPosts } from '@/context/feed-posts-context';
 
@@ -38,42 +40,6 @@ export default function PostDetailScreen() {
     setDraftComment('');
   };
 
-  const renderDetails = () => {
-    if (post.category === 'Ticket' && post.ticketDetails) {
-      return (
-        <View style={styles.detailsCard}>
-          <Text style={styles.detailsTitle}>Ticket-Details</Text>
-          <Text style={styles.detailsText}>Preis: {post.ticketDetails.price}</Text>
-          <Text style={styles.detailsText}>Spiel: {post.ticketDetails.game}</Text>
-          <Text style={styles.detailsText}>Block: {post.ticketDetails.block}</Text>
-        </View>
-      );
-    }
-
-    if (post.category === 'Fahrt' && post.tripDetails) {
-      return (
-        <View style={styles.detailsCard}>
-          <Text style={styles.detailsTitle}>Fahrdetails</Text>
-          <Text style={styles.detailsText}>Abfahrtsort: {post.tripDetails.departure}</Text>
-          <Text style={styles.detailsText}>Ziel: {post.tripDetails.destination}</Text>
-          <Text style={styles.detailsText}>Abfahrtszeit: {post.tripDetails.departureTime}</Text>
-          <Text style={styles.detailsText}>Freie Plätze: {post.tripDetails.freeSeats}</Text>
-        </View>
-      );
-    }
-
-    if (post.category === 'Gesuch' && post.requestDetails) {
-      return (
-        <View style={styles.detailsCard}>
-          <Text style={styles.detailsTitle}>Gesuch</Text>
-          <Text style={styles.detailsText}>Gesuchte Leistung: {post.requestDetails.requestedService}</Text>
-        </View>
-      );
-    }
-
-    return null;
-  };
-
   const isCommentInputValid = draftComment.trim().length > 0;
 
   return (
@@ -102,16 +68,22 @@ export default function PostDetailScreen() {
           <View style={styles.metaRow}>
             <Pressable
               onPress={() => toggleLike(post.id)}
+              accessibilityRole="button"
+              accessibilityLabel={post.likedByCurrentUser ? 'Gefällt mir nicht mehr' : 'Gefällt mir'}
               style={[styles.metaButton, post.likedByCurrentUser && styles.metaButtonActive]}
             >
+              <IconSymbol size={16} name={post.likedByCurrentUser ? 'heart.fill' : 'heart'} color={post.likedByCurrentUser ? '#F59E0B' : FeedColors.textSecondary} />
               <Text style={[styles.metaButtonText, post.likedByCurrentUser && styles.metaButtonTextActive]}>
-                {post.likedByCurrentUser ? '♥' : '♡'} {post.likes}
+                {post.likes}
               </Text>
             </Pressable>
-            <Text style={styles.meta}>💬 {post.comments.length}</Text>
+            <View style={styles.metaItem}>
+              <IconSymbol size={16} name="message" color={FeedColors.textSecondary} />
+              <Text style={styles.meta}>{post.comments.length}</Text>
+            </View>
           </View>
 
-          {renderDetails()}
+          <PostMetadata post={post} variant="detail" />
         </View>
 
         <View style={styles.commentsSection}>
@@ -230,6 +202,9 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.xs,
     borderWidth: 1,
     borderColor: FeedColors.cardBorder,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   metaButtonActive: {
     backgroundColor: '#1F2937',
@@ -243,25 +218,14 @@ const styles = StyleSheet.create({
   metaButtonTextActive: {
     color: '#F59E0B',
   },
+  metaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
   meta: {
     color: FeedColors.textSecondary,
     fontSize: FontSizes.meta,
-  },
-  detailsCard: {
-    backgroundColor: FeedColors.imagePlaceholder,
-    borderRadius: Radii.md,
-    padding: Spacing.md,
-  },
-  detailsTitle: {
-    color: FeedColors.textPrimary,
-    fontSize: FontSizes.body,
-    fontWeight: '600',
-    marginBottom: Spacing.sm,
-  },
-  detailsText: {
-    color: FeedColors.textSecondary,
-    fontSize: FontSizes.meta,
-    marginBottom: 4,
   },
   commentsSection: {
     marginTop: Spacing.md,

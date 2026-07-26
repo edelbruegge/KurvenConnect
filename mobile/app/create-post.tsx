@@ -6,15 +6,12 @@ import { FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
 import { useFeedPosts } from '@/context/feed-posts-context';
 import type { FeedPostCategory, NewFeedPost } from '@/data/feed-posts';
 
-const categoryOptions: FeedPostCategory[] = ['Beitrag', 'Ticket', 'Fahrt', 'Gesuch'];
+const categoryOptions: FeedPostCategory[] = ['Beitrag', 'Fahrt', 'Gesuch'];
 
 type CreatePostFormState = {
   category: FeedPostCategory;
   description: string;
   hasImage: boolean;
-  price: string;
-  game: string;
-  block: string;
   departure: string;
   destination: string;
   departureTime: string;
@@ -26,9 +23,6 @@ const initialFormState: CreatePostFormState = {
   category: 'Beitrag',
   description: '',
   hasImage: false,
-  price: '',
-  game: '',
-  block: '',
   departure: '',
   destination: '',
   departureTime: '',
@@ -51,10 +45,6 @@ export default function CreatePostScreen() {
       return false;
     }
 
-    if (form.category === 'Ticket') {
-      return Boolean(form.price.trim() && form.game.trim() && form.block.trim());
-    }
-
     if (form.category === 'Fahrt') {
       return Boolean(form.departure.trim() && form.destination.trim() && form.departureTime.trim() && form.freeSeats.trim());
     }
@@ -70,13 +60,6 @@ export default function CreatePostScreen() {
     if (!form.description.trim()) {
       setErrorMessage('Bitte gib einen Beschreibungstext ein.');
       return;
-    }
-
-    if (form.category === 'Ticket') {
-      if (!form.price.trim() || !form.game.trim() || !form.block.trim()) {
-        setErrorMessage('Bitte fülle Preis, Spiel und Block aus.');
-        return;
-      }
     }
 
     if (form.category === 'Fahrt') {
@@ -101,15 +84,6 @@ export default function CreatePostScreen() {
       category: form.category,
       description: form.description.trim(),
       hasImage: form.hasImage,
-      ...(form.category === 'Ticket'
-        ? {
-            ticketDetails: {
-              price: form.price.trim(),
-              game: form.game.trim(),
-              block: form.block.trim(),
-            },
-          }
-        : {}),
       ...(form.category === 'Fahrt'
         ? {
             tripDetails: {
@@ -131,7 +105,7 @@ export default function CreatePostScreen() {
 
     addPost(postToAdd);
     setErrorMessage(null);
-    router.back();
+    router.replace('/');
   };
 
   return (
@@ -178,15 +152,6 @@ export default function CreatePostScreen() {
               <Text style={styles.toggleText}>Bildbereich anzeigen</Text>
             </Pressable>
           </View>
-
-          {form.category === 'Ticket' ? (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Ticket-Details</Text>
-              <TextInput value={form.price} onChangeText={(value) => updateField('price', value)} placeholder="Preis" placeholderTextColor={FeedColors.textSecondary} style={styles.textInput} />
-              <TextInput value={form.game} onChangeText={(value) => updateField('game', value)} placeholder="Spiel" placeholderTextColor={FeedColors.textSecondary} style={styles.textInput} />
-              <TextInput value={form.block} onChangeText={(value) => updateField('block', value)} placeholder="Block" placeholderTextColor={FeedColors.textSecondary} style={styles.textInput} />
-            </View>
-          ) : null}
 
           {form.category === 'Fahrt' ? (
             <View style={styles.section}>
@@ -304,14 +269,14 @@ const styles = StyleSheet.create({
     fontSize: FontSizes.body,
   },
   errorText: {
-    color: '#FB7185',
+    color: '#F87171',
     fontSize: FontSizes.meta,
     marginBottom: Spacing.md,
   },
   submitButton: {
     backgroundColor: FeedColors.textPrimary,
-    paddingVertical: Spacing.sm,
     borderRadius: Radii.round,
+    paddingVertical: Spacing.sm,
     alignItems: 'center',
   },
   submitButtonDisabled: {
@@ -319,6 +284,7 @@ const styles = StyleSheet.create({
   },
   submitButtonText: {
     color: FeedColors.background,
+    fontSize: FontSizes.body,
     fontWeight: '700',
   },
 });

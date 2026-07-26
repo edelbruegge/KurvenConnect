@@ -1,9 +1,9 @@
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { FeedPostCard } from '@/components/feed/feed-post-card';
-import { FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
+import { FeedColors, FontSizes, Spacing } from '@/constants/theme';
 import { useFeedPosts } from '@/context/feed-posts-context';
 
 export default function HomeScreen() {
@@ -21,9 +21,6 @@ export default function HomeScreen() {
           <Text style={styles.title}>Kurvenconnect Feed</Text>
           <Text style={styles.subtitle}>Aktuelle Community-Updates aus dem Stadionalltag</Text>
         </View>
-        <Pressable onPress={() => router.push('/create-post')} style={styles.createButton}>
-          <Text style={styles.createButtonText}>Beitrag erstellen</Text>
-        </Pressable>
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
@@ -46,10 +43,6 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.sm,
     borderBottomColor: FeedColors.cardBorder,
     borderBottomWidth: 1,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: Spacing.sm,
   },
   headerText: {
     flex: 1,
@@ -64,17 +57,6 @@ const styles = StyleSheet.create({
     fontSize: FontSizes.subtitle,
     marginTop: 4,
   },
-  createButton: {
-    backgroundColor: FeedColors.textPrimary,
-    borderRadius: Radii.round,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: Spacing.xs,
-  },
-  createButtonText: {
-    color: FeedColors.background,
-    fontSize: FontSizes.meta,
-    fontWeight: '700',
-  },
   scroll: {
     flex: 1,
   },
@@ -82,7 +64,5 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.md,
     paddingTop: Spacing.sm,
     paddingBottom: Spacing.xl,
-
   },
-
 });

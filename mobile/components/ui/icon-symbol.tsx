@@ -21,6 +21,10 @@ const MAPPING = {
   magnifyingglass: 'search',
   'car.fill': 'directions-car',
   'person.fill': 'person',
+  plus: 'add',
+  heart: 'favorite-border',
+  'heart.fill': 'favorite',
+  message: 'chat-bubble-outline',
 } as const satisfies IconMapping;
 
 /**
