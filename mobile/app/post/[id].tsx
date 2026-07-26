@@ -12,7 +12,7 @@ import { useFeedPosts } from '@/context/feed-posts-context';
 export default function PostDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string; focusComments?: string }>();
-  const { posts, toggleLike, addComment } = useFeedPosts();
+  const { posts, toggleLike, addComment, toggleRideRequest } = useFeedPosts();
   const [draftComment, setDraftComment] = useState('');
   const scrollRef = useRef<ScrollView | null>(null);
   const commentInputRef = useRef<TextInput | null>(null);
@@ -63,7 +63,8 @@ export default function PostDetailScreen() {
   };
 
   const isCommentInputValid = draftComment.trim().length > 0;
- 
+  const isTrip = post.category === 'Fahrt';
+  const rideRequestLabel = post.rideRequestSent ? 'Anfrage zurückziehen' : 'Mitfahren anfragen';
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -109,6 +110,22 @@ export default function PostDetailScreen() {
           </View>
 
           <PostMetadata post={post} variant="detail" />
+
+          {isTrip ? (
+            <View style={styles.rideRequestSection}>
+              <Pressable
+                onPress={() => toggleRideRequest(post.id)}
+                accessibilityRole="button"
+                accessibilityLabel={post.rideRequestSent ? 'Mitfahranfrage zurückziehen' : 'Mitfahren anfragen'}
+                style={[styles.rideRequestButton, post.rideRequestSent && styles.rideRequestButtonActive]}
+              >
+                <Text style={[styles.rideRequestButtonText, post.rideRequestSent && styles.rideRequestButtonTextActive]}>
+                  {rideRequestLabel}
+                </Text>
+              </Pressable>
+              <Text style={styles.rideRequestHint}>Die Anfrage ist unverbindlich. Es wird noch kein Platz reserviert.</Text>
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.commentsSection} onLayout={(e) => setCommentsY(e.nativeEvent.layout.y)}>
@@ -259,6 +276,39 @@ const styles = StyleSheet.create({
   meta: {
     color: FeedColors.textSecondary,
     fontSize: FontSizes.meta,
+  },
+  rideRequestSection: {
+    marginTop: Spacing.md,
+    paddingTop: Spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: FeedColors.cardBorder,
+  },
+  rideRequestButton: {
+    backgroundColor: FeedColors.imagePlaceholder,
+    borderRadius: Radii.round,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderWidth: 1,
+    borderColor: FeedColors.cardBorder,
+    alignSelf: 'flex-start',
+  },
+  rideRequestButtonActive: {
+    backgroundColor: '#1F2937',
+    borderColor: '#F59E0B',
+  },
+  rideRequestButtonText: {
+    color: FeedColors.textPrimary,
+    fontSize: FontSizes.body,
+    fontWeight: '600',
+  },
+  rideRequestButtonTextActive: {
+    color: '#F59E0B',
+  },
+  rideRequestHint: {
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.meta,
+    marginTop: Spacing.sm,
+    lineHeight: 18,
   },
   commentsSection: {
     marginTop: Spacing.md,

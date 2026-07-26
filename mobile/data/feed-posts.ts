@@ -41,6 +41,7 @@ export type FeedPost = {
   hasImage?: boolean;
   tripDetails?: FahrtDetails;
   requestDetails?: GesuchDetails;
+  rideRequestSent?: boolean;
 };
 
 export const feedPosts: FeedPost[] = [
@@ -118,6 +119,7 @@ export const feedPosts: FeedPost[] = [
       freeSeats: 3,
       occasion: 'Auswärtsspiel',
     },
+    rideRequestSent: false,
   },
   {
     id: '4',

@@ -64,6 +64,12 @@ export function TripCard({ post, onPress }: TripCardProps) {
 
       <Text style={styles.description}>{post.description}</Text>
 
+      {post.rideRequestSent ? (
+        <View style={styles.requestHint}>
+          <Text style={styles.requestHintText}>Anfrage gesendet</Text>
+        </View>
+      ) : null}
+
       <PostMetadata post={post} variant="compact" />
 
       <View style={styles.footer}>
@@ -179,6 +185,19 @@ const styles = StyleSheet.create({
     fontSize: FontSizes.body,
     lineHeight: 20,
     marginBottom: Spacing.sm,
+  },
+  requestHint: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#1F2937',
+    borderRadius: Radii.round,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    marginBottom: Spacing.sm,
+  },
+  requestHintText: {
+    color: FeedColors.textPrimary,
+    fontSize: FontSizes.meta,
+    fontWeight: '600',
   },
   footer: {
     flexDirection: 'row',

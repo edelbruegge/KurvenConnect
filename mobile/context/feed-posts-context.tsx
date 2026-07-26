@@ -8,6 +8,7 @@ type FeedPostsContextValue = {
   getPostById: (id: string) => FeedPost | undefined;
   toggleLike: (postId: string) => void;
   addComment: (postId: string, text: string) => void;
+  toggleRideRequest: (postId: string) => void;
 };
 
 const FeedPostsContext = createContext<FeedPostsContextValue | undefined>(undefined);
@@ -24,6 +25,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       likes: 0,
       likedByCurrentUser: false,
       comments: [],
+      rideRequestSent: false,
       ...post,
     };
 
@@ -79,6 +81,21 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
     );
   };
 
+  const toggleRideRequest = (postId: string) => {
+    setPosts((currentPosts) =>
+      currentPosts.map((post) => {
+        if (post.id !== postId || post.category !== 'Fahrt') {
+          return post;
+        }
+
+        return {
+          ...post,
+          rideRequestSent: !post.rideRequestSent,
+        };
+      }),
+    );
+  };
+
   const value = useMemo(
     () => ({
       posts,
@@ -86,6 +103,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       getPostById,
       toggleLike,
       addComment,
+      toggleRideRequest,
     }),
     [posts],
   );
