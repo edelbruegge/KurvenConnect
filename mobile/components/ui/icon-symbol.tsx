@@ -25,6 +25,8 @@ const MAPPING = {
   heart: 'favorite-border',
   'heart.fill': 'favorite',
   message: 'chat-bubble-outline',
+  'xmark.circle.fill': 'cancel',
+  'text.magnifyingglass': 'search-off',
 } as const satisfies IconMapping;
 
 /**
