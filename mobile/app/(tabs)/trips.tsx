@@ -1,18 +1,42 @@
+import { useRouter } from 'expo-router';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { StyleSheet, View, Text } from 'react-native';
+
+import { TripCard } from '@/components/trips/trip-card';
+import { FeedColors, FontSizes, Spacing } from '@/constants/theme';
+import { useFeedPosts } from '@/context/feed-posts-context';
 
 export default function TripsScreen() {
+  const router = useRouter();
+  const { posts } = useFeedPosts();
+
+  const trips = posts.filter((post) => post.category === 'Fahrt');
+
+  const handleOpenTrip = (postId: string) => {
+    router.push({ pathname: '/post/[id]', params: { id: postId } });
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
-        <Text style={styles.title}>Fahrten</Text>
-        <Text style={styles.description}>
-          Hier werden später Fahrgemeinschaften und Spieltagsfahrten organisiert.
-        </Text>
-        <View style={styles.placeholder}>
-          <Text style={styles.placeholderText}>Platzhalter für die Fahrtenansicht</Text>
+      <View style={styles.header}>
+        <View style={styles.headerText}>
+          <Text style={styles.title}>Fahrten</Text>
+          <Text style={styles.subtitle}>Lokale Fahrgemeinschaften und Spieltagsfahrten</Text>
         </View>
       </View>
+
+      {trips.length === 0 ? (
+        <View style={styles.emptyState}>
+          <Text style={styles.emptyTitle}>Noch keine Fahrten vorhanden.</Text>
+          <Text style={styles.emptyText}>Über den Plus-Button kannst du direkt eine neue Fahrt anlegen.</Text>
+        </View>
+      ) : (
+        <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+          {trips.map((trip) => (
+            <TripCard key={trip.id} post={trip} onPress={() => handleOpenTrip(trip.id)} />
+          ))}
+        </ScrollView>
+      )}
     </SafeAreaView>
   );
 }
@@ -20,41 +44,52 @@ export default function TripsScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#050505',
+    backgroundColor: FeedColors.background,
   },
-  container: {
+  header: {
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.sm,
+    borderBottomColor: FeedColors.cardBorder,
+    borderBottomWidth: 1,
+  },
+  headerText: {
+    flex: 1,
+  },
+  title: {
+    color: FeedColors.textPrimary,
+    fontSize: FontSizes.title,
+    fontWeight: '700',
+  },
+  subtitle: {
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.subtitle,
+    marginTop: 4,
+  },
+  scroll: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingHorizontal: Spacing.md,
+    paddingTop: Spacing.sm,
+    paddingBottom: Spacing.xl,
+  },
+  emptyState: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 24,
+    paddingHorizontal: Spacing.lg,
   },
-  title: {
-    color: '#FFFFFF',
-    fontSize: 28,
-    fontWeight: '700',
-    marginBottom: 12,
+  emptyTitle: {
+    color: FeedColors.textPrimary,
+    fontSize: FontSizes.body,
+    fontWeight: '600',
+    marginBottom: Spacing.xs,
   },
-  description: {
-    color: '#D1D5DB',
-    fontSize: 16,
+  emptyText: {
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.body,
     textAlign: 'center',
-    marginBottom: 20,
-    lineHeight: 22,
-  },
-  placeholder: {
-    borderWidth: 1,
-    borderColor: '#374151',
-    borderRadius: 16,
-    paddingHorizontal: 24,
-    paddingVertical: 24,
-    backgroundColor: '#111827',
-    width: '100%',
-    maxWidth: 320,
-    alignItems: 'center',
-  },
-  placeholderText: {
-    color: '#9CA3AF',
-    fontSize: 14,
-    textAlign: 'center',
+    lineHeight: 20,
   },
 });

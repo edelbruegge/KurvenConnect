@@ -18,6 +18,10 @@ export function PostMetadata({ post, variant = 'compact' }: PostMetadataProps) {
       { label: 'Freie Plätze', value: String(post.tripDetails.freeSeats) },
     ];
 
+    if (post.tripDetails.occasion) {
+      details.push({ label: 'Spiel oder Anlass', value: post.tripDetails.occasion });
+    }
+
     return (
       <View style={[styles.container, variant === 'detail' ? styles.containerDetail : styles.containerCompact]}>
         {details.map((detail) => (

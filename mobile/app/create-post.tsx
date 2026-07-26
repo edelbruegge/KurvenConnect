@@ -16,6 +16,7 @@ type CreatePostFormState = {
   destination: string;
   departureTime: string;
   freeSeats: string;
+  occasion: string;
   requestedService: string;
 };
 
@@ -27,6 +28,7 @@ const initialFormState: CreatePostFormState = {
   destination: '',
   departureTime: '',
   freeSeats: '',
+  occasion: '',
   requestedService: '',
 };
 
@@ -103,6 +105,7 @@ export default function CreatePostScreen() {
               destination: form.destination.trim(),
               departureTime: form.departureTime.trim(),
               freeSeats: Number(form.freeSeats),
+              occasion: form.occasion.trim() || undefined,
             },
           }
         : {}),
@@ -173,6 +176,7 @@ export default function CreatePostScreen() {
               <TextInput value={form.destination} onChangeText={(value) => updateField('destination', value)} placeholder="Ziel" placeholderTextColor={FeedColors.textSecondary} style={styles.textInput} returnKeyType="done" onSubmitEditing={() => Keyboard.dismiss()} />
               <TextInput value={form.departureTime} onChangeText={(value) => updateField('departureTime', value)} placeholder="Abfahrtszeit" placeholderTextColor={FeedColors.textSecondary} style={styles.textInput} returnKeyType="done" onSubmitEditing={() => Keyboard.dismiss()} />
               <TextInput value={form.freeSeats} onChangeText={(value) => updateField('freeSeats', value)} placeholder="Freie Plätze" keyboardType="number-pad" placeholderTextColor={FeedColors.textSecondary} style={styles.textInput} returnKeyType="done" onSubmitEditing={() => Keyboard.dismiss()} />
+              <TextInput value={form.occasion} onChangeText={(value) => updateField('occasion', value)} placeholder="Spiel oder Anlass (optional)" placeholderTextColor={FeedColors.textSecondary} style={styles.textInput} returnKeyType="done" onSubmitEditing={() => Keyboard.dismiss()} />
             </View>
           ) : null}
 

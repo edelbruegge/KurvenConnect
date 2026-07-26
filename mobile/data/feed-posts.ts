@@ -21,6 +21,7 @@ export type FahrtDetails = {
   destination: string;
   departureTime: string;
   freeSeats: number;
+  occasion?: string;
 };
 
 export type GesuchDetails = {
@@ -115,6 +116,7 @@ export const feedPosts: FeedPost[] = [
       destination: 'Stadionplatz',
       departureTime: '06:30 Uhr',
       freeSeats: 3,
+      occasion: 'Auswärtsspiel',
     },
   },
   {
