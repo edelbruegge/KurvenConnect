@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View, GestureResponderEvent } from 'react-native';
 
 import { Avatar } from '@/components/feed/avatar';
 import { CategoryBadge } from '@/components/feed/category-badge';
@@ -10,9 +10,11 @@ import type { FeedPost } from '@/data/feed-posts';
 type FeedPostCardProps = {
   post: FeedPost;
   onPress?: () => void;
+  onLikePress?: () => void;
+  onCommentPress?: () => void;
 };
 
-export function FeedPostCard({ post, onPress }: FeedPostCardProps) {
+export function FeedPostCard({ post, onPress, onLikePress, onCommentPress }: FeedPostCardProps) {
   return (
     <Pressable onPress={onPress} style={styles.card}>
       <View style={styles.cardHeader}>
@@ -38,14 +40,31 @@ export function FeedPostCard({ post, onPress }: FeedPostCardProps) {
       <PostMetadata post={post} variant="compact" />
 
       <View style={styles.footer}>
-        <View style={styles.metaItem}>
+        <Pressable
+          onPress={(e: GestureResponderEvent) => {
+            e.stopPropagation();
+            onLikePress?.();
+          }}
+          accessibilityRole="button"
+          accessibilityLabel={post.likedByCurrentUser ? 'Gefällt nicht mehr' : 'Gefällt mir'}
+          style={[styles.metaItem, post.likedByCurrentUser && styles.metaItemActive]}
+        >
           <IconSymbol size={16} name={post.likedByCurrentUser ? 'heart.fill' : 'heart'} color={post.likedByCurrentUser ? '#F59E0B' : FeedColors.textSecondary} />
-          <Text style={styles.meta}>{post.likes}</Text>
-        </View>
-        <View style={styles.metaItem}>
+          <Text style={[styles.meta, post.likedByCurrentUser && styles.metaActive]}>{post.likes}</Text>
+        </Pressable>
+
+        <Pressable
+          onPress={(e: GestureResponderEvent) => {
+            e.stopPropagation();
+            onCommentPress?.();
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="Kommentare anzeigen"
+          style={styles.metaItem}
+        >
           <IconSymbol size={16} name="message" color={FeedColors.textSecondary} />
           <Text style={styles.meta}>{post.comments.length}</Text>
-        </View>
+        </Pressable>
       </View>
     </Pressable>
   );
@@ -110,8 +129,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 4,
   },
+  metaItemActive: {
+    // subtle background for active state
+    // keep consistent with detail page active styles
+    backgroundColor: '#111827',
+    borderRadius: Radii.round,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+  },
   meta: {
     color: FeedColors.textSecondary,
     fontSize: FontSizes.meta,
+  },
+  metaActive: {
+    color: '#F59E0B',
   },
 });

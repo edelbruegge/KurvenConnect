@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Keyboard, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Avatar } from '@/components/feed/avatar';
 import { CategoryBadge } from '@/components/feed/category-badge';
@@ -11,11 +11,33 @@ import { useFeedPosts } from '@/context/feed-posts-context';
 
 export default function PostDetailScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ id?: string }>();
+  const params = useLocalSearchParams<{ id?: string; focusComments?: string }>();
   const { posts, toggleLike, addComment } = useFeedPosts();
   const [draftComment, setDraftComment] = useState('');
+  const scrollRef = useRef<ScrollView | null>(null);
+  const commentInputRef = useRef<TextInput | null>(null);
+  const [commentsY, setCommentsY] = useState<number | null>(null);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
 
   const post = params.id ? posts.find((entry) => entry.id === params.id) : undefined;
+  const focusComments = params.focusComments === 'true';
+
+  useEffect(() => {
+    const show = Keyboard.addListener('keyboardDidShow', () => setKeyboardVisible(true));
+    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardVisible(false));
+
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!focusComments || !post || commentsY == null) return;
+
+    scrollRef.current?.scrollTo({ y: Math.max(0, commentsY - 12), animated: true });
+    setTimeout(() => commentInputRef.current?.focus(), 250);
+  }, [focusComments, commentsY, post]);
 
   if (!post) {
     return (
@@ -41,10 +63,13 @@ export default function PostDetailScreen() {
   };
 
   const isCommentInputValid = draftComment.trim().length > 0;
+ 
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.container}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+        <Pressable style={{ flex: 1 }} onPress={() => Keyboard.dismiss()}>
+          <ScrollView ref={scrollRef} contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
         <View style={styles.header}>
           <View style={styles.userBlock}>
             <Avatar initials={post.initials} />
@@ -86,7 +111,7 @@ export default function PostDetailScreen() {
           <PostMetadata post={post} variant="detail" />
         </View>
 
-        <View style={styles.commentsSection}>
+        <View style={styles.commentsSection} onLayout={(e) => setCommentsY(e.nativeEvent.layout.y)}>
           <Text style={styles.commentsTitle}>Kommentare</Text>
 
           <View style={styles.commentComposer}>
@@ -97,6 +122,7 @@ export default function PostDetailScreen() {
               placeholderTextColor={FeedColors.textSecondary}
               multiline
               style={styles.commentInput}
+              ref={commentInputRef}
             />
             <Pressable
               onPress={handleSubmitComment}
@@ -126,7 +152,14 @@ export default function PostDetailScreen() {
             <Text style={styles.emptyComments}>Noch keine Kommentare. Sei der Erste.</Text>
           )}
         </View>
-      </ScrollView>
+          </ScrollView>
+          {keyboardVisible ? (
+            <Pressable onPress={() => Keyboard.dismiss()} style={styles.closeKeyboardButton} accessibilityRole="button" accessibilityLabel="Tastatur schließen">
+              <Text style={styles.closeKeyboardButtonText}>Fertig</Text>
+            </Pressable>
+          ) : null}
+        </Pressable>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -333,5 +366,21 @@ const styles = StyleSheet.create({
   backButtonText: {
     color: FeedColors.textPrimary,
     fontSize: FontSizes.body,
+  },
+  closeKeyboardButton: {
+    position: 'absolute',
+    right: Spacing.md,
+    bottom: Spacing.xl + 8,
+    backgroundColor: FeedColors.cardBackground,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.xs,
+    borderRadius: Radii.round,
+    borderWidth: 1,
+    borderColor: FeedColors.cardBorder,
+  },
+  closeKeyboardButtonText: {
+    color: FeedColors.textPrimary,
+    fontSize: FontSizes.meta,
+    fontWeight: '600',
   },
 });

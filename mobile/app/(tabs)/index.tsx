@@ -8,7 +8,7 @@ import { useFeedPosts } from '@/context/feed-posts-context';
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { posts } = useFeedPosts();
+  const { posts, toggleLike } = useFeedPosts();
 
   const handleOpenPost = (postId: string) => {
     router.push({ pathname: '/post/[id]', params: { id: postId } });
@@ -25,7 +25,13 @@ export default function HomeScreen() {
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         {posts.map((post) => (
-          <FeedPostCard key={post.id} post={post} onPress={() => handleOpenPost(post.id)} />
+          <FeedPostCard
+            key={post.id}
+            post={post}
+            onPress={() => handleOpenPost(post.id)}
+            onLikePress={() => toggleLike(post.id)}
+            onCommentPress={() => router.push({ pathname: '/post/[id]', params: { id: post.id, focusComments: 'true' } })}
+          />
         ))}
       </ScrollView>
     </SafeAreaView>

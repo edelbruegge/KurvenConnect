@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRouter } from 'expo-router';
-import { KeyboardAvoidingView, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Keyboard, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
 import { useFeedPosts } from '@/context/feed-posts-context';
@@ -39,6 +39,18 @@ export default function CreatePostScreen() {
   const updateField = <K extends keyof CreatePostFormState>(field: K, value: CreatePostFormState[K]) => {
     setForm((currentForm) => ({ ...currentForm, [field]: value }));
   };
+
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    const show = Keyboard.addListener('keyboardDidShow', () => setKeyboardVisible(true));
+    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardVisible(false));
+
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
 
   const isFormValid = () => {
     if (!form.description.trim()) {
@@ -111,7 +123,8 @@ export default function CreatePostScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardView}>
-        <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+        <Pressable style={{ flex: 1 }} onPress={() => Keyboard.dismiss()}>
+          <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
           <Text style={styles.title}>Neuen Beitrag erstellen</Text>
           <Text style={styles.subtitle}>Erstelle einen lokalen Beispielbeitrag für den aktuellen Feed.</Text>
 
@@ -156,17 +169,17 @@ export default function CreatePostScreen() {
           {form.category === 'Fahrt' ? (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Fahrdetails</Text>
-              <TextInput value={form.departure} onChangeText={(value) => updateField('departure', value)} placeholder="Abfahrtsort" placeholderTextColor={FeedColors.textSecondary} style={styles.textInput} />
-              <TextInput value={form.destination} onChangeText={(value) => updateField('destination', value)} placeholder="Ziel" placeholderTextColor={FeedColors.textSecondary} style={styles.textInput} />
-              <TextInput value={form.departureTime} onChangeText={(value) => updateField('departureTime', value)} placeholder="Abfahrtszeit" placeholderTextColor={FeedColors.textSecondary} style={styles.textInput} />
-              <TextInput value={form.freeSeats} onChangeText={(value) => updateField('freeSeats', value)} placeholder="Freie Plätze" keyboardType="number-pad" placeholderTextColor={FeedColors.textSecondary} style={styles.textInput} />
+              <TextInput value={form.departure} onChangeText={(value) => updateField('departure', value)} placeholder="Abfahrtsort" placeholderTextColor={FeedColors.textSecondary} style={styles.textInput} returnKeyType="done" onSubmitEditing={() => Keyboard.dismiss()} />
+              <TextInput value={form.destination} onChangeText={(value) => updateField('destination', value)} placeholder="Ziel" placeholderTextColor={FeedColors.textSecondary} style={styles.textInput} returnKeyType="done" onSubmitEditing={() => Keyboard.dismiss()} />
+              <TextInput value={form.departureTime} onChangeText={(value) => updateField('departureTime', value)} placeholder="Abfahrtszeit" placeholderTextColor={FeedColors.textSecondary} style={styles.textInput} returnKeyType="done" onSubmitEditing={() => Keyboard.dismiss()} />
+              <TextInput value={form.freeSeats} onChangeText={(value) => updateField('freeSeats', value)} placeholder="Freie Plätze" keyboardType="number-pad" placeholderTextColor={FeedColors.textSecondary} style={styles.textInput} returnKeyType="done" onSubmitEditing={() => Keyboard.dismiss()} />
             </View>
           ) : null}
 
           {form.category === 'Gesuch' ? (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Gesuch</Text>
-              <TextInput value={form.requestedService} onChangeText={(value) => updateField('requestedService', value)} placeholder="Gesuchte Leistung" placeholderTextColor={FeedColors.textSecondary} style={styles.textInput} />
+              <TextInput value={form.requestedService} onChangeText={(value) => updateField('requestedService', value)} placeholder="Gesuchte Leistung" placeholderTextColor={FeedColors.textSecondary} style={styles.textInput} returnKeyType="done" onSubmitEditing={() => Keyboard.dismiss()} />
             </View>
           ) : null}
 
@@ -175,7 +188,13 @@ export default function CreatePostScreen() {
           <Pressable onPress={handleSubmit} disabled={!isFormValid()} style={[styles.submitButton, !isFormValid() && styles.submitButtonDisabled]}>
             <Text style={styles.submitButtonText}>Beitrag veröffentlichen</Text>
           </Pressable>
-        </ScrollView>
+          {keyboardVisible ? (
+            <Pressable onPress={() => Keyboard.dismiss()} style={styles.closeKeyboardButton} accessibilityRole="button" accessibilityLabel="Tastatur schließen">
+              <Text style={styles.closeKeyboardButtonText}>Fertig</Text>
+            </Pressable>
+          ) : null}
+          </ScrollView>
+        </Pressable>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -286,5 +305,21 @@ const styles = StyleSheet.create({
     color: FeedColors.background,
     fontSize: FontSizes.body,
     fontWeight: '700',
+  },
+  closeKeyboardButton: {
+    position: 'absolute',
+    right: Spacing.md,
+    bottom: Spacing.xl + 8,
+    backgroundColor: FeedColors.cardBackground,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.xs,
+    borderRadius: Radii.round,
+    borderWidth: 1,
+    borderColor: FeedColors.cardBorder,
+  },
+  closeKeyboardButtonText: {
+    color: FeedColors.textPrimary,
+    fontSize: FontSizes.meta,
+    fontWeight: '600',
   },
 });
