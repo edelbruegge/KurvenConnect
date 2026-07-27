@@ -5,7 +5,7 @@ import { Avatar } from '@/components/feed/avatar';
 import { CategoryBadge } from '@/components/feed/category-badge';
 import { PostMetadata } from '@/components/feed/post-metadata';
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Colors, FontSizes, FeedColors, Radii, Spacing } from '@/constants/theme';
+import { ClubColors, Colors, FontSizes, FeedColors, Radii, Spacing } from '@/constants/theme';
 import { useProfiles } from '@/context/profile-context';
 import type { FeedPost } from '@/data/feed-posts';
 
@@ -65,7 +65,7 @@ export function FeedPostCard({ post, onPress, onLikePress, onCommentPress }: Fee
           accessibilityLabel={post.likedByCurrentUser ? 'Gefällt nicht mehr' : 'Gefällt mir'}
           style={[styles.metaItem, post.likedByCurrentUser && styles.metaItemActive]}
         >
-          <IconSymbol size={16} name={post.likedByCurrentUser ? 'heart.fill' : 'heart'} color={post.likedByCurrentUser ? '#F59E0B' : FeedColors.textSecondary} />
+          <IconSymbol size={16} name={post.likedByCurrentUser ? 'heart.fill' : 'heart'} color={post.likedByCurrentUser ? ClubColors.text : FeedColors.textSecondary} />
           <Text style={[styles.meta, post.likedByCurrentUser && styles.metaActive]}>{post.likes}</Text>
         </Pressable>
 
@@ -146,9 +146,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   metaItemActive: {
-    // subtle background for active state
-    // keep consistent with detail page active styles
-    backgroundColor: '#111827',
+    backgroundColor: ClubColors.surface,
     borderRadius: Radii.round,
     paddingHorizontal: 6,
     paddingVertical: 4,
@@ -158,6 +156,6 @@ const styles = StyleSheet.create({
     fontSize: FontSizes.meta,
   },
   metaActive: {
-    color: '#F59E0B',
+    color: ClubColors.text,
   },
 });

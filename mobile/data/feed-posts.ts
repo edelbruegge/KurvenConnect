@@ -2,6 +2,7 @@ export type FeedPostCategory = 'Beitrag' | 'Fahrt' | 'Gesuch';
 
 export type FeedComment = {
   id: string;
+  userId?: string;
   username: string;
   initials: string;
   text: string;

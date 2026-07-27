@@ -4,7 +4,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 
 import { HapticTab } from '@/components/haptic-tab';
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Colors } from '@/constants/theme';
+import { ClubColors, Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 export default function TabLayout() {
@@ -48,7 +48,7 @@ export default function TabLayout() {
               onPress={handleCreatePress}
               style={styles.createTabButton}>
               <View style={styles.createTabIconContainer}>
-                <IconSymbol size={28} name="plus" color="#FFFFFF" />
+                <IconSymbol size={28} name="plus" color={ClubColors.secondary} />
               </View>
             </Pressable>
           ),
@@ -83,7 +83,7 @@ const styles = StyleSheet.create({
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: Colors.light.tint,
+    backgroundColor: ClubColors.primary,
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',

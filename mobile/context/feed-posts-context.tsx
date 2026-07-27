@@ -63,6 +63,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
 
     const newComment: FeedComment = {
       id: `comment-temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      userId: CURRENT_USER_ID,
       username: 'Marco B.',
       initials: 'MB',
       text: trimmedText,

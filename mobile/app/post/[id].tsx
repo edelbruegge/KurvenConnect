@@ -5,8 +5,9 @@ import { Keyboard, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, Scro
 import { Avatar } from '@/components/feed/avatar';
 import { CategoryBadge } from '@/components/feed/category-badge';
 import { PostMetadata } from '@/components/feed/post-metadata';
+import { NotFoundView } from '@/components/navigation/not-found-view';
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import { FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
+import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
 import { useFeedPosts } from '@/context/feed-posts-context';
 import { useProfiles } from '@/context/profile-context';
 
@@ -42,17 +43,7 @@ export default function PostDetailScreen() {
   }, [focusComments, commentsY, post]);
 
   if (!post) {
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.errorContainer}>
-          <Text style={styles.errorTitle}>Beitrag nicht gefunden</Text>
-          <Text style={styles.errorText}>Der angeforderte Beitrag konnte nicht gefunden werden.</Text>
-          <Pressable onPress={() => router.back()} style={styles.backButton}>
-            <Text style={styles.backButtonText}>Zurück</Text>
-          </Pressable>
-        </View>
-      </SafeAreaView>
-    );
+    return <NotFoundView title="Beitrag nicht gefunden" message="Der angeforderte Beitrag konnte nicht gefunden werden." />;
   }
 
   const handleSubmitComment = () => {
@@ -110,7 +101,7 @@ export default function PostDetailScreen() {
               accessibilityLabel={post.likedByCurrentUser ? 'Gefällt mir nicht mehr' : 'Gefällt mir'}
               style={[styles.metaButton, post.likedByCurrentUser && styles.metaButtonActive]}
             >
-              <IconSymbol size={16} name={post.likedByCurrentUser ? 'heart.fill' : 'heart'} color={post.likedByCurrentUser ? '#F59E0B' : FeedColors.textSecondary} />
+              <IconSymbol size={16} name={post.likedByCurrentUser ? 'heart.fill' : 'heart'} color={post.likedByCurrentUser ? ClubColors.text : FeedColors.textSecondary} />
               <Text style={[styles.metaButtonText, post.likedByCurrentUser && styles.metaButtonTextActive]}>
                 {post.likes}
               </Text>
@@ -269,8 +260,8 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   metaButtonActive: {
-    backgroundColor: '#1F2937',
-    borderColor: '#F59E0B',
+    backgroundColor: ClubColors.surface,
+    borderColor: ClubColors.border,
   },
   metaButtonText: {
     color: FeedColors.textSecondary,
@@ -278,7 +269,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   metaButtonTextActive: {
-    color: '#F59E0B',
+    color: ClubColors.text,
   },
   metaItem: {
     flexDirection: 'row',
@@ -296,25 +287,24 @@ const styles = StyleSheet.create({
     borderTopColor: FeedColors.cardBorder,
   },
   rideRequestButton: {
-    backgroundColor: FeedColors.imagePlaceholder,
+    backgroundColor: ClubColors.primary,
     borderRadius: Radii.round,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
-    borderWidth: 1,
-    borderColor: FeedColors.cardBorder,
     alignSelf: 'flex-start',
   },
   rideRequestButtonActive: {
-    backgroundColor: '#1F2937',
-    borderColor: '#F59E0B',
+    backgroundColor: ClubColors.surface,
+    borderWidth: 1,
+    borderColor: ClubColors.border,
   },
   rideRequestButtonText: {
-    color: FeedColors.textPrimary,
+    color: ClubColors.secondary,
     fontSize: FontSizes.body,
     fontWeight: '600',
   },
   rideRequestButtonTextActive: {
-    color: '#F59E0B',
+    color: ClubColors.text,
   },
   rideRequestHint: {
     color: FeedColors.textSecondary,
@@ -398,36 +388,6 @@ const styles = StyleSheet.create({
   emptyComments: {
     color: FeedColors.textSecondary,
     fontSize: FontSizes.meta,
-  },
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: Spacing.lg,
-  },
-  errorTitle: {
-    color: FeedColors.textPrimary,
-    fontSize: FontSizes.title,
-    fontWeight: '700',
-    marginBottom: Spacing.sm,
-  },
-  errorText: {
-    color: FeedColors.textSecondary,
-    fontSize: FontSizes.body,
-    textAlign: 'center',
-    marginBottom: Spacing.md,
-  },
-  backButton: {
-    backgroundColor: FeedColors.cardBackground,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderRadius: Radii.round,
-    borderWidth: 1,
-    borderColor: FeedColors.cardBorder,
-  },
-  backButtonText: {
-    color: FeedColors.textPrimary,
-    fontSize: FontSizes.body,
   },
   closeKeyboardButton: {
     position: 'absolute',

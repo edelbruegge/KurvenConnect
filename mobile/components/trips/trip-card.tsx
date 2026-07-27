@@ -4,16 +4,17 @@ import { Pressable, StyleSheet, Text, View, GestureResponderEvent } from 'react-
 import { Avatar } from '@/components/feed/avatar';
 import { PostMetadata } from '@/components/feed/post-metadata';
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import { FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
+import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
 import { useProfiles } from '@/context/profile-context';
 import type { FeedPost } from '@/data/feed-posts';
 
 type TripCardProps = {
   post: FeedPost;
   onPress?: () => void;
+  onLikePress?: () => void;
 };
 
-export function TripCard({ post, onPress }: TripCardProps) {
+export function TripCard({ post, onPress, onLikePress }: TripCardProps) {
   const router = useRouter();
   const { getAuthorDisplay } = useProfiles();
   const tripDetails = post.tripDetails;
@@ -89,10 +90,22 @@ export function TripCard({ post, onPress }: TripCardProps) {
       <PostMetadata post={post} variant="compact" />
 
       <View style={styles.footer}>
-        <View style={styles.footerItem}>
-          <IconSymbol size={16} name="heart" color={FeedColors.textSecondary} />
-          <Text style={styles.footerText}>{post.likes}</Text>
-        </View>
+        <Pressable
+          onPress={(e: GestureResponderEvent) => {
+            e.stopPropagation();
+            onLikePress?.();
+          }}
+          accessibilityRole="button"
+          accessibilityLabel={post.likedByCurrentUser ? 'Gefällt nicht mehr' : 'Gefällt mir'}
+          style={[styles.footerItem, post.likedByCurrentUser && styles.footerItemActive]}
+        >
+          <IconSymbol
+            size={16}
+            name={post.likedByCurrentUser ? 'heart.fill' : 'heart'}
+            color={post.likedByCurrentUser ? ClubColors.text : FeedColors.textSecondary}
+          />
+          <Text style={[styles.footerText, post.likedByCurrentUser && styles.footerTextActive]}>{post.likes}</Text>
+        </Pressable>
         <View style={styles.footerItem}>
           <IconSymbol size={16} name="message" color={FeedColors.textSecondary} />
           <Text style={styles.footerText}>{post.comments.length}</Text>
@@ -225,8 +238,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 4,
   },
+  footerItemActive: {
+    backgroundColor: ClubColors.surface,
+    borderRadius: Radii.round,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+  },
   footerText: {
     color: FeedColors.textSecondary,
     fontSize: FontSizes.meta,
+  },
+  footerTextActive: {
+    color: ClubColors.text,
   },
 });

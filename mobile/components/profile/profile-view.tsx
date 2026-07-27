@@ -1,4 +1,5 @@
 import { useRouter } from 'expo-router';
+import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -7,8 +8,9 @@ import { ProfileHeader } from '@/components/profile/profile-header';
 import { ProfileStats, type ProfileStat } from '@/components/profile/profile-stats';
 import { TripCard } from '@/components/trips/trip-card';
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import { FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
+import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
 import { useFeedPosts } from '@/context/feed-posts-context';
+import { useProfiles } from '@/context/profile-context';
 import type { UserProfile } from '@/data/users';
 
 type ProfileViewProps = {
@@ -20,10 +22,14 @@ type ProfileViewProps = {
 export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewProps) {
   const router = useRouter();
   const { posts, toggleLike } = useFeedPosts();
+  const { isFollowing, followUser, unfollowUser, getFollowerCount, getFollowingCount } = useProfiles();
+  const [activeTab, setActiveTab] = useState<'posts' | 'trips'>('posts');
 
   const ownPosts = posts.filter((post) => post.userId === profile.id);
-  const postsCount = ownPosts.filter((post) => post.category !== 'Fahrt').length;
-  const tripsCount = ownPosts.filter((post) => post.category === 'Fahrt').length;
+  const postsOnly = ownPosts.filter((post) => post.category !== 'Fahrt');
+  const tripsOnly = ownPosts.filter((post) => post.category === 'Fahrt');
+  const postsCount = postsOnly.length;
+  const tripsCount = tripsOnly.length;
   const likesReceived = ownPosts.reduce((sum, post) => sum + post.likes, 0);
 
   const stats: ProfileStat[] = [
@@ -34,11 +40,38 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
 
   if (isOwnProfile) {
     const commentsCount = posts.reduce(
-      (sum, post) => sum + post.comments.filter((comment) => comment.username === profile.displayName).length,
+      (sum, post) =>
+        sum +
+        post.comments.filter((comment) =>
+          comment.userId ? comment.userId === profile.id : comment.username === profile.displayName,
+        ).length,
       0,
     );
     stats.push({ label: 'Kommentare', value: commentsCount });
   }
+
+  const followStats: ProfileStat[] = [
+    {
+      label: 'Follower',
+      value: getFollowerCount(profile.id),
+      onPress: () => router.push({ pathname: '/profile/[id]/followers', params: { id: profile.id } }),
+    },
+    {
+      label: 'Gefolgt',
+      value: getFollowingCount(profile.id),
+      onPress: () => router.push({ pathname: '/profile/[id]/following', params: { id: profile.id } }),
+    },
+  ];
+
+  const following = isFollowing(profile.id);
+
+  const handleFollowToggle = () => {
+    if (following) {
+      unfollowUser(profile.id);
+    } else {
+      followUser(profile.id);
+    }
+  };
 
   const handleOpenPost = (postId: string) => {
     router.push({ pathname: '/post/[id]', params: { id: postId } });
@@ -54,29 +87,65 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
             <IconSymbol size={18} name="square.and.pencil" color={FeedColors.textPrimary} />
             <Text style={styles.editButtonText}>Profil bearbeiten</Text>
           </Pressable>
-        ) : null}
+        ) : (
+          <Pressable
+            onPress={handleFollowToggle}
+            style={[styles.editButton, following && styles.followingButton]}
+            accessibilityRole="button"
+            accessibilityLabel={following ? 'Entfolgen' : 'Folgen'}
+          >
+            <IconSymbol
+              size={18}
+              name={following ? 'checkmark.circle.fill' : 'person.badge.plus'}
+              color={following ? ClubColors.text : FeedColors.textPrimary}
+            />
+            <Text style={[styles.editButtonText, following && styles.followingButtonText]}>
+              {following ? 'Gefolgt' : 'Folgen'}
+            </Text>
+          </Pressable>
+        )}
+
+        <View style={styles.statsWrapper}>
+          <ProfileStats stats={followStats} />
+        </View>
 
         <View style={styles.statsWrapper}>
           <ProfileStats stats={stats} />
         </View>
 
-        <Text style={styles.sectionTitle}>Beiträge & Fahrten</Text>
-
-        {ownPosts.length === 0 ? (
-          <View style={styles.emptyState}>
-            <IconSymbol size={40} name="tray.fill" color={FeedColors.textSecondary} />
-            <Text style={styles.emptyTitle}>Noch keine Aktivitäten</Text>
-            <Text style={styles.emptyText}>
-              {isOwnProfile
-                ? 'Du hast noch keine Beiträge oder Fahrten geteilt.'
-                : 'Dieser Nutzer hat noch keine Beiträge oder Fahrten geteilt.'}
+        <View style={styles.tabRow}>
+          <Pressable
+            onPress={() => setActiveTab('posts')}
+            style={[styles.tabButton, activeTab === 'posts' && styles.tabButtonActive]}
+            accessibilityRole="button"
+            accessibilityLabel="Beiträge anzeigen"
+          >
+            <Text style={[styles.tabButtonText, activeTab === 'posts' && styles.tabButtonTextActive]}>
+              Beiträge {postsCount}
             </Text>
-          </View>
-        ) : (
-          ownPosts.map((post) =>
-            post.category === 'Fahrt' ? (
-              <TripCard key={post.id} post={post} onPress={() => handleOpenPost(post.id)} />
-            ) : (
+          </Pressable>
+          <Pressable
+            onPress={() => setActiveTab('trips')}
+            style={[styles.tabButton, activeTab === 'trips' && styles.tabButtonActive]}
+            accessibilityRole="button"
+            accessibilityLabel="Fahrten anzeigen"
+          >
+            <Text style={[styles.tabButtonText, activeTab === 'trips' && styles.tabButtonTextActive]}>
+              Fahrten {tripsCount}
+            </Text>
+          </Pressable>
+        </View>
+
+        {activeTab === 'posts' ? (
+          postsOnly.length === 0 ? (
+            <View style={styles.emptyState}>
+              <IconSymbol size={40} name="tray.fill" color={FeedColors.textSecondary} />
+              <Text style={styles.emptyText}>
+                {isOwnProfile ? 'Du hast noch keine Beiträge geteilt.' : 'Dieser Nutzer hat noch keine Beiträge geteilt.'}
+              </Text>
+            </View>
+          ) : (
+            postsOnly.map((post) => (
               <FeedPostCard
                 key={post.id}
                 post={post}
@@ -84,8 +153,24 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
                 onLikePress={() => toggleLike(post.id)}
                 onCommentPress={() => router.push({ pathname: '/post/[id]', params: { id: post.id, focusComments: 'true' } })}
               />
-            ),
+            ))
           )
+        ) : tripsOnly.length === 0 ? (
+          <View style={styles.emptyState}>
+            <IconSymbol size={40} name="tray.fill" color={FeedColors.textSecondary} />
+            <Text style={styles.emptyText}>
+              {isOwnProfile ? 'Du hast noch keine Fahrten geteilt.' : 'Dieser Nutzer hat noch keine Fahrten geteilt.'}
+            </Text>
+          </View>
+        ) : (
+          tripsOnly.map((post) => (
+            <TripCard
+              key={post.id}
+              post={post}
+              onPress={() => handleOpenPost(post.id)}
+              onLikePress={() => toggleLike(post.id)}
+            />
+          ))
         )}
       </ScrollView>
     </SafeAreaView>
@@ -113,7 +198,7 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.sm,
     borderRadius: Radii.round,
     borderWidth: 1,
-    borderColor: FeedColors.cardBorder,
+    borderColor: ClubColors.border,
     backgroundColor: FeedColors.cardBackground,
   },
   editButtonText: {
@@ -121,15 +206,42 @@ const styles = StyleSheet.create({
     fontSize: FontSizes.body,
     fontWeight: '600',
   },
+  followingButton: {
+    backgroundColor: ClubColors.surface,
+    borderColor: ClubColors.border,
+  },
+  followingButtonText: {
+    color: ClubColors.text,
+  },
   statsWrapper: {
     marginTop: Spacing.md,
   },
-  sectionTitle: {
-    color: FeedColors.textPrimary,
-    fontSize: FontSizes.body,
-    fontWeight: '700',
+  tabRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
     marginTop: Spacing.lg,
     marginBottom: Spacing.sm,
+  },
+  tabButton: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: Spacing.sm,
+    borderRadius: Radii.md,
+    borderWidth: 1,
+    borderColor: FeedColors.cardBorder,
+    backgroundColor: 'transparent',
+  },
+  tabButtonActive: {
+    backgroundColor: ClubColors.surface,
+    borderColor: ClubColors.border,
+  },
+  tabButtonText: {
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.body,
+    fontWeight: '600',
+  },
+  tabButtonTextActive: {
+    color: FeedColors.textPrimary,
   },
   emptyState: {
     alignItems: 'center',
@@ -137,17 +249,11 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.xl,
     paddingHorizontal: Spacing.lg,
   },
-  emptyTitle: {
-    color: FeedColors.textPrimary,
-    fontSize: FontSizes.body,
-    fontWeight: '600',
-    marginTop: Spacing.sm,
-    marginBottom: Spacing.xs,
-  },
   emptyText: {
     color: FeedColors.textSecondary,
     fontSize: FontSizes.body,
     textAlign: 'center',
     lineHeight: 20,
+    marginTop: Spacing.sm,
   },
 });

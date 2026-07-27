@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react';
-import { useRouter } from 'expo-router';
 import { Keyboard, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
 import { useProfiles } from '@/context/profile-context';
+import { useSafeBack } from '@/hooks/use-safe-back';
 
 const BIO_MAX_LENGTH = 160;
 
 export default function EditProfileScreen() {
-  const router = useRouter();
+  const goBack = useSafeBack();
   const { currentUser, updateCurrentUser } = useProfiles();
 
   const [displayName, setDisplayName] = useState(currentUser.displayName);
@@ -51,11 +51,11 @@ export default function EditProfileScreen() {
 
     updateCurrentUser({ displayName: trimmedName, location: trimmedLocation, bio: trimmedBio });
     setErrorMessage(null);
-    router.back();
+    goBack();
   };
 
   const handleCancel = () => {
-    router.back();
+    goBack();
   };
 
   return (

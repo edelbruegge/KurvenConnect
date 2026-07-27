@@ -3,6 +3,7 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
 
+import { HeaderBackButton } from '@/components/navigation/header-back-button';
 import { FeedPostsProvider } from '@/context/feed-posts-context';
 import { ProfileProvider } from '@/context/profile-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -20,10 +21,30 @@ export default function RootLayout() {
         <FeedPostsProvider>
           <Stack>
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-            <Stack.Screen name="create-post" options={{ title: 'Beitrag erstellen' }} />
-            <Stack.Screen name="post/[id]" options={{ title: 'Beitrag' }} />
-            <Stack.Screen name="edit-profile" options={{ title: 'Profil bearbeiten' }} />
-            <Stack.Screen name="profile/[id]" options={{ title: 'Profil' }} />
+            <Stack.Screen
+              name="create-post"
+              options={{ title: 'Beitrag erstellen', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
+            />
+            <Stack.Screen
+              name="post/[id]"
+              options={{ title: 'Beitrag', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
+            />
+            <Stack.Screen
+              name="edit-profile"
+              options={{ title: 'Profil bearbeiten', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
+            />
+            <Stack.Screen
+              name="profile/[id]"
+              options={{ title: 'Profil', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
+            />
+            <Stack.Screen
+              name="profile/[id]/followers"
+              options={{ title: 'Follower', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
+            />
+            <Stack.Screen
+              name="profile/[id]/following"
+              options={{ title: 'Gefolgt', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
+            />
             <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
           </Stack>
           <StatusBar style="auto" />

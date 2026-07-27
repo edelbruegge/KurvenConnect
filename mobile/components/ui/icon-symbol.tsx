@@ -32,6 +32,10 @@ const MAPPING = {
   'mappin.and.ellipse': 'place',
   calendar: 'calendar-today',
   'tray.fill': 'inbox',
+  'chevron.left': 'chevron-left',
+  'person.badge.plus': 'person-add',
+  'checkmark.circle.fill': 'check-circle',
+  'doc.text.fill': 'article',
 } as const satisfies IconMapping;
 
 /**

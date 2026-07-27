@@ -22,6 +22,18 @@ export const currentUserSeed: UserProfile = {
   isCurrentUser: true,
 };
 
+export type FollowEdge = {
+  followerId: string;
+  followingId: string;
+};
+
+export const seedFollowEdges: FollowEdge[] = [
+  { followerId: 'user-mina-k', followingId: CURRENT_USER_ID },
+  { followerId: 'user-luca-r', followingId: CURRENT_USER_ID },
+  { followerId: 'user-david-s', followingId: 'user-sina-p' },
+  { followerId: 'user-sina-p', followingId: 'user-mina-k' },
+];
+
 export const sampleProfiles: UserProfile[] = [
   {
     id: 'user-mina-k',

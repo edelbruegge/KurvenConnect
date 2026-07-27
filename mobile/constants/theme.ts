@@ -5,6 +5,8 @@
 
 import { Platform } from 'react-native';
 
+import type { FeedPostCategory } from '@/data/feed-posts';
+
 const tintColorLight = '#0a7ea4';
 const tintColorDark = '#fff';
 
@@ -61,11 +63,24 @@ export const FeedColors = {
   badgeText: '#050505',
 };
 
-export const CategoryColors = {
-  Beitrag: '#F59E0B',
-  Fahrt: '#A78BFA',
-  Gesuch: '#FB7185',
+/**
+ * Farben des aktuell ausgewählten Vereins (Arminia Bielefeld: Schwarz-Weiß).
+ * Alle Varianten leiten sich aus `primary` ab, damit Buttons, aktive Zustände
+ * und Kategorie-Chips konsistent bleiben statt verstreuter Einzelfarben.
+ */
+export const ClubColors = {
+  primary: '#FFFFFF',
+  secondary: '#050505',
+  surface: 'rgba(255, 255, 255, 0.12)',
+  border: 'rgba(255, 255, 255, 0.35)',
+  text: '#FFFFFF',
 } as const;
+
+export const CategoryLabels: Record<FeedPostCategory, string> = {
+  Beitrag: 'Beitrag',
+  Fahrt: 'Fahrt',
+  Gesuch: 'Gesucht',
+};
 
 export const Fonts = Platform.select({
   ios: {

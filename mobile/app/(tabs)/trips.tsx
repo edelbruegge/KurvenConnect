@@ -8,7 +8,7 @@ import { useFeedPosts } from '@/context/feed-posts-context';
 
 export default function TripsScreen() {
   const router = useRouter();
-  const { posts } = useFeedPosts();
+  const { posts, toggleLike } = useFeedPosts();
 
   const trips = posts.filter((post) => post.category === 'Fahrt');
 
@@ -33,7 +33,12 @@ export default function TripsScreen() {
       ) : (
         <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
           {trips.map((trip) => (
-            <TripCard key={trip.id} post={trip} onPress={() => handleOpenTrip(trip.id)} />
+            <TripCard
+              key={trip.id}
+              post={trip}
+              onPress={() => handleOpenTrip(trip.id)}
+              onLikePress={() => toggleLike(trip.id)}
+            />
           ))}
         </ScrollView>
       )}

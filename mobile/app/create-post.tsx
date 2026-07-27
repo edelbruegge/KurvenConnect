@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useRouter } from 'expo-router';
 import { Keyboard, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
+import { CategoryLabels, ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
 import { useFeedPosts } from '@/context/feed-posts-context';
 import type { FeedPostCategory, NewFeedPost } from '@/data/feed-posts';
 
@@ -141,7 +141,7 @@ export default function CreatePostScreen() {
                     key={category}
                     onPress={() => updateField('category', category)}
                     style={[styles.optionButton, isSelected && styles.optionButtonActive]}>
-                    <Text style={[styles.optionText, isSelected && styles.optionTextActive]}>{category}</Text>
+                    <Text style={[styles.optionText, isSelected && styles.optionTextActive]}>{CategoryLabels[category]}</Text>
                   </Pressable>
                 );
               })}
@@ -182,7 +182,7 @@ export default function CreatePostScreen() {
 
           {form.category === 'Gesuch' ? (
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Gesuch</Text>
+              <Text style={styles.sectionTitle}>Gesucht</Text>
               <TextInput value={form.requestedService} onChangeText={(value) => updateField('requestedService', value)} placeholder="Gesuchte Leistung" placeholderTextColor={FeedColors.textSecondary} style={styles.textInput} returnKeyType="done" onSubmitEditing={() => Keyboard.dismiss()} />
             </View>
           ) : null}
@@ -254,7 +254,8 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.xs,
   },
   optionButtonActive: {
-    backgroundColor: FeedColors.imagePlaceholder,
+    backgroundColor: ClubColors.surface,
+    borderColor: ClubColors.border,
   },
   optionText: {
     color: FeedColors.textSecondary,
