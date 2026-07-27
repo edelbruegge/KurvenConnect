@@ -30,6 +30,10 @@ export default function RootLayout() {
               options={{ title: 'Beitrag', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
             />
             <Stack.Screen
+              name="meetup/[id]"
+              options={{ title: 'Treffpunkt', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
+            />
+            <Stack.Screen
               name="edit-profile"
               options={{ title: 'Profil bearbeiten', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
             />

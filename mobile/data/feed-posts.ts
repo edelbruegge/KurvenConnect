@@ -1,4 +1,4 @@
-export type FeedPostCategory = 'Beitrag' | 'Fahrt' | 'Gesuch';
+export type FeedPostCategory = 'Beitrag' | 'Fahrt' | 'Gesuch' | 'Treffpunkt';
 
 export type FeedComment = {
   id: string;
@@ -15,6 +15,7 @@ export type NewFeedPost = {
   hasImage?: boolean;
   tripDetails?: FahrtDetails;
   requestDetails?: GesuchDetails;
+  meetupDetails?: MeetupDetails;
 };
 
 export type FahrtDetails = {
@@ -27,6 +28,17 @@ export type FahrtDetails = {
 
 export type GesuchDetails = {
   requestedService: string;
+};
+
+export type MeetupDetails = {
+  gameId: string;
+  gameLabel: string;
+  title: string;
+  location: string;
+  date: string;
+  eventTime: string;
+  maxAttendees?: number;
+  attendeeIds: string[];
 };
 
 export type FeedPost = {
@@ -43,8 +55,21 @@ export type FeedPost = {
   hasImage?: boolean;
   tripDetails?: FahrtDetails;
   requestDetails?: GesuchDetails;
+  meetupDetails?: MeetupDetails;
   rideRequestSent?: boolean;
 };
+
+export function getMeetupAttendeeCount(details: MeetupDetails): number {
+  return 1 + details.attendeeIds.length;
+}
+
+export function isMeetupFull(details: MeetupDetails): boolean {
+  return details.maxAttendees != null && getMeetupAttendeeCount(details) >= details.maxAttendees;
+}
+
+export function getPostDetailPathname(post: FeedPost): '/meetup/[id]' | '/post/[id]' {
+  return post.category === 'Treffpunkt' ? '/meetup/[id]' : '/post/[id]';
+}
 
 export const feedPosts: FeedPost[] = [
   {
@@ -155,6 +180,48 @@ export const feedPosts: FeedPost[] = [
     ],
     requestDetails: {
       requestedService: 'Unterstützung bei der Organisation',
+    },
+  },
+  {
+    id: '5',
+    userId: 'user-david-s',
+    user: 'David S.',
+    initials: 'DS',
+    time: 'vor 2 Std.',
+    category: 'Treffpunkt',
+    description: 'Gemeinsame Anreise vom Bahnhof zum Stadion – wir treffen uns direkt am Haupteingang.',
+    likes: 0,
+    likedByCurrentUser: false,
+    comments: [],
+    meetupDetails: {
+      gameId: 'game-bochum-arminia',
+      gameLabel: 'VfL Bochum – Arminia Bielefeld',
+      title: 'Gemeinsame Einstimmung vor dem Gästeblock',
+      location: 'Hauptbahnhof Bochum',
+      date: '08.11.2026',
+      eventTime: '11:30 Uhr',
+      attendeeIds: ['user-mina-k', 'user-sina-p'],
+    },
+  },
+  {
+    id: '6',
+    userId: 'user-mina-k',
+    user: 'Mina K.',
+    initials: 'MK',
+    time: 'vor 3 Std.',
+    category: 'Treffpunkt',
+    description: 'Lockeres Treffen vor dem Heimspiel, jeder ist willkommen.',
+    likes: 0,
+    likedByCurrentUser: false,
+    comments: [],
+    meetupDetails: {
+      gameId: 'game-arminia-paderborn',
+      gameLabel: 'Arminia Bielefeld – SC Paderborn',
+      title: 'Treffen vor dem Heimspiel',
+      location: 'Alm-Biergarten',
+      date: '22.11.2026',
+      eventTime: '13:00 Uhr',
+      attendeeIds: [],
     },
   },
 ];

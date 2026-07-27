@@ -11,6 +11,7 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
 import { useFeedPosts } from '@/context/feed-posts-context';
 import { useProfiles } from '@/context/profile-context';
+import { getPostDetailPathname } from '@/data/feed-posts';
 import type { UserProfile } from '@/data/users';
 
 type ProfileViewProps = {
@@ -23,13 +24,15 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
   const router = useRouter();
   const { posts, toggleLike } = useFeedPosts();
   const { isFollowing, followUser, unfollowUser, getFollowerCount, getFollowingCount } = useProfiles();
-  const [activeTab, setActiveTab] = useState<'posts' | 'trips'>('posts');
+  const [activeTab, setActiveTab] = useState<'posts' | 'trips' | 'meetups'>('posts');
 
   const ownPosts = posts.filter((post) => post.userId === profile.id);
-  const postsOnly = ownPosts.filter((post) => post.category !== 'Fahrt');
+  const postsOnly = ownPosts.filter((post) => post.category !== 'Fahrt' && post.category !== 'Treffpunkt');
   const tripsOnly = ownPosts.filter((post) => post.category === 'Fahrt');
+  const meetupsOnly = ownPosts.filter((post) => post.category === 'Treffpunkt');
   const postsCount = postsOnly.length;
   const tripsCount = tripsOnly.length;
+  const meetupsCount = meetupsOnly.length;
   const likesReceived = ownPosts.reduce((sum, post) => sum + post.likes, 0);
 
   const stats: ProfileStat[] = [
@@ -73,8 +76,8 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
     }
   };
 
-  const handleOpenPost = (postId: string) => {
-    router.push({ pathname: '/post/[id]', params: { id: postId } });
+  const handleOpenPost = (post: (typeof ownPosts)[number]) => {
+    router.push({ pathname: getPostDetailPathname(post), params: { id: post.id } });
   };
 
   return (
@@ -134,6 +137,16 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
               Fahrten {tripsCount}
             </Text>
           </Pressable>
+          <Pressable
+            onPress={() => setActiveTab('meetups')}
+            style={[styles.tabButton, activeTab === 'meetups' && styles.tabButtonActive]}
+            accessibilityRole="button"
+            accessibilityLabel="Treffpunkte anzeigen"
+          >
+            <Text style={[styles.tabButtonText, activeTab === 'meetups' && styles.tabButtonTextActive]}>
+              Treffpunkte {meetupsCount}
+            </Text>
+          </Pressable>
         </View>
 
         {activeTab === 'posts' ? (
@@ -149,26 +162,45 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
               <FeedPostCard
                 key={post.id}
                 post={post}
-                onPress={() => handleOpenPost(post.id)}
+                onPress={() => handleOpenPost(post)}
                 onLikePress={() => toggleLike(post.id)}
-                onCommentPress={() => router.push({ pathname: '/post/[id]', params: { id: post.id, focusComments: 'true' } })}
+                onCommentPress={() => router.push({ pathname: getPostDetailPathname(post), params: { id: post.id, focusComments: 'true' } })}
               />
             ))
           )
-        ) : tripsOnly.length === 0 ? (
+        ) : activeTab === 'trips' ? (
+          tripsOnly.length === 0 ? (
+            <View style={styles.emptyState}>
+              <IconSymbol size={40} name="tray.fill" color={FeedColors.textSecondary} />
+              <Text style={styles.emptyText}>
+                {isOwnProfile ? 'Du hast noch keine Fahrten geteilt.' : 'Dieser Nutzer hat noch keine Fahrten geteilt.'}
+              </Text>
+            </View>
+          ) : (
+            tripsOnly.map((post) => (
+              <TripCard
+                key={post.id}
+                post={post}
+                onPress={() => handleOpenPost(post)}
+                onLikePress={() => toggleLike(post.id)}
+              />
+            ))
+          )
+        ) : meetupsOnly.length === 0 ? (
           <View style={styles.emptyState}>
             <IconSymbol size={40} name="tray.fill" color={FeedColors.textSecondary} />
             <Text style={styles.emptyText}>
-              {isOwnProfile ? 'Du hast noch keine Fahrten geteilt.' : 'Dieser Nutzer hat noch keine Fahrten geteilt.'}
+              {isOwnProfile ? 'Du hast noch keine Treffpunkte geteilt.' : 'Dieser Nutzer hat noch keine Treffpunkte geteilt.'}
             </Text>
           </View>
         ) : (
-          tripsOnly.map((post) => (
-            <TripCard
+          meetupsOnly.map((post) => (
+            <FeedPostCard
               key={post.id}
               post={post}
-              onPress={() => handleOpenPost(post.id)}
+              onPress={() => handleOpenPost(post)}
               onLikePress={() => toggleLike(post.id)}
+              onCommentPress={() => router.push({ pathname: getPostDetailPathname(post), params: { id: post.id, focusComments: 'true' } })}
             />
           ))
         )}

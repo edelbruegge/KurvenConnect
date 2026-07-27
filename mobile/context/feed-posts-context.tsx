@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useMemo, useState } from 'react';
 
-import { feedPosts, type FeedComment, type FeedPost, type NewFeedPost } from '@/data/feed-posts';
+import { feedPosts, isMeetupFull, type FeedComment, type FeedPost, type NewFeedPost } from '@/data/feed-posts';
 import { CURRENT_USER_ID } from '@/data/users';
 
 type FeedPostsContextValue = {
@@ -10,6 +10,7 @@ type FeedPostsContextValue = {
   toggleLike: (postId: string) => void;
   addComment: (postId: string, text: string) => void;
   toggleRideRequest: (postId: string) => void;
+  toggleMeetupAttendance: (postId: string) => void;
 };
 
 const FeedPostsContext = createContext<FeedPostsContextValue | undefined>(undefined);
@@ -99,6 +100,39 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
     );
   };
 
+  const toggleMeetupAttendance = (postId: string) => {
+    setPosts((currentPosts) =>
+      currentPosts.map((post) => {
+        if (post.id !== postId || post.category !== 'Treffpunkt' || !post.meetupDetails) {
+          return post;
+        }
+
+        if (post.userId === CURRENT_USER_ID) {
+          return post;
+        }
+
+        const details = post.meetupDetails;
+        const isAttending = details.attendeeIds.includes(CURRENT_USER_ID);
+
+        if (isAttending) {
+          return {
+            ...post,
+            meetupDetails: { ...details, attendeeIds: details.attendeeIds.filter((id) => id !== CURRENT_USER_ID) },
+          };
+        }
+
+        if (isMeetupFull(details)) {
+          return post;
+        }
+
+        return {
+          ...post,
+          meetupDetails: { ...details, attendeeIds: [...details.attendeeIds, CURRENT_USER_ID] },
+        };
+      }),
+    );
+  };
+
   const value = useMemo(
     () => ({
       posts,
@@ -107,6 +141,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       toggleLike,
       addComment,
       toggleRideRequest,
+      toggleMeetupAttendance,
     }),
     [posts],
   );

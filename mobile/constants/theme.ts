@@ -80,7 +80,13 @@ export const CategoryLabels: Record<FeedPostCategory, string> = {
   Beitrag: 'Beitrag',
   Fahrt: 'Fahrt',
   Gesuch: 'Gesucht',
+  Treffpunkt: 'Treffpunkt',
 };
+
+export const StatusColors = {
+  error: '#F87171',
+  success: '#34D399',
+} as const;
 
 export const Fonts = Platform.select({
   ios: {

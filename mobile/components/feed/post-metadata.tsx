@@ -34,6 +34,26 @@ export function PostMetadata({ post, variant = 'compact' }: PostMetadataProps) {
     );
   }
 
+  if (post.category === 'Treffpunkt' && post.meetupDetails) {
+    const details = [
+      { label: 'Spiel', value: post.meetupDetails.gameLabel },
+      { label: 'Ort', value: post.meetupDetails.location },
+      { label: 'Datum', value: post.meetupDetails.date },
+      { label: 'Uhrzeit', value: post.meetupDetails.eventTime },
+    ];
+
+    return (
+      <View style={[styles.container, variant === 'detail' ? styles.containerDetail : styles.containerCompact]}>
+        {details.map((detail) => (
+          <View key={detail.label} style={styles.item}>
+            <Text style={styles.label}>{detail.label}</Text>
+            <Text style={styles.value}>{detail.value}</Text>
+          </View>
+        ))}
+      </View>
+    );
+  }
+
   if (post.category === 'Gesuch' && post.requestDetails) {
     return (
       <View style={[styles.container, variant === 'detail' ? styles.containerDetail : styles.containerCompact]}>

@@ -5,8 +5,9 @@ import { Keyboard, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, Scro
 import { CategoryLabels, ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
 import { useFeedPosts } from '@/context/feed-posts-context';
 import type { FeedPostCategory, NewFeedPost } from '@/data/feed-posts';
+import { seedGames } from '@/data/games';
 
-const categoryOptions: FeedPostCategory[] = ['Beitrag', 'Fahrt', 'Gesuch'];
+const categoryOptions: FeedPostCategory[] = ['Beitrag', 'Fahrt', 'Gesuch', 'Treffpunkt'];
 
 type CreatePostFormState = {
   category: FeedPostCategory;
@@ -18,6 +19,12 @@ type CreatePostFormState = {
   freeSeats: string;
   occasion: string;
   requestedService: string;
+  gameId: string;
+  meetupTitle: string;
+  location: string;
+  date: string;
+  eventTime: string;
+  maxAttendees: string;
 };
 
 const initialFormState: CreatePostFormState = {
@@ -30,6 +37,12 @@ const initialFormState: CreatePostFormState = {
   freeSeats: '',
   occasion: '',
   requestedService: '',
+  gameId: '',
+  meetupTitle: '',
+  location: '',
+  date: '',
+  eventTime: '',
+  maxAttendees: '',
 };
 
 export default function CreatePostScreen() {
@@ -67,6 +80,20 @@ export default function CreatePostScreen() {
       return Boolean(form.requestedService.trim());
     }
 
+    if (form.category === 'Treffpunkt') {
+      const maxAttendeesValid = !form.maxAttendees.trim() || (Number.isInteger(Number(form.maxAttendees)) && Number(form.maxAttendees) > 0);
+
+      return Boolean(
+        form.gameId &&
+          form.meetupTitle.trim().length >= 3 &&
+          form.location.trim() &&
+          form.date.trim() &&
+          form.eventTime.trim() &&
+          form.description.trim().length >= 5 &&
+          maxAttendeesValid,
+      );
+    }
+
     return true;
   };
 
@@ -94,6 +121,48 @@ export default function CreatePostScreen() {
       return;
     }
 
+    if (form.category === 'Treffpunkt') {
+      if (!form.gameId) {
+        setErrorMessage('Bitte wähle ein Spiel aus.');
+        return;
+      }
+
+      if (form.meetupTitle.trim().length < 3) {
+        setErrorMessage('Der Titel muss mindestens 3 Zeichen lang sein.');
+        return;
+      }
+
+      if (!form.location.trim()) {
+        setErrorMessage('Bitte gib einen Ort an.');
+        return;
+      }
+
+      if (!form.date.trim()) {
+        setErrorMessage('Bitte gib ein Datum an.');
+        return;
+      }
+
+      if (!form.eventTime.trim()) {
+        setErrorMessage('Bitte gib eine Uhrzeit an.');
+        return;
+      }
+
+      if (form.description.trim().length < 5) {
+        setErrorMessage('Die Beschreibung muss mindestens 5 Zeichen lang sein.');
+        return;
+      }
+
+      if (form.maxAttendees.trim()) {
+        const parsedMax = Number(form.maxAttendees);
+        if (!Number.isInteger(parsedMax) || parsedMax <= 0) {
+          setErrorMessage('Bitte gib eine gültige positive Zahl für die maximale Teilnehmerzahl ein.');
+          return;
+        }
+      }
+    }
+
+    const selectedGame = seedGames.find((game) => game.id === form.gameId);
+
     const postToAdd: NewFeedPost = {
       category: form.category,
       description: form.description.trim(),
@@ -113,6 +182,20 @@ export default function CreatePostScreen() {
         ? {
             requestDetails: {
               requestedService: form.requestedService.trim(),
+            },
+          }
+        : {}),
+      ...(form.category === 'Treffpunkt' && selectedGame
+        ? {
+            meetupDetails: {
+              gameId: selectedGame.id,
+              gameLabel: selectedGame.label,
+              title: form.meetupTitle.trim(),
+              location: form.location.trim(),
+              date: form.date.trim(),
+              eventTime: form.eventTime.trim(),
+              maxAttendees: form.maxAttendees.trim() ? Number(form.maxAttendees) : undefined,
+              attendeeIds: [],
             },
           }
         : {}),
@@ -184,6 +267,30 @@ export default function CreatePostScreen() {
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Gesucht</Text>
               <TextInput value={form.requestedService} onChangeText={(value) => updateField('requestedService', value)} placeholder="Gesuchte Leistung" placeholderTextColor={FeedColors.textSecondary} style={styles.textInput} returnKeyType="done" onSubmitEditing={() => Keyboard.dismiss()} />
+            </View>
+          ) : null}
+
+          {form.category === 'Treffpunkt' ? (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Treffpunkt-Details</Text>
+              <View style={styles.optionRow}>
+                {seedGames.map((game) => {
+                  const isSelected = form.gameId === game.id;
+                  return (
+                    <Pressable
+                      key={game.id}
+                      onPress={() => updateField('gameId', game.id)}
+                      style={[styles.optionButton, isSelected && styles.optionButtonActive]}>
+                      <Text style={[styles.optionText, isSelected && styles.optionTextActive]}>{game.label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <TextInput value={form.meetupTitle} onChangeText={(value) => updateField('meetupTitle', value)} placeholder="Titel des Treffpunkts" placeholderTextColor={FeedColors.textSecondary} style={[styles.textInput, styles.optionSpacing]} returnKeyType="done" onSubmitEditing={() => Keyboard.dismiss()} />
+              <TextInput value={form.location} onChangeText={(value) => updateField('location', value)} placeholder="Ort oder Adresse" placeholderTextColor={FeedColors.textSecondary} style={styles.textInput} returnKeyType="done" onSubmitEditing={() => Keyboard.dismiss()} />
+              <TextInput value={form.date} onChangeText={(value) => updateField('date', value)} placeholder="Datum (z. B. 08.11.2026)" placeholderTextColor={FeedColors.textSecondary} style={styles.textInput} returnKeyType="done" onSubmitEditing={() => Keyboard.dismiss()} />
+              <TextInput value={form.eventTime} onChangeText={(value) => updateField('eventTime', value)} placeholder="Uhrzeit (z. B. 13:00 Uhr)" placeholderTextColor={FeedColors.textSecondary} style={styles.textInput} returnKeyType="done" onSubmitEditing={() => Keyboard.dismiss()} />
+              <TextInput value={form.maxAttendees} onChangeText={(value) => updateField('maxAttendees', value)} placeholder="Maximale Teilnehmerzahl (optional)" keyboardType="number-pad" placeholderTextColor={FeedColors.textSecondary} style={styles.textInput} returnKeyType="done" onSubmitEditing={() => Keyboard.dismiss()} />
             </View>
           ) : null}
 
@@ -263,6 +370,9 @@ const styles = StyleSheet.create({
   },
   optionTextActive: {
     color: FeedColors.textPrimary,
+  },
+  optionSpacing: {
+    marginTop: Spacing.sm,
   },
   textInput: {
     borderWidth: 1,

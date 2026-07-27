@@ -12,6 +12,7 @@ const CATEGORY_ICON_NAME = {
   Beitrag: 'doc.text.fill',
   Fahrt: 'car.fill',
   Gesuch: 'magnifyingglass',
+  Treffpunkt: 'person.3.fill',
 } as const;
 
 export function CategoryBadge({ category }: CategoryBadgeProps) {

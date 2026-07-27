@@ -7,13 +7,17 @@ import { FeedPostCard } from '@/components/feed/feed-post-card';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
 import { useFeedPosts } from '@/context/feed-posts-context';
-import type { FeedPost } from '@/data/feed-posts';
+import { getPostDetailPathname, type FeedPost } from '@/data/feed-posts';
 
 function matchesQuery(post: FeedPost, query: string): boolean {
   const haystack = [post.description, post.user, post.category];
 
   if (post.category === 'Fahrt' && post.tripDetails) {
     haystack.push(post.tripDetails.departure, post.tripDetails.destination);
+  }
+
+  if (post.category === 'Treffpunkt' && post.meetupDetails) {
+    haystack.push(post.meetupDetails.title, post.meetupDetails.location, post.meetupDetails.gameLabel);
   }
 
   return haystack.some((value) => value.toLowerCase().includes(query));
@@ -34,8 +38,8 @@ export default function SearchScreen() {
     return posts.filter((post) => matchesQuery(post, trimmedQuery));
   }, [posts, trimmedQuery]);
 
-  const handleOpenPost = (postId: string) => {
-    router.push({ pathname: '/post/[id]', params: { id: postId } });
+  const handleOpenPost = (post: FeedPost) => {
+    router.push({ pathname: getPostDetailPathname(post), params: { id: post.id } });
   };
 
   return (
@@ -94,9 +98,9 @@ export default function SearchScreen() {
             <FeedPostCard
               key={post.id}
               post={post}
-              onPress={() => handleOpenPost(post.id)}
+              onPress={() => handleOpenPost(post)}
               onLikePress={() => toggleLike(post.id)}
-              onCommentPress={() => router.push({ pathname: '/post/[id]', params: { id: post.id, focusComments: 'true' } })}
+              onCommentPress={() => router.push({ pathname: getPostDetailPathname(post), params: { id: post.id, focusComments: 'true' } })}
             />
           ))}
         </ScrollView>

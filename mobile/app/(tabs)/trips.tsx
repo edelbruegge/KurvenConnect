@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { TripCard } from '@/components/trips/trip-card';
 import { FeedColors, FontSizes, Spacing } from '@/constants/theme';
 import { useFeedPosts } from '@/context/feed-posts-context';
+import { getPostDetailPathname, type FeedPost } from '@/data/feed-posts';
 
 export default function TripsScreen() {
   const router = useRouter();
@@ -12,8 +13,8 @@ export default function TripsScreen() {
 
   const trips = posts.filter((post) => post.category === 'Fahrt');
 
-  const handleOpenTrip = (postId: string) => {
-    router.push({ pathname: '/post/[id]', params: { id: postId } });
+  const handleOpenPost = (post: FeedPost) => {
+    router.push({ pathname: getPostDetailPathname(post), params: { id: post.id } });
   };
 
   return (
@@ -21,7 +22,7 @@ export default function TripsScreen() {
       <View style={styles.header}>
         <View style={styles.headerText}>
           <Text style={styles.title}>Fahrten</Text>
-          <Text style={styles.subtitle}>Lokale Fahrgemeinschaften und Spieltagsfahrten</Text>
+          <Text style={styles.subtitle}>Lokale Fahrgemeinschaften zum Spieltag</Text>
         </View>
       </View>
 
@@ -36,7 +37,7 @@ export default function TripsScreen() {
             <TripCard
               key={trip.id}
               post={trip}
-              onPress={() => handleOpenTrip(trip.id)}
+              onPress={() => handleOpenPost(trip)}
               onLikePress={() => toggleLike(trip.id)}
             />
           ))}

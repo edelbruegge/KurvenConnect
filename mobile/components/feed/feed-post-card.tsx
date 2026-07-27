@@ -7,7 +7,8 @@ import { PostMetadata } from '@/components/feed/post-metadata';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { ClubColors, Colors, FontSizes, FeedColors, Radii, Spacing } from '@/constants/theme';
 import { useProfiles } from '@/context/profile-context';
-import type { FeedPost } from '@/data/feed-posts';
+import { getMeetupAttendeeCount, type FeedPost } from '@/data/feed-posts';
+import { CURRENT_USER_ID } from '@/data/users';
 
 type FeedPostCardProps = {
   post: FeedPost;
@@ -52,8 +53,24 @@ export function FeedPostCard({ post, onPress, onLikePress, onCommentPress }: Fee
         </View>
       ) : null}
 
+      {post.category === 'Treffpunkt' && post.meetupDetails ? (
+        <Text style={styles.meetupTitle}>{post.meetupDetails.title}</Text>
+      ) : null}
+
       <Text style={styles.description}>{post.description}</Text>
       <PostMetadata post={post} variant="compact" />
+
+      {post.category === 'Treffpunkt' && post.meetupDetails ? (
+        <View style={styles.attendeeRow}>
+          <IconSymbol size={14} name="person.3.fill" color={FeedColors.textSecondary} />
+          <Text style={styles.attendeeText}>{getMeetupAttendeeCount(post.meetupDetails)} Teilnehmer</Text>
+          {post.meetupDetails.attendeeIds.includes(CURRENT_USER_ID) ? (
+            <View style={styles.attendingTag}>
+              <Text style={styles.attendingTagText}>Du nimmst teil</Text>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
 
       <View style={styles.footer}>
         <Pressable
@@ -130,11 +147,39 @@ const styles = StyleSheet.create({
     color: FeedColors.textSecondary,
     fontSize: FontSizes.meta,
   },
+  meetupTitle: {
+    color: FeedColors.textPrimary,
+    fontSize: FontSizes.body,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
   description: {
     color: FeedColors.textPrimary,
     fontSize: FontSizes.body,
     lineHeight: 20,
     marginBottom: Spacing.sm,
+  },
+  attendeeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: Spacing.sm,
+  },
+  attendeeText: {
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.meta,
+  },
+  attendingTag: {
+    backgroundColor: ClubColors.surface,
+    borderRadius: Radii.round,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 2,
+    marginLeft: Spacing.xs,
+  },
+  attendingTagText: {
+    color: ClubColors.text,
+    fontSize: FontSizes.meta,
+    fontWeight: '600',
   },
   footer: {
     flexDirection: 'row',
