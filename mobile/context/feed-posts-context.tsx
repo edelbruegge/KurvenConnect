@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useMemo, useState } from 'react';
 
 import { feedPosts, type FeedComment, type FeedPost, type NewFeedPost } from '@/data/feed-posts';
+import { CURRENT_USER_ID } from '@/data/users';
 
 type FeedPostsContextValue = {
   posts: FeedPost[];
@@ -19,6 +20,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
   const addPost = (post: NewFeedPost) => {
     const newPost: FeedPost = {
       id: `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      userId: CURRENT_USER_ID,
       user: 'Marco B.',
       initials: 'MB',
       time: 'gerade eben',

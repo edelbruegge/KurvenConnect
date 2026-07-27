@@ -1,3 +1,4 @@
+import { useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View, GestureResponderEvent } from 'react-native';
 
 import { Avatar } from '@/components/feed/avatar';
@@ -5,6 +6,7 @@ import { CategoryBadge } from '@/components/feed/category-badge';
 import { PostMetadata } from '@/components/feed/post-metadata';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors, FontSizes, FeedColors, Radii, Spacing } from '@/constants/theme';
+import { useProfiles } from '@/context/profile-context';
 import type { FeedPost } from '@/data/feed-posts';
 
 type FeedPostCardProps = {
@@ -15,18 +17,32 @@ type FeedPostCardProps = {
 };
 
 export function FeedPostCard({ post, onPress, onLikePress, onCommentPress }: FeedPostCardProps) {
+  const router = useRouter();
+  const { getAuthorDisplay } = useProfiles();
+  const author = getAuthorDisplay(post);
+
+  const handleAuthorPress = (e: GestureResponderEvent) => {
+    e.stopPropagation();
+    router.push({ pathname: '/profile/[id]', params: { id: post.userId } });
+  };
+
   return (
     <Pressable onPress={onPress} style={styles.card}>
       <View style={styles.cardHeader}>
-        <View style={styles.userBlock}>
+        <Pressable
+          onPress={handleAuthorPress}
+          style={styles.userBlock}
+          accessibilityRole="button"
+          accessibilityLabel={`Profil von ${author.displayName} öffnen`}
+        >
           <View style={styles.avatarMargin}>
-            <Avatar initials={post.initials} />
+            <Avatar initials={author.initials} />
           </View>
           <View>
-            <Text style={styles.userName}>{post.user}</Text>
+            <Text style={styles.userName}>{author.displayName}</Text>
             <Text style={styles.time}>{post.time}</Text>
           </View>
-        </View>
+        </Pressable>
         <CategoryBadge category={post.category} />
       </View>
 

@@ -30,6 +30,7 @@ export type GesuchDetails = {
 
 export type FeedPost = {
   id: string;
+  userId: string;
   user: string;
   initials: string;
   time: string;
@@ -47,6 +48,7 @@ export type FeedPost = {
 export const feedPosts: FeedPost[] = [
   {
     id: '1',
+    userId: 'user-mina-k',
     user: 'Mina K.',
     initials: 'MK',
     time: 'vor 12 Min.',
@@ -74,6 +76,7 @@ export const feedPosts: FeedPost[] = [
   },
   {
     id: '2',
+    userId: 'user-luca-r',
     user: 'Luca R.',
     initials: 'LR',
     time: 'vor 27 Min.',
@@ -95,6 +98,7 @@ export const feedPosts: FeedPost[] = [
   },
   {
     id: '3',
+    userId: 'user-david-s',
     user: 'David S.',
     initials: 'DS',
     time: 'vor 1 Std.',
@@ -123,6 +127,7 @@ export const feedPosts: FeedPost[] = [
   },
   {
     id: '4',
+    userId: 'user-sina-p',
     user: 'Sina P.',
     initials: 'SP',
     time: 'vor 1 Std.',

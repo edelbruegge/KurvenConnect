@@ -1,9 +1,11 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useRouter } from 'expo-router';
+import { Pressable, StyleSheet, Text, View, GestureResponderEvent } from 'react-native';
 
 import { Avatar } from '@/components/feed/avatar';
 import { PostMetadata } from '@/components/feed/post-metadata';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
+import { useProfiles } from '@/context/profile-context';
 import type { FeedPost } from '@/data/feed-posts';
 
 type TripCardProps = {
@@ -12,22 +14,36 @@ type TripCardProps = {
 };
 
 export function TripCard({ post, onPress }: TripCardProps) {
+  const router = useRouter();
+  const { getAuthorDisplay } = useProfiles();
   const tripDetails = post.tripDetails;
 
   if (!tripDetails) {
     return null;
   }
 
+  const author = getAuthorDisplay(post);
+
+  const handleAuthorPress = (e: GestureResponderEvent) => {
+    e.stopPropagation();
+    router.push({ pathname: '/profile/[id]', params: { id: post.userId } });
+  };
+
   return (
-    <Pressable onPress={onPress} style={styles.card} accessibilityRole="button">
+    <Pressable onPress={onPress} style={styles.card}>
       <View style={styles.header}>
-        <View style={styles.userBlock}>
-          <Avatar initials={post.initials} />
+        <Pressable
+          onPress={handleAuthorPress}
+          style={styles.userBlock}
+          accessibilityRole="button"
+          accessibilityLabel={`Profil von ${author.displayName} öffnen`}
+        >
+          <Avatar initials={author.initials} />
           <View style={styles.userInfo}>
-            <Text style={styles.userName}>{post.user}</Text>
+            <Text style={styles.userName}>{author.displayName}</Text>
             <Text style={styles.time}>{post.time}</Text>
           </View>
-        </View>
+        </Pressable>
         <View style={styles.badge}>
           <Text style={styles.badgeText}>{tripDetails.freeSeats} frei</Text>
         </View>

@@ -27,6 +27,11 @@ const MAPPING = {
   message: 'chat-bubble-outline',
   'xmark.circle.fill': 'cancel',
   'text.magnifyingglass': 'search-off',
+  'square.and.pencil': 'edit',
+  'shield.fill': 'shield',
+  'mappin.and.ellipse': 'place',
+  calendar: 'calendar-today',
+  'tray.fill': 'inbox',
 } as const satisfies IconMapping;
 
 /**

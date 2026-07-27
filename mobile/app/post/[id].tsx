@@ -8,11 +8,13 @@ import { PostMetadata } from '@/components/feed/post-metadata';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
 import { useFeedPosts } from '@/context/feed-posts-context';
+import { useProfiles } from '@/context/profile-context';
 
 export default function PostDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string; focusComments?: string }>();
   const { posts, toggleLike, addComment, toggleRideRequest } = useFeedPosts();
+  const { getAuthorDisplay } = useProfiles();
   const [draftComment, setDraftComment] = useState('');
   const scrollRef = useRef<ScrollView | null>(null);
   const commentInputRef = useRef<TextInput | null>(null);
@@ -65,6 +67,11 @@ export default function PostDetailScreen() {
   const isCommentInputValid = draftComment.trim().length > 0;
   const isTrip = post.category === 'Fahrt';
   const rideRequestLabel = post.rideRequestSent ? 'Anfrage zurückziehen' : 'Mitfahren anfragen';
+  const author = getAuthorDisplay(post);
+
+  const handleAuthorPress = () => {
+    router.push({ pathname: '/profile/[id]', params: { id: post.userId } });
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -72,13 +79,18 @@ export default function PostDetailScreen() {
         <Pressable style={{ flex: 1 }} onPress={() => Keyboard.dismiss()}>
           <ScrollView ref={scrollRef} contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
         <View style={styles.header}>
-          <View style={styles.userBlock}>
-            <Avatar initials={post.initials} />
+          <Pressable
+            onPress={handleAuthorPress}
+            style={styles.userBlock}
+            accessibilityRole="button"
+            accessibilityLabel={`Profil von ${author.displayName} öffnen`}
+          >
+            <Avatar initials={author.initials} />
             <View style={styles.userInfo}>
-              <Text style={styles.userName}>{post.user}</Text>
+              <Text style={styles.userName}>{author.displayName}</Text>
               <Text style={styles.time}>{post.time}</Text>
             </View>
-          </View>
+          </Pressable>
           <CategoryBadge category={post.category} />
         </View>
 
