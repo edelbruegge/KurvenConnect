@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { FeedPostCard } from '@/components/feed/feed-post-card';
 import { MessagesButton } from '@/components/navigation/messages-button';
+import { NotificationsButton } from '@/components/navigation/notifications-button';
 import { ProfileHeader } from '@/components/profile/profile-header';
 import { ProfileStats, type ProfileStat } from '@/components/profile/profile-stats';
 import { TripCard } from '@/components/trips/trip-card';
@@ -92,6 +93,7 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
     <SafeAreaView style={styles.safeArea}>
       {isOwnProfile ? (
         <View style={styles.headerRow}>
+          <NotificationsButton />
           <MessagesButton />
         </View>
       ) : null}
@@ -240,6 +242,7 @@ const styles = StyleSheet.create({
   },
   headerRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'flex-end',
     paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.xs,

@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { FeedPostCard } from '@/components/feed/feed-post-card';
 import { MessagesButton } from '@/components/navigation/messages-button';
+import { NotificationsButton } from '@/components/navigation/notifications-button';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
 import { useFeedPosts } from '@/context/feed-posts-context';
@@ -51,7 +52,10 @@ export default function SearchScreen() {
             <Text style={styles.title}>Suchen</Text>
             <Text style={styles.subtitle}>Finde Beiträge, Nutzer, Kategorien und Fahrten</Text>
           </View>
-          <MessagesButton />
+          <View style={styles.headerActions}>
+            <NotificationsButton />
+            <MessagesButton />
+          </View>
         </View>
       </View>
 
@@ -129,6 +133,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   headerText: {
     flex: 1,

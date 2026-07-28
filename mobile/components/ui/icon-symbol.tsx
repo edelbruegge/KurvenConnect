@@ -38,6 +38,7 @@ const MAPPING = {
   'doc.text.fill': 'article',
   'person.3.fill': 'groups',
   'line.3.horizontal': 'menu',
+  'bell.fill': 'notifications-none',
 } as const satisfies IconMapping;
 
 /**

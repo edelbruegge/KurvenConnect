@@ -4,6 +4,7 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { FeedPostCard } from '@/components/feed/feed-post-card';
 import { MessagesButton } from '@/components/navigation/messages-button';
+import { NotificationsButton } from '@/components/navigation/notifications-button';
 import { FeedColors, FontSizes, Spacing } from '@/constants/theme';
 import { useFeedPosts } from '@/context/feed-posts-context';
 import { getPostDetailPathname, type FeedPost } from '@/data/feed-posts';
@@ -24,7 +25,10 @@ export default function HomeScreen() {
             <Text style={styles.title}>Kurvenconnect Feed</Text>
             <Text style={styles.subtitle}>Aktuelle Community-Updates aus dem Stadionalltag</Text>
           </View>
-          <MessagesButton />
+          <View style={styles.headerActions}>
+            <NotificationsButton />
+            <MessagesButton />
+          </View>
         </View>
       </View>
 
@@ -59,6 +63,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   headerText: {
     flex: 1,
