@@ -9,13 +9,16 @@ import { NotFoundView } from '@/components/navigation/not-found-view';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
 import { useFeedPosts } from '@/context/feed-posts-context';
+import { useMessages } from '@/context/messages-context';
 import { useProfiles } from '@/context/profile-context';
+import { getConversationReferenceForPost } from '@/data/messages';
 
 export default function PostDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string; focusComments?: string }>();
   const { posts, toggleLike, addComment, toggleRideRequest } = useFeedPosts();
-  const { getAuthorDisplay } = useProfiles();
+  const { getOrCreateConversation } = useMessages();
+  const { currentUser, getAuthorDisplay } = useProfiles();
   const [draftComment, setDraftComment] = useState('');
   const scrollRef = useRef<ScrollView | null>(null);
   const commentInputRef = useRef<TextInput | null>(null);
@@ -59,9 +62,15 @@ export default function PostDetailScreen() {
   const isTrip = post.category === 'Fahrt';
   const rideRequestLabel = post.rideRequestSent ? 'Anfrage zurückziehen' : 'Mitfahren anfragen';
   const author = getAuthorDisplay(post);
+  const isOwnPost = post.userId === currentUser.id;
 
   const handleAuthorPress = () => {
     router.push({ pathname: '/profile/[id]', params: { id: post.userId } });
+  };
+
+  const handleMessagePress = () => {
+    const conversationId = getOrCreateConversation(post.userId, getConversationReferenceForPost(post));
+    router.push({ pathname: '/messages/[id]', params: { id: conversationId } });
   };
 
   return (
@@ -113,6 +122,20 @@ export default function PostDetailScreen() {
           </View>
 
           <PostMetadata post={post} variant="detail" />
+
+          {!isOwnPost ? (
+            <View style={styles.messageSection}>
+              <Pressable
+                onPress={handleMessagePress}
+                style={styles.messageButton}
+                accessibilityRole="button"
+                accessibilityLabel={`Nachricht senden an ${author.displayName}`}
+              >
+                <IconSymbol size={16} name="message" color={ClubColors.text} />
+                <Text style={styles.messageButtonText}>Nachricht senden</Text>
+              </Pressable>
+            </View>
+          ) : null}
 
           {isTrip ? (
             <View style={styles.rideRequestSection}>
@@ -279,6 +302,25 @@ const styles = StyleSheet.create({
   meta: {
     color: FeedColors.textSecondary,
     fontSize: FontSizes.meta,
+  },
+  messageSection: {
+    marginTop: Spacing.md,
+  },
+  messageButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    alignSelf: 'flex-start',
+    borderRadius: Radii.round,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderWidth: 1,
+    borderColor: ClubColors.border,
+  },
+  messageButtonText: {
+    color: ClubColors.text,
+    fontSize: FontSizes.body,
+    fontWeight: '600',
   },
   rideRequestSection: {
     marginTop: Spacing.md,

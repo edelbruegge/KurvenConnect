@@ -4,6 +4,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { FeedPostCard } from '@/components/feed/feed-post-card';
+import { MessagesButton } from '@/components/navigation/messages-button';
 import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
 import { useFeedPosts } from '@/context/feed-posts-context';
 import { getPostDetailPathname, type FeedPost } from '@/data/feed-posts';
@@ -26,9 +27,12 @@ export default function MeetupsScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.header}>
-        <View style={styles.headerText}>
-          <Text style={styles.title}>Treffpunkte</Text>
-          <Text style={styles.subtitle}>Verabredungen rund um den Spieltag</Text>
+        <View style={styles.headerRow}>
+          <View style={styles.headerText}>
+            <Text style={styles.title}>Treffpunkte</Text>
+            <Text style={styles.subtitle}>Verabredungen rund um den Spieltag</Text>
+          </View>
+          <MessagesButton />
         </View>
       </View>
 
@@ -94,6 +98,11 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.sm,
     borderBottomColor: FeedColors.cardBorder,
     borderBottomWidth: 1,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
   },
   headerText: {
     flex: 1,

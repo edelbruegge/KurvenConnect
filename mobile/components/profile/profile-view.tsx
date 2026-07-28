@@ -4,12 +4,14 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { FeedPostCard } from '@/components/feed/feed-post-card';
+import { MessagesButton } from '@/components/navigation/messages-button';
 import { ProfileHeader } from '@/components/profile/profile-header';
 import { ProfileStats, type ProfileStat } from '@/components/profile/profile-stats';
 import { TripCard } from '@/components/trips/trip-card';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
 import { useFeedPosts } from '@/context/feed-posts-context';
+import { useMessages } from '@/context/messages-context';
 import { useProfiles } from '@/context/profile-context';
 import { getPostDetailPathname } from '@/data/feed-posts';
 import type { UserProfile } from '@/data/users';
@@ -23,6 +25,7 @@ type ProfileViewProps = {
 export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewProps) {
   const router = useRouter();
   const { posts, toggleLike } = useFeedPosts();
+  const { getOrCreateConversation } = useMessages();
   const { isFollowing, followUser, unfollowUser, getFollowerCount, getFollowingCount } = useProfiles();
   const [activeTab, setActiveTab] = useState<'posts' | 'trips' | 'meetups'>('posts');
 
@@ -80,8 +83,18 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
     router.push({ pathname: getPostDetailPathname(post), params: { id: post.id } });
   };
 
+  const handleMessagePress = () => {
+    const conversationId = getOrCreateConversation(profile.id);
+    router.push({ pathname: '/messages/[id]', params: { id: conversationId } });
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
+      {isOwnProfile ? (
+        <View style={styles.headerRow}>
+          <MessagesButton />
+        </View>
+      ) : null}
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         <ProfileHeader profile={profile} />
 
@@ -91,21 +104,32 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
             <Text style={styles.editButtonText}>Profil bearbeiten</Text>
           </Pressable>
         ) : (
-          <Pressable
-            onPress={handleFollowToggle}
-            style={[styles.editButton, following && styles.followingButton]}
-            accessibilityRole="button"
-            accessibilityLabel={following ? 'Entfolgen' : 'Folgen'}
-          >
-            <IconSymbol
-              size={18}
-              name={following ? 'checkmark.circle.fill' : 'person.badge.plus'}
-              color={following ? ClubColors.text : FeedColors.textPrimary}
-            />
-            <Text style={[styles.editButtonText, following && styles.followingButtonText]}>
-              {following ? 'Gefolgt' : 'Folgen'}
-            </Text>
-          </Pressable>
+          <View style={styles.actionRow}>
+            <Pressable
+              onPress={handleFollowToggle}
+              style={[styles.editButton, styles.actionRowButton, following && styles.followingButton]}
+              accessibilityRole="button"
+              accessibilityLabel={following ? 'Entfolgen' : 'Folgen'}
+            >
+              <IconSymbol
+                size={18}
+                name={following ? 'checkmark.circle.fill' : 'person.badge.plus'}
+                color={following ? ClubColors.text : FeedColors.textPrimary}
+              />
+              <Text style={[styles.editButtonText, following && styles.followingButtonText]}>
+                {following ? 'Gefolgt' : 'Folgen'}
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={handleMessagePress}
+              style={[styles.editButton, styles.actionRowButton]}
+              accessibilityRole="button"
+              accessibilityLabel={`Nachricht an ${profile.displayName} schreiben`}
+            >
+              <IconSymbol size={18} name="message" color={FeedColors.textPrimary} />
+              <Text style={styles.editButtonText}>Nachricht</Text>
+            </Pressable>
+          </View>
         )}
 
         <View style={styles.statsWrapper}>
@@ -214,6 +238,12 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: FeedColors.background,
   },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.xs,
+  },
   scroll: {
     flex: 1,
   },
@@ -232,6 +262,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: ClubColors.border,
     backgroundColor: FeedColors.cardBackground,
+  },
+  actionRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+  },
+  actionRowButton: {
+    flex: 1,
+    marginTop: Spacing.md,
   },
   editButtonText: {
     color: FeedColors.textPrimary,

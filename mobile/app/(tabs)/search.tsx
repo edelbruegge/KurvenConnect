@@ -4,6 +4,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { FeedPostCard } from '@/components/feed/feed-post-card';
+import { MessagesButton } from '@/components/navigation/messages-button';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
 import { useFeedPosts } from '@/context/feed-posts-context';
@@ -45,9 +46,12 @@ export default function SearchScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.header}>
-        <View style={styles.headerText}>
-          <Text style={styles.title}>Suchen</Text>
-          <Text style={styles.subtitle}>Finde Beiträge, Nutzer, Kategorien und Fahrten</Text>
+        <View style={styles.headerRow}>
+          <View style={styles.headerText}>
+            <Text style={styles.title}>Suchen</Text>
+            <Text style={styles.subtitle}>Finde Beiträge, Nutzer, Kategorien und Fahrten</Text>
+          </View>
+          <MessagesButton />
         </View>
       </View>
 
@@ -120,6 +124,11 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.sm,
     borderBottomColor: FeedColors.cardBorder,
     borderBottomWidth: 1,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
   },
   headerText: {
     flex: 1,

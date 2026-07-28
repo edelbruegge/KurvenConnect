@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { MessagesButton } from '@/components/navigation/messages-button';
 import { TripCard } from '@/components/trips/trip-card';
 import { FeedColors, FontSizes, Spacing } from '@/constants/theme';
 import { useFeedPosts } from '@/context/feed-posts-context';
@@ -20,9 +21,12 @@ export default function TripsScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.header}>
-        <View style={styles.headerText}>
-          <Text style={styles.title}>Fahrten</Text>
-          <Text style={styles.subtitle}>Lokale Fahrgemeinschaften zum Spieltag</Text>
+        <View style={styles.headerRow}>
+          <View style={styles.headerText}>
+            <Text style={styles.title}>Fahrten</Text>
+            <Text style={styles.subtitle}>Lokale Fahrgemeinschaften zum Spieltag</Text>
+          </View>
+          <MessagesButton />
         </View>
       </View>
 
@@ -58,6 +62,11 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.sm,
     borderBottomColor: FeedColors.cardBorder,
     borderBottomWidth: 1,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
   },
   headerText: {
     flex: 1,

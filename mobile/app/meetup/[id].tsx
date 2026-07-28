@@ -21,8 +21,10 @@ import { NotFoundView } from '@/components/navigation/not-found-view';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { ClubColors, FeedColors, FontSizes, Radii, Spacing, StatusColors } from '@/constants/theme';
 import { useFeedPosts } from '@/context/feed-posts-context';
+import { useMessages } from '@/context/messages-context';
 import { useProfiles } from '@/context/profile-context';
 import { getMeetupAttendeeCount, isMeetupFull } from '@/data/feed-posts';
+import { getConversationReferenceForPost } from '@/data/messages';
 
 async function openInMaps(address: string) {
   const encoded = encodeURIComponent(address);
@@ -48,6 +50,7 @@ export default function MeetupDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string; focusComments?: string }>();
   const { posts, toggleLike, addComment, toggleMeetupAttendance } = useFeedPosts();
+  const { getOrCreateConversation } = useMessages();
   const { currentUser, getAuthorDisplay, getUserById } = useProfiles();
   const [draftComment, setDraftComment] = useState('');
   const scrollRef = useRef<ScrollView | null>(null);
@@ -92,6 +95,11 @@ export default function MeetupDetailScreen() {
 
   const handleAuthorPress = () => {
     router.push({ pathname: '/profile/[id]', params: { id: post.userId } });
+  };
+
+  const handleMessagePress = () => {
+    const conversationId = getOrCreateConversation(post.userId, getConversationReferenceForPost(post));
+    router.push({ pathname: '/messages/[id]', params: { id: conversationId } });
   };
 
   const handleOpenAttendeeProfile = (userId: string) => {
@@ -196,6 +204,18 @@ export default function MeetupDetailScreen() {
                     <Text style={styles.joinButtonText}>Teilnehmen</Text>
                   </Pressable>
                 )}
+
+                {!isOrganizer ? (
+                  <Pressable
+                    onPress={handleMessagePress}
+                    style={styles.mapButton}
+                    accessibilityRole="button"
+                    accessibilityLabel="Nachricht an Organisator"
+                  >
+                    <IconSymbol size={16} name="message" color={ClubColors.text} />
+                    <Text style={styles.mapButtonText}>Nachricht an Organisator</Text>
+                  </Pressable>
+                ) : null}
 
                 <Pressable
                   onPress={() => openInMaps(meetup.location)}
