@@ -3,15 +3,20 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { FeedPostCard } from '@/components/feed/feed-post-card';
+import { GroupRecommendationCard } from '@/components/groups/group-recommendation-card';
 import { MessagesButton } from '@/components/navigation/messages-button';
 import { NotificationsButton } from '@/components/navigation/notifications-button';
 import { FeedColors, FontSizes, Spacing } from '@/constants/theme';
 import { useFeedPosts } from '@/context/feed-posts-context';
+import { useGroups } from '@/context/groups-context';
 import { getPostDetailPathname, type FeedPost } from '@/data/feed-posts';
 
 export default function HomeScreen() {
   const router = useRouter();
   const { posts, toggleLike } = useFeedPosts();
+  const { getRecommendedGroups } = useGroups();
+
+  const recommendedGroups = getRecommendedGroups();
 
   const handleOpenPost = (post: FeedPost) => {
     router.push({ pathname: getPostDetailPathname(post), params: { id: post.id } });
@@ -33,6 +38,15 @@ export default function HomeScreen() {
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+        {recommendedGroups.length > 0 ? (
+          <View style={styles.recommendationsSection}>
+            <Text style={styles.recommendationsTitle}>Gruppen für dich</Text>
+            {recommendedGroups.map((group) => (
+              <GroupRecommendationCard key={group.id} group={group} />
+            ))}
+          </View>
+        ) : null}
+
         {posts.map((post) => (
           <FeedPostCard
             key={post.id}
@@ -88,5 +102,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.md,
     paddingTop: Spacing.sm,
     paddingBottom: Spacing.xl,
+  },
+  recommendationsSection: {
+    marginBottom: Spacing.md,
+  },
+  recommendationsTitle: {
+    color: FeedColors.textPrimary,
+    fontSize: FontSizes.body,
+    fontWeight: '700',
+    marginBottom: Spacing.sm,
   },
 });

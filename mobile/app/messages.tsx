@@ -1,76 +1,40 @@
-import { useRouter } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useLocalSearchParams } from 'expo-router';
+import { useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Avatar } from '@/components/feed/avatar';
-import { IconSymbol } from '@/components/ui/icon-symbol';
+import { GroupsOverview } from '@/components/groups/groups-overview';
+import { MessagesList } from '@/components/messages/messages-list';
 import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
-import { useMessages } from '@/context/messages-context';
-import { useProfiles } from '@/context/profile-context';
-import { getOtherParticipantId } from '@/data/messages';
-import { CURRENT_USER_ID } from '@/data/users';
+
+type CommunicationSection = 'messages' | 'groups';
 
 export default function MessagesScreen() {
-  const router = useRouter();
-  const { conversations } = useMessages();
-  const { getUserById } = useProfiles();
-
-  const ownConversations = conversations.filter((conversation) => conversation.participantIds.includes(CURRENT_USER_ID));
-
-  const handleOpenConversation = (conversationId: string) => {
-    router.push({ pathname: '/messages/[id]', params: { id: conversationId } });
-  };
+  const params = useLocalSearchParams<{ section?: string }>();
+  const [section, setSection] = useState<CommunicationSection>(params.section === 'groups' ? 'groups' : 'messages');
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      {ownConversations.length === 0 ? (
-        <View style={styles.emptyState}>
-          <IconSymbol size={40} name="message" color={FeedColors.textSecondary} />
-          <Text style={styles.emptyTitle}>Noch keine Unterhaltungen.</Text>
-          <Text style={styles.emptyText}>
-            Starte eine Unterhaltung über ein Profil, eine Fahrt, einen Treffpunkt oder ein Gesuch.
-          </Text>
-        </View>
-      ) : (
-        <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
-          {ownConversations.map((conversation) => {
-            const otherUserId = getOtherParticipantId(conversation, CURRENT_USER_ID);
-            const otherUser = otherUserId ? getUserById(otherUserId) : undefined;
-            const isUnread = conversation.unreadCount > 0;
+      <View style={styles.tabRow}>
+        <Pressable
+          onPress={() => setSection('messages')}
+          style={[styles.tabButton, section === 'messages' && styles.tabButtonActive]}
+          accessibilityRole="button"
+          accessibilityLabel="Nachrichten anzeigen"
+        >
+          <Text style={[styles.tabButtonText, section === 'messages' && styles.tabButtonTextActive]}>Nachrichten</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => setSection('groups')}
+          style={[styles.tabButton, section === 'groups' && styles.tabButtonActive]}
+          accessibilityRole="button"
+          accessibilityLabel="Gruppen anzeigen"
+        >
+          <Text style={[styles.tabButtonText, section === 'groups' && styles.tabButtonTextActive]}>Gruppen</Text>
+        </Pressable>
+      </View>
 
-            return (
-              <Pressable
-                key={conversation.id}
-                onPress={() => handleOpenConversation(conversation.id)}
-                style={styles.row}
-              >
-                <Avatar initials={otherUser?.initials ?? '?'} />
-                <View style={styles.rowContent}>
-                  <View style={styles.rowHeader}>
-                    <Text style={[styles.name, isUnread && styles.nameUnread]} numberOfLines={1}>
-                      {otherUser?.displayName ?? 'Unbekannter Nutzer'}
-                    </Text>
-                    <Text style={styles.time}>{conversation.lastMessageAt}</Text>
-                  </View>
-                  {conversation.reference ? (
-                    <Text style={styles.reference} numberOfLines={1}>
-                      Zu: {conversation.reference.title}
-                    </Text>
-                  ) : null}
-                  <Text style={[styles.preview, isUnread && styles.previewUnread]} numberOfLines={1}>
-                    {conversation.lastMessageText || 'Noch keine Nachrichten.'}
-                  </Text>
-                </View>
-                {isUnread ? (
-                  <View style={styles.unreadBadge}>
-                    <Text style={styles.unreadBadgeText}>{conversation.unreadCount > 9 ? '9+' : conversation.unreadCount}</Text>
-                  </View>
-                ) : null}
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      )}
+      {section === 'messages' ? <MessagesList /> : <GroupsOverview />}
     </SafeAreaView>
   );
 }
@@ -80,92 +44,34 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: FeedColors.background,
   },
-  scroll: {
-    flex: 1,
-  },
-  scrollContent: {
+  tabRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
     paddingHorizontal: Spacing.md,
     paddingTop: Spacing.md,
-    paddingBottom: Spacing.xl,
+    paddingBottom: Spacing.sm,
+    borderBottomColor: FeedColors.cardBorder,
+    borderBottomWidth: 1,
   },
-  row: {
-    flexDirection: 'row',
+  tabButton: {
+    flex: 1,
     alignItems: 'center',
-    backgroundColor: FeedColors.cardBackground,
-    borderRadius: Radii.lg,
+    paddingVertical: Spacing.sm,
+    borderRadius: Radii.md,
     borderWidth: 1,
     borderColor: FeedColors.cardBorder,
-    padding: Spacing.md,
-    marginBottom: Spacing.sm,
-    gap: Spacing.sm,
+    backgroundColor: 'transparent',
   },
-  rowContent: {
-    flex: 1,
+  tabButtonActive: {
+    backgroundColor: ClubColors.surface,
+    borderColor: ClubColors.border,
   },
-  rowHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  name: {
-    color: FeedColors.textPrimary,
-    fontSize: FontSizes.body,
-    fontWeight: '600',
-    flexShrink: 1,
-  },
-  nameUnread: {
-    fontWeight: '700',
-  },
-  time: {
-    color: FeedColors.textSecondary,
-    fontSize: FontSizes.meta,
-    marginLeft: Spacing.sm,
-  },
-  reference: {
-    color: ClubColors.text,
-    fontSize: FontSizes.meta,
-    marginTop: 2,
-  },
-  preview: {
+  tabButtonText: {
     color: FeedColors.textSecondary,
     fontSize: FontSizes.body,
-    marginTop: 2,
-  },
-  previewUnread: {
-    color: FeedColors.textPrimary,
     fontWeight: '600',
   },
-  unreadBadge: {
-    minWidth: 22,
-    height: 22,
-    borderRadius: 11,
-    paddingHorizontal: 4,
-    backgroundColor: ClubColors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  unreadBadgeText: {
-    color: ClubColors.secondary,
-    fontSize: FontSizes.badge,
-    fontWeight: '700',
-  },
-  emptyState: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: Spacing.lg,
-  },
-  emptyTitle: {
+  tabButtonTextActive: {
     color: FeedColors.textPrimary,
-    fontSize: FontSizes.body,
-    fontWeight: '600',
-    marginTop: Spacing.sm,
-    marginBottom: Spacing.xs,
-  },
-  emptyText: {
-    color: FeedColors.textSecondary,
-    fontSize: FontSizes.body,
-    textAlign: 'center',
-    lineHeight: 20,
   },
 });
