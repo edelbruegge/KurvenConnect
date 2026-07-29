@@ -11,6 +11,7 @@ import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/t
 import { useFeedPosts } from '@/context/feed-posts-context';
 import { useMessages } from '@/context/messages-context';
 import { useProfiles } from '@/context/profile-context';
+import { useSaved } from '@/context/saved-context';
 import { getConversationReferenceForPost } from '@/data/messages';
 
 export default function PostDetailScreen() {
@@ -18,6 +19,7 @@ export default function PostDetailScreen() {
   const params = useLocalSearchParams<{ id?: string; focusComments?: string }>();
   const { posts, toggleLike, addComment, toggleRideRequest } = useFeedPosts();
   const { getOrCreateConversation } = useMessages();
+  const { isSaved, toggleSaved } = useSaved();
   const { currentUser, getAuthorDisplay } = useProfiles();
   const [draftComment, setDraftComment] = useState('');
   const scrollRef = useRef<ScrollView | null>(null);
@@ -119,6 +121,14 @@ export default function PostDetailScreen() {
               <IconSymbol size={16} name="message" color={FeedColors.textSecondary} />
               <Text style={styles.meta}>{post.comments.length}</Text>
             </View>
+            <Pressable
+              onPress={() => toggleSaved(post)}
+              accessibilityRole="button"
+              accessibilityLabel={isSaved(post.id) ? 'Nicht mehr gespeichert' : 'Speichern'}
+              style={[styles.metaButton, isSaved(post.id) && styles.metaButtonActive]}
+            >
+              <IconSymbol size={16} name={isSaved(post.id) ? 'bookmark.fill' : 'bookmark'} color={isSaved(post.id) ? ClubColors.text : FeedColors.textSecondary} />
+            </Pressable>
           </View>
 
           <PostMetadata post={post} variant="detail" />

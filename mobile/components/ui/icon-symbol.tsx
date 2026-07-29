@@ -39,6 +39,9 @@ const MAPPING = {
   'person.3.fill': 'groups',
   'line.3.horizontal': 'menu',
   'bell.fill': 'notifications-none',
+  bookmark: 'bookmark-border',
+  'bookmark.fill': 'bookmark',
+  'clock.arrow.circlepath': 'history',
 } as const satisfies IconMapping;
 
 /**

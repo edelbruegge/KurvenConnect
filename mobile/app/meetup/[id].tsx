@@ -23,6 +23,7 @@ import { ClubColors, FeedColors, FontSizes, Radii, Spacing, StatusColors } from 
 import { useFeedPosts } from '@/context/feed-posts-context';
 import { useMessages } from '@/context/messages-context';
 import { useProfiles } from '@/context/profile-context';
+import { useSaved } from '@/context/saved-context';
 import { getMeetupAttendeeCount, isMeetupFull } from '@/data/feed-posts';
 import { getConversationReferenceForPost } from '@/data/messages';
 
@@ -51,6 +52,7 @@ export default function MeetupDetailScreen() {
   const params = useLocalSearchParams<{ id?: string; focusComments?: string }>();
   const { posts, toggleLike, addComment, toggleMeetupAttendance } = useFeedPosts();
   const { getOrCreateConversation } = useMessages();
+  const { isSaved, toggleSaved } = useSaved();
   const { currentUser, getAuthorDisplay, getUserById } = useProfiles();
   const [draftComment, setDraftComment] = useState('');
   const scrollRef = useRef<ScrollView | null>(null);
@@ -166,6 +168,14 @@ export default function MeetupDetailScreen() {
                     {meetup.maxAttendees != null ? ` / ${meetup.maxAttendees}` : ''} Teilnehmer
                   </Text>
                 </View>
+                <Pressable
+                  onPress={() => toggleSaved(post)}
+                  accessibilityRole="button"
+                  accessibilityLabel={isSaved(post.id) ? 'Nicht mehr gespeichert' : 'Speichern'}
+                  style={[styles.metaButton, isSaved(post.id) && styles.metaButtonActive]}
+                >
+                  <IconSymbol size={16} name={isSaved(post.id) ? 'bookmark.fill' : 'bookmark'} color={isSaved(post.id) ? ClubColors.text : FeedColors.textSecondary} />
+                </Pressable>
               </View>
 
               <PostMetadata post={post} variant="detail" />

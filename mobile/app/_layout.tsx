@@ -9,6 +9,7 @@ import { GroupsProvider } from '@/context/groups-context';
 import { MessagesProvider } from '@/context/messages-context';
 import { NotificationsProvider } from '@/context/notifications-context';
 import { ProfileProvider } from '@/context/profile-context';
+import { SavedProvider } from '@/context/saved-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 export const unstable_settings = {
@@ -25,63 +26,73 @@ export default function RootLayout() {
           <MessagesProvider>
             <NotificationsProvider>
               <GroupsProvider>
-                <Stack>
-                  <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-                  <Stack.Screen
-                    name="create-post"
-                    options={{ title: 'Beitrag erstellen', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
-                  />
-                  <Stack.Screen
-                    name="create-group"
-                    options={{ title: 'Gruppe erstellen', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
-                  />
-                  <Stack.Screen
-                    name="post/[id]"
-                    options={{ title: 'Beitrag', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
-                  />
-                  <Stack.Screen
-                    name="meetup/[id]"
-                    options={{ title: 'Treffpunkt', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
-                  />
-                  <Stack.Screen
-                    name="messages"
-                    options={{ title: 'Nachrichten', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
-                  />
-                  <Stack.Screen
-                    name="messages/[id]"
-                    options={{ title: 'Nachricht', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
-                  />
-                  <Stack.Screen
-                    name="notifications"
-                    options={{ title: 'Benachrichtigungen', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
-                  />
-                  <Stack.Screen
-                    name="group/[id]"
-                    options={{ title: 'Gruppe', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
-                  />
-                  <Stack.Screen
-                    name="group/[id]/members"
-                    options={{ title: 'Mitglieder', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
-                  />
-                  <Stack.Screen
-                    name="edit-profile"
-                    options={{ title: 'Profil bearbeiten', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
-                  />
-                  <Stack.Screen
-                    name="profile/[id]"
-                    options={{ title: 'Profil', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
-                  />
-                  <Stack.Screen
-                    name="profile/[id]/followers"
-                    options={{ title: 'Follower', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
-                  />
-                  <Stack.Screen
-                    name="profile/[id]/following"
-                    options={{ title: 'Gefolgt', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
-                  />
-                  <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
-                </Stack>
-                <StatusBar style="auto" />
+                <SavedProvider>
+                  <Stack>
+                    <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                    <Stack.Screen
+                      name="create-post"
+                      options={{ title: 'Beitrag erstellen', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
+                    />
+                    <Stack.Screen
+                      name="create-group"
+                      options={{ title: 'Gruppe erstellen', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
+                    />
+                    <Stack.Screen
+                      name="post/[id]"
+                      options={{ title: 'Beitrag', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
+                    />
+                    <Stack.Screen
+                      name="meetup/[id]"
+                      options={{ title: 'Treffpunkt', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
+                    />
+                    <Stack.Screen
+                      name="messages"
+                      options={{ title: 'Nachrichten', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
+                    />
+                    <Stack.Screen
+                      name="messages/[id]"
+                      options={{ title: 'Nachricht', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
+                    />
+                    <Stack.Screen
+                      name="notifications"
+                      options={{ title: 'Benachrichtigungen', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
+                    />
+                    <Stack.Screen
+                      name="group/[id]"
+                      options={{ title: 'Gruppe', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
+                    />
+                    <Stack.Screen
+                      name="group/[id]/members"
+                      options={{ title: 'Mitglieder', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
+                    />
+                    <Stack.Screen
+                      name="saved"
+                      options={{ title: 'Gespeichert', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
+                    />
+                    <Stack.Screen
+                      name="activity"
+                      options={{ title: 'Meine Aktivitäten', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
+                    />
+                    <Stack.Screen
+                      name="edit-profile"
+                      options={{ title: 'Profil bearbeiten', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
+                    />
+                    <Stack.Screen
+                      name="profile/[id]"
+                      options={{ title: 'Profil', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
+                    />
+                    <Stack.Screen
+                      name="profile/[id]/followers"
+                      options={{ title: 'Follower', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
+                    />
+                    <Stack.Screen
+                      name="profile/[id]/following"
+                      options={{ title: 'Gefolgt', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
+                    />
+                    <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
+                  </Stack>
+                  <StatusBar style="auto" />
+                </SavedProvider>
               </GroupsProvider>
             </NotificationsProvider>
           </MessagesProvider>

@@ -101,10 +101,32 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
         <ProfileHeader profile={profile} />
 
         {isOwnProfile ? (
-          <Pressable onPress={onEditPress} style={styles.editButton} accessibilityRole="button" accessibilityLabel="Profil bearbeiten">
-            <IconSymbol size={18} name="square.and.pencil" color={FeedColors.textPrimary} />
-            <Text style={styles.editButtonText}>Profil bearbeiten</Text>
-          </Pressable>
+          <>
+            <Pressable onPress={onEditPress} style={styles.editButton} accessibilityRole="button" accessibilityLabel="Profil bearbeiten">
+              <IconSymbol size={18} name="square.and.pencil" color={FeedColors.textPrimary} />
+              <Text style={styles.editButtonText}>Profil bearbeiten</Text>
+            </Pressable>
+            <View style={styles.actionRow}>
+              <Pressable
+                onPress={() => router.push('/saved')}
+                style={[styles.editButton, styles.actionRowButton]}
+                accessibilityRole="button"
+                accessibilityLabel="Gespeichert öffnen"
+              >
+                <IconSymbol size={18} name="bookmark.fill" color={FeedColors.textPrimary} />
+                <Text style={styles.editButtonText}>Gespeichert</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => router.push('/activity')}
+                style={[styles.editButton, styles.actionRowButton]}
+                accessibilityRole="button"
+                accessibilityLabel="Meine Aktivitäten öffnen"
+              >
+                <IconSymbol size={18} name="clock.arrow.circlepath" color={FeedColors.textPrimary} />
+                <Text style={styles.editButtonText}>Meine Aktivitäten</Text>
+              </Pressable>
+            </View>
+          </>
         ) : (
           <View style={styles.actionRow}>
             <Pressable
