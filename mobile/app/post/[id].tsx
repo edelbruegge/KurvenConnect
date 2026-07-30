@@ -6,13 +6,19 @@ import { Avatar } from '@/components/feed/avatar';
 import { CategoryBadge } from '@/components/feed/category-badge';
 import { PostMetadata } from '@/components/feed/post-metadata';
 import { NotFoundView } from '@/components/navigation/not-found-view';
+import { ReportModal } from '@/components/reports/report-modal';
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
+import { OverflowMenu } from '@/components/ui/overflow-menu';
+import { CategoryLabels, ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
+import { useBlocks } from '@/context/blocks-context';
 import { useFeedPosts } from '@/context/feed-posts-context';
 import { useMessages } from '@/context/messages-context';
 import { useProfiles } from '@/context/profile-context';
+import { useReports } from '@/context/reports-context';
 import { useSaved } from '@/context/saved-context';
+import { getReportTargetTypeForPost } from '@/data/feed-posts';
 import { getConversationReferenceForPost } from '@/data/messages';
+import type { ReportTargetType } from '@/data/reports';
 
 export default function PostDetailScreen() {
   const router = useRouter();
@@ -21,11 +27,14 @@ export default function PostDetailScreen() {
   const { getOrCreateConversation } = useMessages();
   const { isSaved, toggleSaved } = useSaved();
   const { currentUser, getAuthorDisplay } = useProfiles();
+  const { hasReported, shouldHideTarget } = useReports();
+  const { isBlocked } = useBlocks();
   const [draftComment, setDraftComment] = useState('');
   const scrollRef = useRef<ScrollView | null>(null);
   const commentInputRef = useRef<TextInput | null>(null);
   const [commentsY, setCommentsY] = useState<number | null>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [reportTarget, setReportTarget] = useState<{ type: ReportTargetType; id: string; title: string } | null>(null);
 
   const post = params.id ? posts.find((entry) => entry.id === params.id) : undefined;
   const focusComments = params.focusComments === 'true';
@@ -65,6 +74,7 @@ export default function PostDetailScreen() {
   const rideRequestLabel = post.rideRequestSent ? 'Anfrage zurückziehen' : 'Mitfahren anfragen';
   const author = getAuthorDisplay(post);
   const isOwnPost = post.userId === currentUser.id;
+  const visibleComments = post.comments.filter((comment) => !shouldHideTarget('comment', comment.id));
 
   const handleAuthorPress = () => {
     router.push({ pathname: '/profile/[id]', params: { id: post.userId } });
@@ -93,7 +103,28 @@ export default function PostDetailScreen() {
               <Text style={styles.time}>{post.time}</Text>
             </View>
           </Pressable>
-          <CategoryBadge category={post.category} />
+          <View style={styles.headerActions}>
+            <CategoryBadge category={post.category} />
+            <OverflowMenu
+              accessibilityLabel="Weitere Aktionen zu diesem Beitrag"
+              actions={[
+                {
+                  key: 'report-post',
+                  label: hasReported(getReportTargetTypeForPost(post.category), post.id)
+                    ? 'Bereits gemeldet'
+                    : `${CategoryLabels[post.category]} melden`,
+                  icon: 'flag.fill',
+                  disabled: hasReported(getReportTargetTypeForPost(post.category), post.id),
+                  onPress: () =>
+                    setReportTarget({
+                      type: getReportTargetTypeForPost(post.category),
+                      id: post.id,
+                      title: `${CategoryLabels[post.category]} melden`,
+                    }),
+                },
+              ]}
+            />
+          </View>
         </View>
 
         {post.hasImage ? (
@@ -119,7 +150,7 @@ export default function PostDetailScreen() {
             </Pressable>
             <View style={styles.metaItem}>
               <IconSymbol size={16} name="message" color={FeedColors.textSecondary} />
-              <Text style={styles.meta}>{post.comments.length}</Text>
+              <Text style={styles.meta}>{visibleComments.length}</Text>
             </View>
             <Pressable
               onPress={() => toggleSaved(post)}
@@ -133,7 +164,7 @@ export default function PostDetailScreen() {
 
           <PostMetadata post={post} variant="detail" />
 
-          {!isOwnPost ? (
+          {!isOwnPost && !isBlocked(post.userId) ? (
             <View style={styles.messageSection}>
               <Pressable
                 onPress={handleMessagePress}
@@ -186,8 +217,8 @@ export default function PostDetailScreen() {
             </Pressable>
           </View>
 
-          {post.comments.length > 0 ? (
-            post.comments.map((comment) => (
+          {visibleComments.length > 0 ? (
+            visibleComments.map((comment) => (
               <View key={comment.id} style={styles.commentCard}>
                 <View style={styles.commentHeader}>
                   <View style={styles.commentUserBlock}>
@@ -197,6 +228,20 @@ export default function PostDetailScreen() {
                       <Text style={styles.commentTimestamp}>{comment.timestamp}</Text>
                     </View>
                   </View>
+                  {comment.userId !== currentUser.id ? (
+                    <OverflowMenu
+                      accessibilityLabel="Weitere Aktionen zu diesem Kommentar"
+                      actions={[
+                        {
+                          key: 'report-comment',
+                          label: hasReported('comment', comment.id) ? 'Bereits gemeldet' : 'Kommentar melden',
+                          icon: 'flag.fill',
+                          disabled: hasReported('comment', comment.id),
+                          onPress: () => setReportTarget({ type: 'comment', id: comment.id, title: 'Kommentar melden' }),
+                        },
+                      ]}
+                    />
+                  ) : null}
                 </View>
                 <Text style={styles.commentText}>{comment.text}</Text>
               </View>
@@ -213,6 +258,15 @@ export default function PostDetailScreen() {
           ) : null}
         </Pressable>
       </KeyboardAvoidingView>
+      {reportTarget ? (
+        <ReportModal
+          visible
+          onClose={() => setReportTarget(null)}
+          title={reportTarget.title}
+          targetType={reportTarget.type}
+          targetId={reportTarget.id}
+        />
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -231,6 +285,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: Spacing.md,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
   },
   userBlock: {
     flexDirection: 'row',
@@ -413,6 +472,9 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.sm,
   },
   commentHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: Spacing.xs,
   },
   commentUserBlock: {

@@ -42,6 +42,9 @@ const MAPPING = {
   bookmark: 'bookmark-border',
   'bookmark.fill': 'bookmark',
   'clock.arrow.circlepath': 'history',
+  ellipsis: 'more-vert',
+  'flag.fill': 'flag',
+  nosign: 'block',
 } as const satisfies IconMapping;
 
 /**

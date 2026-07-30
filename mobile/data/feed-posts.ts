@@ -1,3 +1,5 @@
+import type { ReportTargetType } from './reports';
+
 export type FeedPostCategory = 'Beitrag' | 'Fahrt' | 'Gesuch' | 'Treffpunkt';
 
 export type FeedComment = {
@@ -69,6 +71,13 @@ export function isMeetupFull(details: MeetupDetails): boolean {
 
 export function getPostDetailPathname(post: FeedPost): '/meetup/[id]' | '/post/[id]' {
   return post.category === 'Treffpunkt' ? '/meetup/[id]' : '/post/[id]';
+}
+
+export function getReportTargetTypeForPost(category: FeedPostCategory): ReportTargetType {
+  if (category === 'Fahrt') return 'trip';
+  if (category === 'Gesuch') return 'request';
+  if (category === 'Treffpunkt') return 'meetup';
+  return 'post';
 }
 
 export const feedPosts: FeedPost[] = [

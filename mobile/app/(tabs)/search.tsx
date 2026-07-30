@@ -10,6 +10,7 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 import { FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
 import { useFeedPosts } from '@/context/feed-posts-context';
 import { getPostDetailPathname, type FeedPost } from '@/data/feed-posts';
+import { useVisiblePosts } from '@/hooks/use-visible-posts';
 
 function matchesQuery(post: FeedPost, query: string): boolean {
   const haystack = [post.description, post.user, post.category];
@@ -28,6 +29,7 @@ function matchesQuery(post: FeedPost, query: string): boolean {
 export default function SearchScreen() {
   const router = useRouter();
   const { posts, toggleLike } = useFeedPosts();
+  const visiblePosts = useVisiblePosts(posts);
   const [query, setQuery] = useState('');
 
   const trimmedQuery = query.trim().toLowerCase();
@@ -37,8 +39,8 @@ export default function SearchScreen() {
       return [];
     }
 
-    return posts.filter((post) => matchesQuery(post, trimmedQuery));
-  }, [posts, trimmedQuery]);
+    return visiblePosts.filter((post) => matchesQuery(post, trimmedQuery));
+  }, [visiblePosts, trimmedQuery]);
 
   const handleOpenPost = (post: FeedPost) => {
     router.push({ pathname: getPostDetailPathname(post), params: { id: post.id } });

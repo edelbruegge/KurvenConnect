@@ -1,13 +1,17 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Avatar } from '@/components/feed/avatar';
 import { NotFoundView } from '@/components/navigation/not-found-view';
+import { ReportModal } from '@/components/reports/report-modal';
 import { IconSymbol } from '@/components/ui/icon-symbol';
+import { OverflowMenu } from '@/components/ui/overflow-menu';
 import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
 import { useGroups } from '@/context/groups-context';
 import { useProfiles } from '@/context/profile-context';
+import { useReports } from '@/context/reports-context';
 
 export default function GroupDetailScreen() {
   const router = useRouter();
@@ -24,6 +28,8 @@ export default function GroupDetailScreen() {
     rejectJoinRequest,
   } = useGroups();
   const { currentUser, getUserById } = useProfiles();
+  const { hasReported } = useReports();
+  const [reportModalVisible, setReportModalVisible] = useState(false);
 
   const group = params.id ? getGroupById(params.id) : undefined;
 
@@ -64,6 +70,20 @@ export default function GroupDetailScreen() {
                 <Text style={styles.visibilityBadgeText}>{group.visibility === 'public' ? 'Öffentlich' : 'Privat'}</Text>
               </View>
             )}
+            {!isOwner ? (
+              <OverflowMenu
+                accessibilityLabel="Weitere Aktionen zu dieser Gruppe"
+                actions={[
+                  {
+                    key: 'report-group',
+                    label: hasReported('group', group.id) ? 'Bereits gemeldet' : 'Gruppe melden',
+                    icon: 'flag.fill',
+                    disabled: hasReported('group', group.id),
+                    onPress: () => setReportModalVisible(true),
+                  },
+                ]}
+              />
+            ) : null}
           </View>
           <Text style={styles.meta}>
             {group.clubName}
@@ -138,6 +158,13 @@ export default function GroupDetailScreen() {
           </View>
         ) : null}
       </ScrollView>
+      <ReportModal
+        visible={reportModalVisible}
+        onClose={() => setReportModalVisible(false)}
+        title="Gruppe melden"
+        targetType="group"
+        targetId={group.id}
+      />
     </SafeAreaView>
   );
 }

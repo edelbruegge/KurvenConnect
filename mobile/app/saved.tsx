@@ -8,6 +8,7 @@ import { FeedColors, FontSizes, Spacing } from '@/constants/theme';
 import { useFeedPosts } from '@/context/feed-posts-context';
 import { useSaved } from '@/context/saved-context';
 import { getPostDetailPathname, type FeedPost, type FeedPostCategory } from '@/data/feed-posts';
+import { useVisiblePosts } from '@/hooks/use-visible-posts';
 
 const SECTION_ORDER: { category: FeedPostCategory; label: string }[] = [
   { category: 'Beitrag', label: 'Beiträge' },
@@ -21,9 +22,9 @@ export default function SavedScreen() {
   const { getPostById } = useFeedPosts();
   const { savedItems, toggleSaved } = useSaved();
 
-  const savedPosts = savedItems
-    .map((item) => getPostById(item.id))
-    .filter((post): post is FeedPost => post !== undefined);
+  const savedPosts = useVisiblePosts(
+    savedItems.map((item) => getPostById(item.id)).filter((post): post is FeedPost => post !== undefined),
+  );
 
   const handleOpenPost = (post: FeedPost) => {
     router.push({ pathname: getPostDetailPathname(post), params: { id: post.id } });

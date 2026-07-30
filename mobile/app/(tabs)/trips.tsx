@@ -8,12 +8,14 @@ import { TripCard } from '@/components/trips/trip-card';
 import { FeedColors, FontSizes, Spacing } from '@/constants/theme';
 import { useFeedPosts } from '@/context/feed-posts-context';
 import { getPostDetailPathname, type FeedPost } from '@/data/feed-posts';
+import { useVisiblePosts } from '@/hooks/use-visible-posts';
 
 export default function TripsScreen() {
   const router = useRouter();
   const { posts, toggleLike } = useFeedPosts();
+  const visiblePosts = useVisiblePosts(posts);
 
-  const trips = posts.filter((post) => post.category === 'Fahrt');
+  const trips = visiblePosts.filter((post) => post.category === 'Fahrt');
 
   const handleOpenPost = (post: FeedPost) => {
     router.push({ pathname: getPostDetailPathname(post), params: { id: post.id } });

@@ -8,16 +8,18 @@ import { FeedColors, FontSizes, Spacing } from '@/constants/theme';
 import { useFeedPosts } from '@/context/feed-posts-context';
 import { getPostDetailPathname, type FeedPost } from '@/data/feed-posts';
 import { CURRENT_USER_ID } from '@/data/users';
+import { useVisiblePosts } from '@/hooks/use-visible-posts';
 
 export default function ActivityScreen() {
   const router = useRouter();
   const { posts } = useFeedPosts();
+  const visiblePosts = useVisiblePosts(posts);
 
-  const ownPosts = posts.filter((post) => post.userId === CURRENT_USER_ID);
-  const likedPosts = posts.filter((post) => post.likedByCurrentUser);
-  const commentedPosts = posts.filter((post) => post.comments.some((comment) => comment.userId === CURRENT_USER_ID));
-  const rideRequests = posts.filter((post) => post.category === 'Fahrt' && post.rideRequestSent);
-  const meetupParticipations = posts.filter(
+  const ownPosts = visiblePosts.filter((post) => post.userId === CURRENT_USER_ID);
+  const likedPosts = visiblePosts.filter((post) => post.likedByCurrentUser);
+  const commentedPosts = visiblePosts.filter((post) => post.comments.some((comment) => comment.userId === CURRENT_USER_ID));
+  const rideRequests = visiblePosts.filter((post) => post.category === 'Fahrt' && post.rideRequestSent);
+  const meetupParticipations = visiblePosts.filter(
     (post) => post.category === 'Treffpunkt' && post.meetupDetails?.attendeeIds.includes(CURRENT_USER_ID),
   );
 

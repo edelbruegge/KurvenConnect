@@ -9,13 +9,18 @@ import { NotificationsButton } from '@/components/navigation/notifications-butto
 import { ProfileHeader } from '@/components/profile/profile-header';
 import { ProfileStats, type ProfileStat } from '@/components/profile/profile-stats';
 import { TripCard } from '@/components/trips/trip-card';
+import { ReportModal } from '@/components/reports/report-modal';
 import { IconSymbol } from '@/components/ui/icon-symbol';
+import { OverflowMenu } from '@/components/ui/overflow-menu';
 import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
+import { useBlocks } from '@/context/blocks-context';
 import { useFeedPosts } from '@/context/feed-posts-context';
 import { useMessages } from '@/context/messages-context';
 import { useProfiles } from '@/context/profile-context';
+import { useReports } from '@/context/reports-context';
 import { getPostDetailPathname } from '@/data/feed-posts';
 import type { UserProfile } from '@/data/users';
+import { useVisiblePosts } from '@/hooks/use-visible-posts';
 
 type ProfileViewProps = {
   profile: UserProfile;
@@ -28,9 +33,12 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
   const { posts, toggleLike } = useFeedPosts();
   const { getOrCreateConversation } = useMessages();
   const { isFollowing, followUser, unfollowUser, getFollowerCount, getFollowingCount } = useProfiles();
+  const { hasReported } = useReports();
+  const { isBlocked, blockUser, unblockUser } = useBlocks();
   const [activeTab, setActiveTab] = useState<'posts' | 'trips' | 'meetups'>('posts');
+  const [reportModalVisible, setReportModalVisible] = useState(false);
 
-  const ownPosts = posts.filter((post) => post.userId === profile.id);
+  const ownPosts = useVisiblePosts(posts.filter((post) => post.userId === profile.id));
   const postsOnly = ownPosts.filter((post) => post.category !== 'Fahrt' && post.category !== 'Treffpunkt');
   const tripsOnly = ownPosts.filter((post) => post.category === 'Fahrt');
   const meetupsOnly = ownPosts.filter((post) => post.category === 'Treffpunkt');
@@ -126,33 +134,67 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
                 <Text style={styles.editButtonText}>Meine Aktivitäten</Text>
               </Pressable>
             </View>
+            <Pressable
+              onPress={() => router.push('/blocked-users')}
+              style={styles.editButton}
+              accessibilityRole="button"
+              accessibilityLabel="Blockierte Nutzer öffnen"
+            >
+              <IconSymbol size={18} name="nosign" color={FeedColors.textPrimary} />
+              <Text style={styles.editButtonText}>Blockierte Nutzer</Text>
+            </Pressable>
           </>
         ) : (
-          <View style={styles.actionRow}>
-            <Pressable
-              onPress={handleFollowToggle}
-              style={[styles.editButton, styles.actionRowButton, following && styles.followingButton]}
-              accessibilityRole="button"
-              accessibilityLabel={following ? 'Entfolgen' : 'Folgen'}
-            >
-              <IconSymbol
-                size={18}
-                name={following ? 'checkmark.circle.fill' : 'person.badge.plus'}
-                color={following ? ClubColors.text : FeedColors.textPrimary}
+          <View style={styles.actionRowWrapper}>
+            <View style={styles.actionRow}>
+              <Pressable
+                onPress={handleFollowToggle}
+                style={[styles.editButton, styles.actionRowButton, following && styles.followingButton]}
+                accessibilityRole="button"
+                accessibilityLabel={following ? 'Entfolgen' : 'Folgen'}
+              >
+                <IconSymbol
+                  size={18}
+                  name={following ? 'checkmark.circle.fill' : 'person.badge.plus'}
+                  color={following ? ClubColors.text : FeedColors.textPrimary}
+                />
+                <Text style={[styles.editButtonText, following && styles.followingButtonText]}>
+                  {following ? 'Gefolgt' : 'Folgen'}
+                </Text>
+              </Pressable>
+              {!isBlocked(profile.id) ? (
+                <Pressable
+                  onPress={handleMessagePress}
+                  style={[styles.editButton, styles.actionRowButton]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Nachricht an ${profile.displayName} schreiben`}
+                >
+                  <IconSymbol size={18} name="message" color={FeedColors.textPrimary} />
+                  <Text style={styles.editButtonText}>Nachricht</Text>
+                </Pressable>
+              ) : null}
+            </View>
+            <View style={styles.profileOverflowWrapper}>
+              <OverflowMenu
+                accessibilityLabel="Weitere Aktionen zu diesem Nutzer"
+                actions={[
+                  {
+                    key: 'report-user',
+                    label: hasReported('user', profile.id) ? 'Bereits gemeldet' : 'Nutzer melden',
+                    icon: 'flag.fill',
+                    disabled: hasReported('user', profile.id),
+                    onPress: () => setReportModalVisible(true),
+                  },
+                  {
+                    key: 'block-user',
+                    label: isBlocked(profile.id) ? 'Nutzer entsperren' : 'Nutzer blockieren',
+                    icon: 'nosign',
+                    destructive: !isBlocked(profile.id),
+                    onPress: () => (isBlocked(profile.id) ? unblockUser(profile.id) : blockUser(profile.id)),
+                  },
+                ]}
               />
-              <Text style={[styles.editButtonText, following && styles.followingButtonText]}>
-                {following ? 'Gefolgt' : 'Folgen'}
-              </Text>
-            </Pressable>
-            <Pressable
-              onPress={handleMessagePress}
-              style={[styles.editButton, styles.actionRowButton]}
-              accessibilityRole="button"
-              accessibilityLabel={`Nachricht an ${profile.displayName} schreiben`}
-            >
-              <IconSymbol size={18} name="message" color={FeedColors.textPrimary} />
-              <Text style={styles.editButtonText}>Nachricht</Text>
-            </Pressable>
+            </View>
           </View>
         )}
 
@@ -253,6 +295,15 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
           ))
         )}
       </ScrollView>
+      {!isOwnProfile ? (
+        <ReportModal
+          visible={reportModalVisible}
+          onClose={() => setReportModalVisible(false)}
+          title="Nutzer melden"
+          targetType="user"
+          targetId={profile.id}
+        />
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -288,7 +339,16 @@ const styles = StyleSheet.create({
     borderColor: ClubColors.border,
     backgroundColor: FeedColors.cardBackground,
   },
+  actionRowWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  profileOverflowWrapper: {
+    marginTop: Spacing.md,
+  },
   actionRow: {
+    flex: 1,
     flexDirection: 'row',
     gap: Spacing.sm,
   },

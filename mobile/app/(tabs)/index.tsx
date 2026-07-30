@@ -10,6 +10,7 @@ import { FeedColors, FontSizes, Spacing } from '@/constants/theme';
 import { useFeedPosts } from '@/context/feed-posts-context';
 import { useGroups } from '@/context/groups-context';
 import { getPostDetailPathname, type FeedPost } from '@/data/feed-posts';
+import { useVisiblePosts } from '@/hooks/use-visible-posts';
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -17,6 +18,7 @@ export default function HomeScreen() {
   const { getRecommendedGroups } = useGroups();
 
   const recommendedGroups = getRecommendedGroups();
+  const visiblePosts = useVisiblePosts(posts);
 
   const handleOpenPost = (post: FeedPost) => {
     router.push({ pathname: getPostDetailPathname(post), params: { id: post.id } });
@@ -47,7 +49,7 @@ export default function HomeScreen() {
           </View>
         ) : null}
 
-        {posts.map((post) => (
+        {visiblePosts.map((post) => (
           <FeedPostCard
             key={post.id}
             post={post}

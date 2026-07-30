@@ -10,13 +10,15 @@ import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/t
 import { useFeedPosts } from '@/context/feed-posts-context';
 import { getPostDetailPathname, type FeedPost } from '@/data/feed-posts';
 import { seedGames } from '@/data/games';
+import { useVisiblePosts } from '@/hooks/use-visible-posts';
 
 export default function MeetupsScreen() {
   const router = useRouter();
   const { posts, toggleLike } = useFeedPosts();
+  const visiblePosts = useVisiblePosts(posts);
   const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
 
-  const meetups = posts.filter((post) => post.category === 'Treffpunkt');
+  const meetups = visiblePosts.filter((post) => post.category === 'Treffpunkt');
   const filteredMeetups = selectedGameId
     ? meetups.filter((post) => post.meetupDetails?.gameId === selectedGameId)
     : meetups;

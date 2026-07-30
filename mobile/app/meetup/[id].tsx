@@ -18,14 +18,19 @@ import { Avatar } from '@/components/feed/avatar';
 import { CategoryBadge } from '@/components/feed/category-badge';
 import { PostMetadata } from '@/components/feed/post-metadata';
 import { NotFoundView } from '@/components/navigation/not-found-view';
+import { ReportModal } from '@/components/reports/report-modal';
 import { IconSymbol } from '@/components/ui/icon-symbol';
+import { OverflowMenu } from '@/components/ui/overflow-menu';
 import { ClubColors, FeedColors, FontSizes, Radii, Spacing, StatusColors } from '@/constants/theme';
+import { useBlocks } from '@/context/blocks-context';
 import { useFeedPosts } from '@/context/feed-posts-context';
 import { useMessages } from '@/context/messages-context';
 import { useProfiles } from '@/context/profile-context';
+import { useReports } from '@/context/reports-context';
 import { useSaved } from '@/context/saved-context';
 import { getMeetupAttendeeCount, isMeetupFull } from '@/data/feed-posts';
 import { getConversationReferenceForPost } from '@/data/messages';
+import type { ReportTargetType } from '@/data/reports';
 
 async function openInMaps(address: string) {
   const encoded = encodeURIComponent(address);
@@ -54,11 +59,14 @@ export default function MeetupDetailScreen() {
   const { getOrCreateConversation } = useMessages();
   const { isSaved, toggleSaved } = useSaved();
   const { currentUser, getAuthorDisplay, getUserById } = useProfiles();
+  const { hasReported, shouldHideTarget } = useReports();
+  const { isBlocked } = useBlocks();
   const [draftComment, setDraftComment] = useState('');
   const scrollRef = useRef<ScrollView | null>(null);
   const commentInputRef = useRef<TextInput | null>(null);
   const [commentsY, setCommentsY] = useState<number | null>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [reportTarget, setReportTarget] = useState<{ type: ReportTargetType; id: string; title: string } | null>(null);
 
   const post = params.id ? posts.find((entry) => entry.id === params.id) : undefined;
   const focusComments = params.focusComments === 'true';
@@ -94,6 +102,7 @@ export default function MeetupDetailScreen() {
   const attendees = meetup.attendeeIds
     .map((id) => getUserById(id))
     .filter((profile): profile is NonNullable<typeof profile> => profile !== undefined);
+  const visibleComments = post.comments.filter((comment) => !shouldHideTarget('comment', comment.id));
 
   const handleAuthorPress = () => {
     router.push({ pathname: '/profile/[id]', params: { id: post.userId } });
@@ -137,7 +146,21 @@ export default function MeetupDetailScreen() {
                   <Text style={styles.time}>{post.time}</Text>
                 </View>
               </Pressable>
-              <CategoryBadge category={post.category} />
+              <View style={styles.headerActions}>
+                <CategoryBadge category={post.category} />
+                <OverflowMenu
+                  accessibilityLabel="Weitere Aktionen zu diesem Treffpunkt"
+                  actions={[
+                    {
+                      key: 'report-meetup',
+                      label: hasReported('meetup', post.id) ? 'Bereits gemeldet' : 'Treffpunkt melden',
+                      icon: 'flag.fill',
+                      disabled: hasReported('meetup', post.id),
+                      onPress: () => setReportTarget({ type: 'meetup', id: post.id, title: 'Treffpunkt melden' }),
+                    },
+                  ]}
+                />
+              </View>
             </View>
 
             <View style={styles.contentBlock}>
@@ -159,7 +182,7 @@ export default function MeetupDetailScreen() {
                 </Pressable>
                 <View style={styles.metaItem}>
                   <IconSymbol size={16} name="message" color={FeedColors.textSecondary} />
-                  <Text style={styles.meta}>{post.comments.length}</Text>
+                  <Text style={styles.meta}>{visibleComments.length}</Text>
                 </View>
                 <View style={styles.metaItem}>
                   <IconSymbol size={16} name="person.3.fill" color={FeedColors.textSecondary} />
@@ -215,7 +238,7 @@ export default function MeetupDetailScreen() {
                   </Pressable>
                 )}
 
-                {!isOrganizer ? (
+                {!isOrganizer && !isBlocked(post.userId) ? (
                   <Pressable
                     onPress={handleMessagePress}
                     style={styles.mapButton}
@@ -297,8 +320,8 @@ export default function MeetupDetailScreen() {
                 </Pressable>
               </View>
 
-              {post.comments.length > 0 ? (
-                post.comments.map((comment) => (
+              {visibleComments.length > 0 ? (
+                visibleComments.map((comment) => (
                   <View key={comment.id} style={styles.commentCard}>
                     <View style={styles.commentHeader}>
                       <View style={styles.commentUserBlock}>
@@ -308,6 +331,20 @@ export default function MeetupDetailScreen() {
                           <Text style={styles.commentTimestamp}>{comment.timestamp}</Text>
                         </View>
                       </View>
+                      {comment.userId !== currentUser.id ? (
+                        <OverflowMenu
+                          accessibilityLabel="Weitere Aktionen zu diesem Kommentar"
+                          actions={[
+                            {
+                              key: 'report-comment',
+                              label: hasReported('comment', comment.id) ? 'Bereits gemeldet' : 'Kommentar melden',
+                              icon: 'flag.fill',
+                              disabled: hasReported('comment', comment.id),
+                              onPress: () => setReportTarget({ type: 'comment', id: comment.id, title: 'Kommentar melden' }),
+                            },
+                          ]}
+                        />
+                      ) : null}
                     </View>
                     <Text style={styles.commentText}>{comment.text}</Text>
                   </View>
@@ -324,6 +361,15 @@ export default function MeetupDetailScreen() {
           ) : null}
         </Pressable>
       </KeyboardAvoidingView>
+      {reportTarget ? (
+        <ReportModal
+          visible
+          onClose={() => setReportTarget(null)}
+          title={reportTarget.title}
+          targetType={reportTarget.type}
+          targetId={reportTarget.id}
+        />
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -342,6 +388,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: Spacing.md,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
   },
   userBlock: {
     flexDirection: 'row',
@@ -595,6 +646,9 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.sm,
   },
   commentHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: Spacing.xs,
   },
   commentUserBlock: {

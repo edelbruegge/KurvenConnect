@@ -4,6 +4,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Avatar } from '@/components/feed/avatar';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
+import { useBlocks } from '@/context/blocks-context';
 import { useMessages } from '@/context/messages-context';
 import { useProfiles } from '@/context/profile-context';
 import { getOtherParticipantId } from '@/data/messages';
@@ -13,8 +14,16 @@ export function MessagesList() {
   const router = useRouter();
   const { conversations } = useMessages();
   const { getUserById } = useProfiles();
+  const { isBlocked } = useBlocks();
 
-  const ownConversations = conversations.filter((conversation) => conversation.participantIds.includes(CURRENT_USER_ID));
+  const ownConversations = conversations.filter((conversation) => {
+    if (!conversation.participantIds.includes(CURRENT_USER_ID)) {
+      return false;
+    }
+
+    const otherUserId = getOtherParticipantId(conversation, CURRENT_USER_ID);
+    return !otherUserId || !isBlocked(otherUserId);
+  });
 
   const handleOpenConversation = (conversationId: string) => {
     router.push({ pathname: '/messages/[id]', params: { id: conversationId } });
