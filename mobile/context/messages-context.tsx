@@ -13,6 +13,7 @@ type MessagesContextValue = {
   conversations: Conversation[];
   getConversationById: (id: string) => Conversation | undefined;
   getMessagesForConversation: (conversationId: string) => Message[];
+  getMessageById: (messageId: string) => Message | undefined;
   getOrCreateConversation: (otherUserId: string, reference?: ConversationReference) => string;
   sendMessage: (conversationId: string, text: string) => void;
   markConversationAsRead: (conversationId: string) => void;
@@ -29,6 +30,8 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
 
   const getMessagesForConversation = (conversationId: string) =>
     messages.filter((message) => message.conversationId === conversationId);
+
+  const getMessageById = (messageId: string) => messages.find((message) => message.id === messageId);
 
   const getOrCreateConversation = (otherUserId: string, reference: ConversationReference = null): string => {
     const existing = conversations.find(
@@ -105,6 +108,7 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
       conversations,
       getConversationById,
       getMessagesForConversation,
+      getMessageById,
       getOrCreateConversation,
       sendMessage,
       markConversationAsRead,

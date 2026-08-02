@@ -10,6 +10,7 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 import { OverflowMenu } from '@/components/ui/overflow-menu';
 import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
 import { useGroups } from '@/context/groups-context';
+import { useModeration } from '@/context/moderation-context';
 import { useProfiles } from '@/context/profile-context';
 import { useReports } from '@/context/reports-context';
 
@@ -29,6 +30,7 @@ export default function GroupDetailScreen() {
   } = useGroups();
   const { currentUser, getUserById } = useProfiles();
   const { hasReported } = useReports();
+  const { isContentModerationHidden, isUserSuspended } = useModeration();
   const [reportModalVisible, setReportModalVisible] = useState(false);
 
   const group = params.id ? getGroupById(params.id) : undefined;
@@ -37,11 +39,17 @@ export default function GroupDetailScreen() {
     return <NotFoundView title="Gruppe nicht gefunden" message="Die angeforderte Gruppe konnte nicht gefunden werden." />;
   }
 
+  if (isContentModerationHidden('group', group.id) || isUserSuspended(group.ownerId)) {
+    return <NotFoundView title="Inhalt nicht verfügbar" message="Dieser Inhalt wurde moderativ ausgeblendet." />;
+  }
+
   const isOwner = group.ownerId === currentUser.id;
   const member = isMember(group.id);
   const requestStatus = getJoinRequestStatus(group.id);
   const isPending = requestStatus === 'pending';
-  const pendingRequests = isOwner ? getPendingRequestsForGroup(group.id) : [];
+  const pendingRequests = (isOwner ? getPendingRequestsForGroup(group.id) : []).filter(
+    (request) => !isUserSuspended(request.userId),
+  );
 
   const handleOpenMembers = () => {
     router.push({ pathname: '/group/[id]/members', params: { id: group.id } });

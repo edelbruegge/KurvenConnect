@@ -2,11 +2,13 @@ import { useLocalSearchParams } from 'expo-router';
 
 import { NotFoundView } from '@/components/navigation/not-found-view';
 import { ConnectionsList } from '@/components/profile/connections-list';
+import { useModeration } from '@/context/moderation-context';
 import { useProfiles } from '@/context/profile-context';
 
 export default function FollowersScreen() {
   const params = useLocalSearchParams<{ id?: string }>();
   const { getUserById, getFollowers, currentUser } = useProfiles();
+  const { isUserSuspended } = useModeration();
 
   const profile = params.id ? getUserById(params.id) : undefined;
 
@@ -15,7 +17,7 @@ export default function FollowersScreen() {
   }
 
   const isOwnProfile = profile.id === currentUser.id;
-  const followers = getFollowers(profile.id);
+  const followers = getFollowers(profile.id).filter((user) => !isUserSuspended(user.id));
   const emptyMessage = isOwnProfile ? 'Du hast noch keine Follower.' : 'Dieser Nutzer hat noch keine Follower.';
 
   return <ConnectionsList users={followers} emptyMessage={emptyMessage} />;

@@ -21,6 +21,7 @@ import { OverflowMenu } from '@/components/ui/overflow-menu';
 import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
 import { useBlocks } from '@/context/blocks-context';
 import { useMessages } from '@/context/messages-context';
+import { useModeration } from '@/context/moderation-context';
 import { useProfiles } from '@/context/profile-context';
 import { useReports } from '@/context/reports-context';
 import { getOtherParticipantId } from '@/data/messages';
@@ -34,6 +35,7 @@ export default function MessageConversationScreen() {
   const { getUserById } = useProfiles();
   const { hasReported } = useReports();
   const { isBlocked, blockUser, unblockUser } = useBlocks();
+  const { isContentModerationHidden, isUserSuspended } = useModeration();
   const [draftText, setDraftText] = useState('');
   const scrollRef = useRef<ScrollView | null>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
@@ -65,10 +67,14 @@ export default function MessageConversationScreen() {
 
   const otherUserId = getOtherParticipantId(conversation, CURRENT_USER_ID);
   const otherUser = otherUserId ? getUserById(otherUserId) : undefined;
-  const messages = getMessagesForConversation(conversation.id);
+  const messages = getMessagesForConversation(conversation.id).filter(
+    (message) => !isContentModerationHidden('message', message.id),
+  );
   const reference = conversation.reference;
   const referencePathname = reference?.type === 'meetup' ? '/meetup/[id]' : '/post/[id]';
-  const isChatLocked = otherUserId ? isBlocked(otherUserId) : false;
+  const isPersonallyBlocked = otherUserId ? isBlocked(otherUserId) : false;
+  const isSuspended = otherUserId ? isUserSuspended(otherUserId) : false;
+  const isChatLocked = isPersonallyBlocked || isSuspended;
 
   const handleAuthorPress = () => {
     if (otherUserId) {
@@ -186,8 +192,9 @@ export default function MessageConversationScreen() {
             <View style={styles.lockedBanner}>
               <IconSymbol size={18} name="nosign" color={FeedColors.textSecondary} />
               <Text style={styles.lockedBannerText}>
-                Du hast {otherUser?.displayName ?? 'diesen Nutzer'} blockiert. Entsperre ihn, um wieder Nachrichten zu
-                schreiben.
+                {isPersonallyBlocked
+                  ? `Du hast ${otherUser?.displayName ?? 'diesen Nutzer'} blockiert. Entsperre ihn, um wieder Nachrichten zu schreiben.`
+                  : `${otherUser?.displayName ?? 'Dieser Nutzer'} wurde lokal moderativ gesperrt. Nachrichten sind derzeit nicht möglich.`}
               </Text>
             </View>
           ) : (

@@ -6,6 +6,7 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
 import { useBlocks } from '@/context/blocks-context';
 import { useMessages } from '@/context/messages-context';
+import { useModeration } from '@/context/moderation-context';
 import { useProfiles } from '@/context/profile-context';
 import { getOtherParticipantId } from '@/data/messages';
 import { CURRENT_USER_ID } from '@/data/users';
@@ -15,6 +16,7 @@ export function MessagesList() {
   const { conversations } = useMessages();
   const { getUserById } = useProfiles();
   const { isBlocked } = useBlocks();
+  const { isUserSuspended } = useModeration();
 
   const ownConversations = conversations.filter((conversation) => {
     if (!conversation.participantIds.includes(CURRENT_USER_ID)) {
@@ -22,7 +24,7 @@ export function MessagesList() {
     }
 
     const otherUserId = getOtherParticipantId(conversation, CURRENT_USER_ID);
-    return !otherUserId || !isBlocked(otherUserId);
+    return !otherUserId || (!isBlocked(otherUserId) && !isUserSuspended(otherUserId));
   });
 
   const handleOpenConversation = (conversationId: string) => {

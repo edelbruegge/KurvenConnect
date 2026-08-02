@@ -5,10 +5,15 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Avatar } from '@/components/feed/avatar';
 import { IconSymbol, type IconSymbolName } from '@/components/ui/icon-symbol';
 import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
+import { useFeedPosts } from '@/context/feed-posts-context';
 import { useMessages } from '@/context/messages-context';
+import { useModeration } from '@/context/moderation-context';
 import { useNotifications } from '@/context/notifications-context';
 import { useProfiles } from '@/context/profile-context';
+import { getReportTargetTypeForPost } from '@/data/feed-posts';
+import { getOtherParticipantId } from '@/data/messages';
 import type { AppNotification, NotificationType } from '@/data/notifications';
+import { CURRENT_USER_ID } from '@/data/users';
 
 function getNotificationIcon(type: NotificationType): IconSymbolName {
   switch (type) {
@@ -37,6 +42,40 @@ export default function NotificationsScreen() {
   const { notifications, markAsRead, markAllAsRead } = useNotifications();
   const { getConversationById, markConversationAsRead } = useMessages();
   const { getUserById } = useProfiles();
+  const { getPostById } = useFeedPosts();
+  const { isContentModerationHidden, isUserSuspended } = useModeration();
+
+  const shouldHideNotification = (notification: AppNotification): boolean => {
+    if (notification.actorId && isUserSuspended(notification.actorId)) {
+      return true;
+    }
+
+    const reference = notification.reference;
+
+    if (!reference) {
+      return false;
+    }
+
+    if (reference.type === 'profile') {
+      return isUserSuspended(reference.id);
+    }
+
+    if (reference.type === 'conversation') {
+      const conversation = getConversationById(reference.id);
+      const otherUserId = conversation ? getOtherParticipantId(conversation, CURRENT_USER_ID) : undefined;
+      return otherUserId ? isUserSuspended(otherUserId) : false;
+    }
+
+    if (reference.type === 'meetup') {
+      const post = getPostById(reference.id);
+      return post ? isContentModerationHidden('meetup', post.id) || isUserSuspended(post.userId) : false;
+    }
+
+    const post = getPostById(reference.id);
+    return post ? isContentModerationHidden(getReportTargetTypeForPost(post.category), post.id) || isUserSuspended(post.userId) : false;
+  };
+
+  const visibleNotifications = notifications.filter((notification) => !shouldHideNotification(notification));
 
   const isUnread = (notification: AppNotification) => {
     if (notification.type === 'new_message' && notification.reference?.type === 'conversation') {
@@ -75,11 +114,11 @@ export default function NotificationsScreen() {
     router.push({ pathname: '/post/[id]', params: { id: reference.id } });
   };
 
-  const hasUnread = notifications.some((notification) => isUnread(notification));
+  const hasUnread = visibleNotifications.some((notification) => isUnread(notification));
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      {notifications.length === 0 ? (
+      {visibleNotifications.length === 0 ? (
         <View style={styles.emptyState}>
           <IconSymbol size={40} name="bell.fill" color={FeedColors.textSecondary} />
           <Text style={styles.emptyTitle}>Noch keine Benachrichtigungen.</Text>
@@ -93,7 +132,7 @@ export default function NotificationsScreen() {
             </Pressable>
           ) : null}
 
-          {notifications.map((notification) => {
+          {visibleNotifications.map((notification) => {
             const unread = isUnread(notification);
             const actor = notification.actorId ? getUserById(notification.actorId) : undefined;
 

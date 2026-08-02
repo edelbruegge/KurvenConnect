@@ -13,6 +13,7 @@ import { CategoryLabels, ClubColors, FeedColors, FontSizes, Radii, Spacing } fro
 import { useBlocks } from '@/context/blocks-context';
 import { useFeedPosts } from '@/context/feed-posts-context';
 import { useMessages } from '@/context/messages-context';
+import { useModeration } from '@/context/moderation-context';
 import { useProfiles } from '@/context/profile-context';
 import { useReports } from '@/context/reports-context';
 import { useSaved } from '@/context/saved-context';
@@ -29,6 +30,7 @@ export default function PostDetailScreen() {
   const { currentUser, getAuthorDisplay } = useProfiles();
   const { hasReported, shouldHideTarget } = useReports();
   const { isBlocked } = useBlocks();
+  const { isContentModerationHidden, isUserSuspended } = useModeration();
   const [draftComment, setDraftComment] = useState('');
   const scrollRef = useRef<ScrollView | null>(null);
   const commentInputRef = useRef<TextInput | null>(null);
@@ -60,6 +62,10 @@ export default function PostDetailScreen() {
     return <NotFoundView title="Beitrag nicht gefunden" message="Der angeforderte Beitrag konnte nicht gefunden werden." />;
   }
 
+  if (isContentModerationHidden(getReportTargetTypeForPost(post.category), post.id) || isUserSuspended(post.userId)) {
+    return <NotFoundView title="Inhalt nicht verfügbar" message="Dieser Inhalt wurde moderativ ausgeblendet." />;
+  }
+
   const handleSubmitComment = () => {
     if (!draftComment.trim()) {
       return;
@@ -74,7 +80,12 @@ export default function PostDetailScreen() {
   const rideRequestLabel = post.rideRequestSent ? 'Anfrage zurückziehen' : 'Mitfahren anfragen';
   const author = getAuthorDisplay(post);
   const isOwnPost = post.userId === currentUser.id;
-  const visibleComments = post.comments.filter((comment) => !shouldHideTarget('comment', comment.id));
+  const visibleComments = post.comments.filter(
+    (comment) =>
+      !shouldHideTarget('comment', comment.id) &&
+      !isContentModerationHidden('comment', comment.id) &&
+      !(comment.userId && isUserSuspended(comment.userId)),
+  );
 
   const handleAuthorPress = () => {
     router.push({ pathname: '/profile/[id]', params: { id: post.userId } });
@@ -164,7 +175,7 @@ export default function PostDetailScreen() {
 
           <PostMetadata post={post} variant="detail" />
 
-          {!isOwnPost && !isBlocked(post.userId) ? (
+          {!isOwnPost && !isBlocked(post.userId) && !isUserSuspended(post.userId) ? (
             <View style={styles.messageSection}>
               <Pressable
                 onPress={handleMessagePress}

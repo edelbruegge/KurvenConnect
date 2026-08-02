@@ -25,6 +25,7 @@ import { ClubColors, FeedColors, FontSizes, Radii, Spacing, StatusColors } from 
 import { useBlocks } from '@/context/blocks-context';
 import { useFeedPosts } from '@/context/feed-posts-context';
 import { useMessages } from '@/context/messages-context';
+import { useModeration } from '@/context/moderation-context';
 import { useProfiles } from '@/context/profile-context';
 import { useReports } from '@/context/reports-context';
 import { useSaved } from '@/context/saved-context';
@@ -61,6 +62,7 @@ export default function MeetupDetailScreen() {
   const { currentUser, getAuthorDisplay, getUserById } = useProfiles();
   const { hasReported, shouldHideTarget } = useReports();
   const { isBlocked } = useBlocks();
+  const { isContentModerationHidden, isUserSuspended } = useModeration();
   const [draftComment, setDraftComment] = useState('');
   const scrollRef = useRef<ScrollView | null>(null);
   const commentInputRef = useRef<TextInput | null>(null);
@@ -92,6 +94,10 @@ export default function MeetupDetailScreen() {
     return <NotFoundView title="Treffpunkt nicht gefunden" message="Der angeforderte Treffpunkt konnte nicht gefunden werden." />;
   }
 
+  if (isContentModerationHidden('meetup', post.id) || isUserSuspended(post.userId)) {
+    return <NotFoundView title="Inhalt nicht verfügbar" message="Dieser Inhalt wurde moderativ ausgeblendet." />;
+  }
+
   const meetup = post.meetupDetails;
   const author = getAuthorDisplay(post);
   const isOrganizer = post.userId === currentUser.id;
@@ -101,8 +107,14 @@ export default function MeetupDetailScreen() {
 
   const attendees = meetup.attendeeIds
     .map((id) => getUserById(id))
-    .filter((profile): profile is NonNullable<typeof profile> => profile !== undefined);
-  const visibleComments = post.comments.filter((comment) => !shouldHideTarget('comment', comment.id));
+    .filter((profile): profile is NonNullable<typeof profile> => profile !== undefined)
+    .filter((profile) => !isUserSuspended(profile.id));
+  const visibleComments = post.comments.filter(
+    (comment) =>
+      !shouldHideTarget('comment', comment.id) &&
+      !isContentModerationHidden('comment', comment.id) &&
+      !(comment.userId && isUserSuspended(comment.userId)),
+  );
 
   const handleAuthorPress = () => {
     router.push({ pathname: '/profile/[id]', params: { id: post.userId } });
@@ -238,7 +250,7 @@ export default function MeetupDetailScreen() {
                   </Pressable>
                 )}
 
-                {!isOrganizer && !isBlocked(post.userId) ? (
+                {!isOrganizer && !isBlocked(post.userId) && !isUserSuspended(post.userId) ? (
                   <Pressable
                     onPress={handleMessagePress}
                     style={styles.mapButton}

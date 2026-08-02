@@ -7,6 +7,7 @@ type FeedPostsContextValue = {
   posts: FeedPost[];
   addPost: (post: NewFeedPost) => void;
   getPostById: (id: string) => FeedPost | undefined;
+  findCommentById: (commentId: string) => { post: FeedPost; comment: FeedComment } | undefined;
   toggleLike: (postId: string) => void;
   addComment: (postId: string, text: string) => void;
   toggleRideRequest: (postId: string) => void;
@@ -36,6 +37,18 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
   };
 
   const getPostById = (id: string) => posts.find((post) => post.id === id);
+
+  const findCommentById = (commentId: string) => {
+    for (const post of posts) {
+      const comment = post.comments.find((entry) => entry.id === commentId);
+
+      if (comment) {
+        return { post, comment };
+      }
+    }
+
+    return undefined;
+  };
 
   const toggleLike = (postId: string) => {
     setPosts((currentPosts) =>
@@ -138,6 +151,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       posts,
       addPost,
       getPostById,
+      findCommentById,
       toggleLike,
       addComment,
       toggleRideRequest,

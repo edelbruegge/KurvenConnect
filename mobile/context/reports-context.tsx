@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useMemo, useState } from 'react';
 
-import type { Report, ReportReason, ReportTargetType } from '@/data/reports';
+import type { ModerationActionType, Report, ReportReason, ReportStatus, ReportTargetType } from '@/data/reports';
 import { CURRENT_USER_ID } from '@/data/users';
 
 type SubmitReportInput = {
@@ -10,11 +10,17 @@ type SubmitReportInput = {
   details?: string;
 };
 
+type ResolveReportOptions = {
+  resolutionNote?: string;
+  moderationAction?: ModerationActionType;
+};
+
 type ReportsContextValue = {
   reports: Report[];
   submitReport: (input: SubmitReportInput) => void;
   hasReported: (targetType: ReportTargetType, targetId: string) => boolean;
   shouldHideTarget: (targetType: ReportTargetType, targetId: string) => boolean;
+  resolveReport: (reportId: string, status: ReportStatus, options?: ResolveReportOptions) => void;
 };
 
 const ReportsContext = createContext<ReportsContextValue | undefined>(undefined);
@@ -40,6 +46,7 @@ export function ReportsProvider({ children }: { children: React.ReactNode }) {
       reason: input.reason,
       details: input.details?.trim() || undefined,
       createdAt: 'gerade eben',
+      status: 'submitted',
     };
 
     setReports((current) => [...current, newReport]);
@@ -47,12 +54,31 @@ export function ReportsProvider({ children }: { children: React.ReactNode }) {
 
   const shouldHideTarget = (targetType: ReportTargetType, targetId: string) => hasReported(targetType, targetId);
 
+  const resolveReport = (reportId: string, status: ReportStatus, options?: ResolveReportOptions) => {
+    setReports((current) =>
+      current.map((report) => {
+        if (report.id !== reportId) {
+          return report;
+        }
+
+        return {
+          ...report,
+          status,
+          reviewedAt: status === 'reviewed' || status === 'action_taken' ? 'gerade eben' : report.reviewedAt,
+          resolutionNote: options?.resolutionNote?.trim() || report.resolutionNote,
+          moderationAction: options?.moderationAction ?? report.moderationAction,
+        };
+      }),
+    );
+  };
+
   const value = useMemo(
     () => ({
       reports,
       submitReport,
       hasReported,
       shouldHideTarget,
+      resolveReport,
     }),
     [reports],
   );

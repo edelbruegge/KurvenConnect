@@ -2,11 +2,13 @@ import { useLocalSearchParams } from 'expo-router';
 
 import { NotFoundView } from '@/components/navigation/not-found-view';
 import { ConnectionsList } from '@/components/profile/connections-list';
+import { useModeration } from '@/context/moderation-context';
 import { useProfiles } from '@/context/profile-context';
 
 export default function FollowingScreen() {
   const params = useLocalSearchParams<{ id?: string }>();
   const { getUserById, getFollowing, unfollowUser, currentUser } = useProfiles();
+  const { isUserSuspended } = useModeration();
 
   const profile = params.id ? getUserById(params.id) : undefined;
 
@@ -15,7 +17,7 @@ export default function FollowingScreen() {
   }
 
   const isOwnProfile = profile.id === currentUser.id;
-  const following = getFollowing(profile.id);
+  const following = getFollowing(profile.id).filter((user) => !isUserSuspended(user.id));
   const emptyMessage = isOwnProfile ? 'Du folgst noch keinen Accounts.' : 'Dieser Nutzer folgt noch keinen Accounts.';
 
   return (

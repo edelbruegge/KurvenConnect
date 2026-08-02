@@ -16,6 +16,7 @@ import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/t
 import { useBlocks } from '@/context/blocks-context';
 import { useFeedPosts } from '@/context/feed-posts-context';
 import { useMessages } from '@/context/messages-context';
+import { useModeration } from '@/context/moderation-context';
 import { useProfiles } from '@/context/profile-context';
 import { useReports } from '@/context/reports-context';
 import { getPostDetailPathname } from '@/data/feed-posts';
@@ -35,6 +36,7 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
   const { isFollowing, followUser, unfollowUser, getFollowerCount, getFollowingCount } = useProfiles();
   const { hasReported } = useReports();
   const { isBlocked, blockUser, unblockUser } = useBlocks();
+  const { isUserSuspended } = useModeration();
   const [activeTab, setActiveTab] = useState<'posts' | 'trips' | 'meetups'>('posts');
   const [reportModalVisible, setReportModalVisible] = useState(false);
 
@@ -143,6 +145,15 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
               <IconSymbol size={18} name="nosign" color={FeedColors.textPrimary} />
               <Text style={styles.editButtonText}>Blockierte Nutzer</Text>
             </Pressable>
+            <Pressable
+              onPress={() => router.push('/moderation')}
+              style={styles.editButton}
+              accessibilityRole="button"
+              accessibilityLabel="Moderation – lokale Demo öffnen"
+            >
+              <IconSymbol size={18} name="shield.fill" color={FeedColors.textPrimary} />
+              <Text style={styles.editButtonText}>Moderation – lokale Demo</Text>
+            </Pressable>
           </>
         ) : (
           <View style={styles.actionRowWrapper}>
@@ -162,7 +173,7 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
                   {following ? 'Gefolgt' : 'Folgen'}
                 </Text>
               </Pressable>
-              {!isBlocked(profile.id) ? (
+              {!isBlocked(profile.id) && !isUserSuspended(profile.id) ? (
                 <Pressable
                   onPress={handleMessagePress}
                   style={[styles.editButton, styles.actionRowButton]}
