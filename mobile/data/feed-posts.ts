@@ -4,7 +4,11 @@ export type FeedPostCategory = 'Beitrag' | 'Fahrt' | 'Gesuch' | 'Treffpunkt';
 
 export type FeedComment = {
   id: string;
+  // Optional only for legacy seed comments by background characters with no matching
+  // UserProfile (e.g. "Lena", "Timo"). New comments always set this via addComment().
   userId?: string;
+  // Fallback label used only when userId is missing or unresolvable; resolve the current
+  // profile via getCommentAuthorDisplay() (context/profile-context.tsx) wherever possible.
   username: string;
   initials: string;
   text: string;

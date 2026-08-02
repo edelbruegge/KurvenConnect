@@ -14,6 +14,7 @@ import { getReportTargetTypeForPost } from '@/data/feed-posts';
 import { getOtherParticipantId } from '@/data/messages';
 import type { AppNotification, NotificationType } from '@/data/notifications';
 import { CURRENT_USER_ID } from '@/data/users';
+import { useSafetySelectors } from '@/hooks/use-safety-selectors';
 
 function getNotificationIcon(type: NotificationType): IconSymbolName {
   switch (type) {
@@ -43,7 +44,8 @@ export default function NotificationsScreen() {
   const { getConversationById, markConversationAsRead } = useMessages();
   const { getUserById } = useProfiles();
   const { getPostById } = useFeedPosts();
-  const { isContentModerationHidden, isUserSuspended } = useModeration();
+  const { isUserSuspended } = useModeration();
+  const { isModeratedAway } = useSafetySelectors();
 
   const shouldHideNotification = (notification: AppNotification): boolean => {
     if (notification.actorId && isUserSuspended(notification.actorId)) {
@@ -68,11 +70,11 @@ export default function NotificationsScreen() {
 
     if (reference.type === 'meetup') {
       const post = getPostById(reference.id);
-      return post ? isContentModerationHidden('meetup', post.id) || isUserSuspended(post.userId) : false;
+      return post ? isModeratedAway('meetup', post.id, post.userId) : false;
     }
 
     const post = getPostById(reference.id);
-    return post ? isContentModerationHidden(getReportTargetTypeForPost(post.category), post.id) || isUserSuspended(post.userId) : false;
+    return post ? isModeratedAway(getReportTargetTypeForPost(post.category), post.id, post.userId) : false;
   };
 
   const visibleNotifications = notifications.filter((notification) => !shouldHideNotification(notification));

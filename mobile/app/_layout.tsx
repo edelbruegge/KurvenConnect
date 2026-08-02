@@ -103,7 +103,6 @@ export default function RootLayout() {
                             name="profile/[id]/following"
                             options={{ title: 'Gefolgt', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
                           />
-                          <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
                         </Stack>
                         <StatusBar style="auto" />
                       </ModerationProvider>

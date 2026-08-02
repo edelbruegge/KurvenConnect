@@ -16,11 +16,11 @@ import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/t
 import { useBlocks } from '@/context/blocks-context';
 import { useFeedPosts } from '@/context/feed-posts-context';
 import { useMessages } from '@/context/messages-context';
-import { useModeration } from '@/context/moderation-context';
 import { useProfiles } from '@/context/profile-context';
 import { useReports } from '@/context/reports-context';
 import { getPostDetailPathname } from '@/data/feed-posts';
 import type { UserProfile } from '@/data/users';
+import { useSafetySelectors } from '@/hooks/use-safety-selectors';
 import { useVisiblePosts } from '@/hooks/use-visible-posts';
 
 type ProfileViewProps = {
@@ -36,7 +36,7 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
   const { isFollowing, followUser, unfollowUser, getFollowerCount, getFollowingCount } = useProfiles();
   const { hasReported } = useReports();
   const { isBlocked, blockUser, unblockUser } = useBlocks();
-  const { isUserSuspended } = useModeration();
+  const { canMessageUser } = useSafetySelectors();
   const [activeTab, setActiveTab] = useState<'posts' | 'trips' | 'meetups'>('posts');
   const [reportModalVisible, setReportModalVisible] = useState(false);
 
@@ -173,7 +173,7 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
                   {following ? 'Gefolgt' : 'Folgen'}
                 </Text>
               </Pressable>
-              {!isBlocked(profile.id) && !isUserSuspended(profile.id) ? (
+              {canMessageUser(profile.id) ? (
                 <Pressable
                   onPress={handleMessagePress}
                   style={[styles.editButton, styles.actionRowButton]}

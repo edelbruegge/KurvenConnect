@@ -10,16 +10,15 @@ import { ReportModal } from '@/components/reports/report-modal';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { OverflowMenu } from '@/components/ui/overflow-menu';
 import { CategoryLabels, ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
-import { useBlocks } from '@/context/blocks-context';
 import { useFeedPosts } from '@/context/feed-posts-context';
 import { useMessages } from '@/context/messages-context';
-import { useModeration } from '@/context/moderation-context';
 import { useProfiles } from '@/context/profile-context';
 import { useReports } from '@/context/reports-context';
 import { useSaved } from '@/context/saved-context';
 import { getReportTargetTypeForPost } from '@/data/feed-posts';
 import { getConversationReferenceForPost } from '@/data/messages';
 import type { ReportTargetType } from '@/data/reports';
+import { useSafetySelectors } from '@/hooks/use-safety-selectors';
 
 export default function PostDetailScreen() {
   const router = useRouter();
@@ -27,10 +26,9 @@ export default function PostDetailScreen() {
   const { posts, toggleLike, addComment, toggleRideRequest } = useFeedPosts();
   const { getOrCreateConversation } = useMessages();
   const { isSaved, toggleSaved } = useSaved();
-  const { currentUser, getAuthorDisplay } = useProfiles();
-  const { hasReported, shouldHideTarget } = useReports();
-  const { isBlocked } = useBlocks();
-  const { isContentModerationHidden, isUserSuspended } = useModeration();
+  const { currentUser, getAuthorDisplay, getCommentAuthorDisplay } = useProfiles();
+  const { hasReported } = useReports();
+  const { canViewContent, isModeratedAway, canMessageUser } = useSafetySelectors();
   const [draftComment, setDraftComment] = useState('');
   const scrollRef = useRef<ScrollView | null>(null);
   const commentInputRef = useRef<TextInput | null>(null);
@@ -62,7 +60,7 @@ export default function PostDetailScreen() {
     return <NotFoundView title="Beitrag nicht gefunden" message="Der angeforderte Beitrag konnte nicht gefunden werden." />;
   }
 
-  if (isContentModerationHidden(getReportTargetTypeForPost(post.category), post.id) || isUserSuspended(post.userId)) {
+  if (isModeratedAway(getReportTargetTypeForPost(post.category), post.id, post.userId)) {
     return <NotFoundView title="Inhalt nicht verfügbar" message="Dieser Inhalt wurde moderativ ausgeblendet." />;
   }
 
@@ -80,12 +78,7 @@ export default function PostDetailScreen() {
   const rideRequestLabel = post.rideRequestSent ? 'Anfrage zurückziehen' : 'Mitfahren anfragen';
   const author = getAuthorDisplay(post);
   const isOwnPost = post.userId === currentUser.id;
-  const visibleComments = post.comments.filter(
-    (comment) =>
-      !shouldHideTarget('comment', comment.id) &&
-      !isContentModerationHidden('comment', comment.id) &&
-      !(comment.userId && isUserSuspended(comment.userId)),
-  );
+  const visibleComments = post.comments.filter((comment) => canViewContent('comment', comment.id, comment.userId));
 
   const handleAuthorPress = () => {
     router.push({ pathname: '/profile/[id]', params: { id: post.userId } });
@@ -175,7 +168,7 @@ export default function PostDetailScreen() {
 
           <PostMetadata post={post} variant="detail" />
 
-          {!isOwnPost && !isBlocked(post.userId) && !isUserSuspended(post.userId) ? (
+          {!isOwnPost && canMessageUser(post.userId) ? (
             <View style={styles.messageSection}>
               <Pressable
                 onPress={handleMessagePress}
@@ -229,13 +222,16 @@ export default function PostDetailScreen() {
           </View>
 
           {visibleComments.length > 0 ? (
-            visibleComments.map((comment) => (
+            visibleComments.map((comment) => {
+              const commentAuthor = getCommentAuthorDisplay(comment);
+
+              return (
               <View key={comment.id} style={styles.commentCard}>
                 <View style={styles.commentHeader}>
                   <View style={styles.commentUserBlock}>
-                    <Avatar initials={comment.initials} />
+                    <Avatar initials={commentAuthor.initials} />
                     <View style={styles.commentUserInfo}>
-                      <Text style={styles.commentUsername}>{comment.username}</Text>
+                      <Text style={styles.commentUsername}>{commentAuthor.displayName}</Text>
                       <Text style={styles.commentTimestamp}>{comment.timestamp}</Text>
                     </View>
                   </View>
@@ -256,7 +252,8 @@ export default function PostDetailScreen() {
                 </View>
                 <Text style={styles.commentText}>{comment.text}</Text>
               </View>
-            ))
+              );
+            })
           ) : (
             <Text style={styles.emptyComments}>Noch keine Kommentare. Sei der Erste.</Text>
           )}

@@ -27,6 +27,7 @@ import { useReports } from '@/context/reports-context';
 import { getOtherParticipantId } from '@/data/messages';
 import type { ReportTargetType } from '@/data/reports';
 import { CURRENT_USER_ID } from '@/data/users';
+import { useSafetySelectors } from '@/hooks/use-safety-selectors';
 
 export default function MessageConversationScreen() {
   const router = useRouter();
@@ -35,7 +36,8 @@ export default function MessageConversationScreen() {
   const { getUserById } = useProfiles();
   const { hasReported } = useReports();
   const { isBlocked, blockUser, unblockUser } = useBlocks();
-  const { isContentModerationHidden, isUserSuspended } = useModeration();
+  const { isContentModerationHidden } = useModeration();
+  const { canMessageUser } = useSafetySelectors();
   const [draftText, setDraftText] = useState('');
   const scrollRef = useRef<ScrollView | null>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
@@ -73,8 +75,7 @@ export default function MessageConversationScreen() {
   const reference = conversation.reference;
   const referencePathname = reference?.type === 'meetup' ? '/meetup/[id]' : '/post/[id]';
   const isPersonallyBlocked = otherUserId ? isBlocked(otherUserId) : false;
-  const isSuspended = otherUserId ? isUserSuspended(otherUserId) : false;
-  const isChatLocked = isPersonallyBlocked || isSuspended;
+  const isChatLocked = otherUserId ? !canMessageUser(otherUserId) : false;
 
   const handleAuthorPress = () => {
     if (otherUserId) {

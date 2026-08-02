@@ -22,13 +22,13 @@ import { ReportModal } from '@/components/reports/report-modal';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { OverflowMenu } from '@/components/ui/overflow-menu';
 import { ClubColors, FeedColors, FontSizes, Radii, Spacing, StatusColors } from '@/constants/theme';
-import { useBlocks } from '@/context/blocks-context';
 import { useFeedPosts } from '@/context/feed-posts-context';
 import { useMessages } from '@/context/messages-context';
 import { useModeration } from '@/context/moderation-context';
 import { useProfiles } from '@/context/profile-context';
 import { useReports } from '@/context/reports-context';
 import { useSaved } from '@/context/saved-context';
+import { useSafetySelectors } from '@/hooks/use-safety-selectors';
 import { getMeetupAttendeeCount, isMeetupFull } from '@/data/feed-posts';
 import { getConversationReferenceForPost } from '@/data/messages';
 import type { ReportTargetType } from '@/data/reports';
@@ -59,10 +59,10 @@ export default function MeetupDetailScreen() {
   const { posts, toggleLike, addComment, toggleMeetupAttendance } = useFeedPosts();
   const { getOrCreateConversation } = useMessages();
   const { isSaved, toggleSaved } = useSaved();
-  const { currentUser, getAuthorDisplay, getUserById } = useProfiles();
-  const { hasReported, shouldHideTarget } = useReports();
-  const { isBlocked } = useBlocks();
-  const { isContentModerationHidden, isUserSuspended } = useModeration();
+  const { currentUser, getAuthorDisplay, getCommentAuthorDisplay, getUserById } = useProfiles();
+  const { hasReported } = useReports();
+  const { isUserSuspended } = useModeration();
+  const { canViewContent, isModeratedAway, canMessageUser } = useSafetySelectors();
   const [draftComment, setDraftComment] = useState('');
   const scrollRef = useRef<ScrollView | null>(null);
   const commentInputRef = useRef<TextInput | null>(null);
@@ -94,7 +94,7 @@ export default function MeetupDetailScreen() {
     return <NotFoundView title="Treffpunkt nicht gefunden" message="Der angeforderte Treffpunkt konnte nicht gefunden werden." />;
   }
 
-  if (isContentModerationHidden('meetup', post.id) || isUserSuspended(post.userId)) {
+  if (isModeratedAway('meetup', post.id, post.userId)) {
     return <NotFoundView title="Inhalt nicht verfügbar" message="Dieser Inhalt wurde moderativ ausgeblendet." />;
   }
 
@@ -109,12 +109,7 @@ export default function MeetupDetailScreen() {
     .map((id) => getUserById(id))
     .filter((profile): profile is NonNullable<typeof profile> => profile !== undefined)
     .filter((profile) => !isUserSuspended(profile.id));
-  const visibleComments = post.comments.filter(
-    (comment) =>
-      !shouldHideTarget('comment', comment.id) &&
-      !isContentModerationHidden('comment', comment.id) &&
-      !(comment.userId && isUserSuspended(comment.userId)),
-  );
+  const visibleComments = post.comments.filter((comment) => canViewContent('comment', comment.id, comment.userId));
 
   const handleAuthorPress = () => {
     router.push({ pathname: '/profile/[id]', params: { id: post.userId } });
@@ -250,7 +245,7 @@ export default function MeetupDetailScreen() {
                   </Pressable>
                 )}
 
-                {!isOrganizer && !isBlocked(post.userId) && !isUserSuspended(post.userId) ? (
+                {!isOrganizer && canMessageUser(post.userId) ? (
                   <Pressable
                     onPress={handleMessagePress}
                     style={styles.mapButton}
@@ -333,13 +328,16 @@ export default function MeetupDetailScreen() {
               </View>
 
               {visibleComments.length > 0 ? (
-                visibleComments.map((comment) => (
+                visibleComments.map((comment) => {
+                  const commentAuthor = getCommentAuthorDisplay(comment);
+
+                  return (
                   <View key={comment.id} style={styles.commentCard}>
                     <View style={styles.commentHeader}>
                       <View style={styles.commentUserBlock}>
-                        <Avatar initials={comment.initials} />
+                        <Avatar initials={commentAuthor.initials} />
                         <View style={styles.commentUserInfo}>
-                          <Text style={styles.commentUsername}>{comment.username}</Text>
+                          <Text style={styles.commentUsername}>{commentAuthor.displayName}</Text>
                           <Text style={styles.commentTimestamp}>{comment.timestamp}</Text>
                         </View>
                       </View>
@@ -360,7 +358,8 @@ export default function MeetupDetailScreen() {
                     </View>
                     <Text style={styles.commentText}>{comment.text}</Text>
                   </View>
-                ))
+                  );
+                })
               ) : (
                 <Text style={styles.emptyComments}>Noch keine Kommentare. Sei der Erste.</Text>
               )}

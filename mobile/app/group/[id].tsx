@@ -13,6 +13,7 @@ import { useGroups } from '@/context/groups-context';
 import { useModeration } from '@/context/moderation-context';
 import { useProfiles } from '@/context/profile-context';
 import { useReports } from '@/context/reports-context';
+import { useSafetySelectors } from '@/hooks/use-safety-selectors';
 
 export default function GroupDetailScreen() {
   const router = useRouter();
@@ -30,7 +31,8 @@ export default function GroupDetailScreen() {
   } = useGroups();
   const { currentUser, getUserById } = useProfiles();
   const { hasReported } = useReports();
-  const { isContentModerationHidden, isUserSuspended } = useModeration();
+  const { isUserSuspended } = useModeration();
+  const { isModeratedAway } = useSafetySelectors();
   const [reportModalVisible, setReportModalVisible] = useState(false);
 
   const group = params.id ? getGroupById(params.id) : undefined;
@@ -39,7 +41,7 @@ export default function GroupDetailScreen() {
     return <NotFoundView title="Gruppe nicht gefunden" message="Die angeforderte Gruppe konnte nicht gefunden werden." />;
   }
 
-  if (isContentModerationHidden('group', group.id) || isUserSuspended(group.ownerId)) {
+  if (isModeratedAway('group', group.id, group.ownerId)) {
     return <NotFoundView title="Inhalt nicht verfügbar" message="Dieser Inhalt wurde moderativ ausgeblendet." />;
   }
 

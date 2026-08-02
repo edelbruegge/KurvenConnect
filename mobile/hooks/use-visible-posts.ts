@@ -1,24 +1,8 @@
-import { useBlocks } from '@/context/blocks-context';
-import { useModeration } from '@/context/moderation-context';
-import { useReports } from '@/context/reports-context';
 import { getReportTargetTypeForPost, type FeedPost } from '@/data/feed-posts';
+import { useSafetySelectors } from '@/hooks/use-safety-selectors';
 
 export function useVisiblePosts(posts: FeedPost[]): FeedPost[] {
-  const { isUserHidden } = useBlocks();
-  const { shouldHideTarget } = useReports();
-  const { isContentModerationHidden, isUserSuspended } = useModeration();
+  const { canViewContent } = useSafetySelectors();
 
-  return posts.filter((post) => {
-    const targetType = getReportTargetTypeForPost(post.category);
-
-    if (isUserHidden(post.userId) || shouldHideTarget(targetType, post.id)) {
-      return false;
-    }
-
-    if (isUserSuspended(post.userId) || isContentModerationHidden(targetType, post.id)) {
-      return false;
-    }
-
-    return true;
-  });
+  return posts.filter((post) => canViewContent(getReportTargetTypeForPost(post.category), post.id, post.userId));
 }

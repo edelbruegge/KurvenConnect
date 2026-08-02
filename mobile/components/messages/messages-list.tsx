@@ -4,19 +4,17 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Avatar } from '@/components/feed/avatar';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
-import { useBlocks } from '@/context/blocks-context';
 import { useMessages } from '@/context/messages-context';
-import { useModeration } from '@/context/moderation-context';
 import { useProfiles } from '@/context/profile-context';
 import { getOtherParticipantId } from '@/data/messages';
 import { CURRENT_USER_ID } from '@/data/users';
+import { useSafetySelectors } from '@/hooks/use-safety-selectors';
 
 export function MessagesList() {
   const router = useRouter();
   const { conversations } = useMessages();
   const { getUserById } = useProfiles();
-  const { isBlocked } = useBlocks();
-  const { isUserSuspended } = useModeration();
+  const { canMessageUser } = useSafetySelectors();
 
   const ownConversations = conversations.filter((conversation) => {
     if (!conversation.participantIds.includes(CURRENT_USER_ID)) {
@@ -24,7 +22,7 @@ export function MessagesList() {
     }
 
     const otherUserId = getOtherParticipantId(conversation, CURRENT_USER_ID);
-    return !otherUserId || (!isBlocked(otherUserId) && !isUserSuspended(otherUserId));
+    return !otherUserId || canMessageUser(otherUserId);
   });
 
   const handleOpenConversation = (conversationId: string) => {

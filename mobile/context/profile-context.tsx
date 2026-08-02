@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useMemo, useState } from 'react';
 
 import { currentUserSeed, sampleProfiles, seedFollowEdges, type FollowEdge, type UserProfile } from '@/data/users';
-import type { FeedPost } from '@/data/feed-posts';
+import type { FeedComment, FeedPost } from '@/data/feed-posts';
 
 type ProfileUpdate = {
   displayName: string;
@@ -19,6 +19,7 @@ type ProfileContextValue = {
   updateCurrentUser: (update: ProfileUpdate) => void;
   getUserById: (id: string) => UserProfile | undefined;
   getAuthorDisplay: (post: FeedPost) => AuthorDisplay;
+  getCommentAuthorDisplay: (comment: FeedComment) => AuthorDisplay;
   followUser: (userId: string) => void;
   unfollowUser: (userId: string) => void;
   isFollowing: (userId: string) => boolean;
@@ -51,6 +52,16 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
 
     if (!author) {
       return { displayName: post.user, initials: post.initials };
+    }
+
+    return { displayName: author.displayName, initials: author.initials };
+  };
+
+  const getCommentAuthorDisplay = (comment: FeedComment): AuthorDisplay => {
+    const author = comment.userId ? getUserById(comment.userId) : undefined;
+
+    if (!author) {
+      return { displayName: comment.username, initials: comment.initials };
     }
 
     return { displayName: author.displayName, initials: author.initials };
@@ -107,6 +118,7 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
       updateCurrentUser,
       getUserById,
       getAuthorDisplay,
+      getCommentAuthorDisplay,
       followUser,
       unfollowUser,
       isFollowing,

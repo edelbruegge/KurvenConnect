@@ -386,6 +386,8 @@ const styles = StyleSheet.create({
   toggleRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    minHeight: 40,
+    paddingVertical: Spacing.xs,
   },
   checkbox: {
     width: 18,
