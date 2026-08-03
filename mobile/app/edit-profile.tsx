@@ -9,12 +9,13 @@ const BIO_MAX_LENGTH = 160;
 
 export default function EditProfileScreen() {
   const goBack = useSafeBack();
-  const { currentUser, updateCurrentUser } = useProfiles();
+  const { currentUser, updateOwnProfile } = useProfiles();
 
   const [displayName, setDisplayName] = useState(currentUser.displayName);
   const [location, setLocation] = useState(currentUser.location);
   const [bio, setBio] = useState(currentUser.bio);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
 
   useEffect(() => {
@@ -29,7 +30,11 @@ export default function EditProfileScreen() {
 
   const isFormValid = () => displayName.trim().length >= 2 && bio.trim().length <= BIO_MAX_LENGTH;
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    if (isSubmitting) {
+      return;
+    }
+
     const trimmedName = displayName.trim();
     const trimmedLocation = location.trim();
     const trimmedBio = bio.trim();
@@ -49,8 +54,18 @@ export default function EditProfileScreen() {
       return;
     }
 
-    updateCurrentUser({ displayName: trimmedName, location: trimmedLocation, bio: trimmedBio });
     setErrorMessage(null);
+    setIsSubmitting(true);
+
+    const { error } = await updateOwnProfile({ displayName: trimmedName, location: trimmedLocation, bio: trimmedBio });
+
+    setIsSubmitting(false);
+
+    if (error) {
+      setErrorMessage(error);
+      return;
+    }
+
     goBack();
   };
 
@@ -119,11 +134,15 @@ export default function EditProfileScreen() {
 
             {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
 
-            <Pressable onPress={handleSave} disabled={!isFormValid()} style={[styles.saveButton, !isFormValid() && styles.saveButtonDisabled]}>
-              <Text style={styles.saveButtonText}>Speichern</Text>
+            <Pressable
+              onPress={handleSave}
+              disabled={!isFormValid() || isSubmitting}
+              style={[styles.saveButton, (!isFormValid() || isSubmitting) && styles.saveButtonDisabled]}
+            >
+              <Text style={styles.saveButtonText}>{isSubmitting ? 'Speichern…' : 'Speichern'}</Text>
             </Pressable>
 
-            <Pressable onPress={handleCancel} style={styles.cancelButton}>
+            <Pressable onPress={handleCancel} disabled={isSubmitting} style={styles.cancelButton}>
               <Text style={styles.cancelButtonText}>Abbrechen</Text>
             </Pressable>
 

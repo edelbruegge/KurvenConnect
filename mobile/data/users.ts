@@ -7,6 +7,7 @@ export type UserProfile = {
   bio: string;
   memberSince: string;
   isCurrentUser: boolean;
+  avatarUrl?: string;
 };
 
 export const CURRENT_USER_ID = 'user-marco-b';

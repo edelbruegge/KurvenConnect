@@ -1,7 +1,11 @@
-import React, { createContext, useContext, useMemo, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 
-import { currentUserSeed, sampleProfiles, seedFollowEdges, type FollowEdge, type UserProfile } from '@/data/users';
+import { useAuth } from '@/context/auth-context';
 import type { FeedComment, FeedPost } from '@/data/feed-posts';
+import { currentUserSeed, sampleProfiles, seedFollowEdges, CURRENT_USER_ID, type FollowEdge, type UserProfile } from '@/data/users';
+import { getInitialsFromName, mapSupabaseProfileRow, type SupabaseProfile } from '@/lib/map-supabase-profile';
+import { mapProfileError } from '@/lib/profile-errors';
+import { supabase } from '@/lib/supabase';
 
 type ProfileUpdate = {
   displayName: string;
@@ -16,7 +20,6 @@ type AuthorDisplay = {
 
 type ProfileContextValue = {
   currentUser: UserProfile;
-  updateCurrentUser: (update: ProfileUpdate) => void;
   getUserById: (id: string) => UserProfile | undefined;
   getAuthorDisplay: (post: FeedPost) => AuthorDisplay;
   getCommentAuthorDisplay: (comment: FeedComment) => AuthorDisplay;
@@ -27,20 +30,148 @@ type ProfileContextValue = {
   getFollowing: (userId: string) => UserProfile[];
   getFollowerCount: (userId: string) => number;
   getFollowingCount: (userId: string) => number;
+
+  // Supabase-backed own profile.
+  ownProfile: SupabaseProfile | null;
+  isOwnProfileLoading: boolean;
+  ownProfileError: string | null;
+  refreshOwnProfile: () => void;
+  updateOwnProfile: (input: ProfileUpdate) => Promise<{ error: string | null }>;
+  createMissingOwnProfile: () => Promise<{ error: string | null }>;
+
+  // Identity bridge between the real Supabase auth user and the pre-existing local seed identity.
+  authUserId: string | null;
+  localCurrentUserId: string;
+  isCurrentUserId: (id: string) => boolean;
 };
 
 const ProfileContext = createContext<ProfileContextValue | undefined>(undefined);
 
-export function ProfileProvider({ children }: { children: React.ReactNode }) {
-  const [currentUser, setCurrentUser] = useState<UserProfile>(currentUserSeed);
-  const [followEdges, setFollowEdges] = useState<FollowEdge[]>(seedFollowEdges);
+const PROFILE_SELECT_COLUMNS = 'id, display_name, club, location, bio, avatar_url, created_at, updated_at';
 
-  const updateCurrentUser = (update: ProfileUpdate) => {
-    setCurrentUser((current) => ({ ...current, ...update }));
+export function ProfileProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const authUserId = user?.id ?? null;
+
+  const [followEdges, setFollowEdges] = useState<FollowEdge[]>(seedFollowEdges);
+  const [ownProfile, setOwnProfile] = useState<SupabaseProfile | null>(null);
+  const [isOwnProfileLoading, setIsOwnProfileLoading] = useState(false);
+  const [ownProfileError, setOwnProfileError] = useState<string | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
+
+  const isCurrentUserId = (id: string) => id === CURRENT_USER_ID || (authUserId !== null && id === authUserId);
+
+  useEffect(() => {
+    if (!authUserId) {
+      // Signed out (or account switched away from): never keep showing a stale profile.
+      setOwnProfile(null);
+      setIsOwnProfileLoading(false);
+      setOwnProfileError(null);
+      return;
+    }
+
+    let isCurrent = true;
+    setIsOwnProfileLoading(true);
+    setOwnProfileError(null);
+
+    supabase
+      .from('profiles')
+      .select(PROFILE_SELECT_COLUMNS)
+      .eq('id', authUserId)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (!isCurrent) {
+          // A newer request (e.g. after an account switch) has already taken over.
+          return;
+        }
+
+        if (error) {
+          setOwnProfileError(mapProfileError(error));
+          setOwnProfile(null);
+        } else {
+          setOwnProfile(data ? mapSupabaseProfileRow(data) : null);
+        }
+
+        setIsOwnProfileLoading(false);
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [authUserId, reloadToken]);
+
+  const refreshOwnProfile = () => {
+    setReloadToken((token) => token + 1);
   };
 
+  const updateOwnProfile = async (input: ProfileUpdate): Promise<{ error: string | null }> => {
+    if (!authUserId) {
+      return { error: 'Du bist nicht angemeldet.' };
+    }
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .update({
+        display_name: input.displayName.trim(),
+        location: input.location.trim(),
+        bio: input.bio.trim(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', authUserId)
+      .select(PROFILE_SELECT_COLUMNS)
+      .single();
+
+    if (error) {
+      return { error: mapProfileError(error) };
+    }
+
+    setOwnProfile(mapSupabaseProfileRow(data));
+    return { error: null };
+  };
+
+  const createMissingOwnProfile = async (): Promise<{ error: string | null }> => {
+    if (!authUserId) {
+      return { error: 'Du bist nicht angemeldet.' };
+    }
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .insert({ id: authUserId, display_name: 'Neues Mitglied' })
+      .select(PROFILE_SELECT_COLUMNS)
+      .single();
+
+    if (error) {
+      return { error: mapProfileError(error) };
+    }
+
+    setOwnProfile(mapSupabaseProfileRow(data));
+    return { error: null };
+  };
+
+  // The object every existing screen already consumes. Its `id` deliberately stays
+  // CURRENT_USER_ID (not authUserId) so every existing `post.userId === currentUser.id`
+  // style comparison across the app keeps recognizing pre-existing local content as ours.
+  // Only the display fields are enriched from the Supabase profile once it has loaded.
+  const currentUser: UserProfile = useMemo(() => {
+    if (!ownProfile) {
+      return currentUserSeed;
+    }
+
+    return {
+      id: CURRENT_USER_ID,
+      displayName: ownProfile.displayName,
+      initials: getInitialsFromName(ownProfile.displayName),
+      club: ownProfile.club || currentUserSeed.club,
+      location: ownProfile.location || currentUserSeed.location,
+      bio: ownProfile.bio || currentUserSeed.bio,
+      memberSince: ownProfile.createdAt ? new Date(ownProfile.createdAt).getFullYear().toString() : currentUserSeed.memberSince,
+      isCurrentUser: true,
+      avatarUrl: ownProfile.avatarUrl ?? undefined,
+    };
+  }, [ownProfile]);
+
   const getUserById = (id: string): UserProfile | undefined => {
-    if (id === currentUser.id) {
+    if (isCurrentUserId(id)) {
       return currentUser;
     }
 
@@ -115,7 +246,6 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo(
     () => ({
       currentUser,
-      updateCurrentUser,
       getUserById,
       getAuthorDisplay,
       getCommentAuthorDisplay,
@@ -126,8 +256,17 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
       getFollowing,
       getFollowerCount,
       getFollowingCount,
+      ownProfile,
+      isOwnProfileLoading,
+      ownProfileError,
+      refreshOwnProfile,
+      updateOwnProfile,
+      createMissingOwnProfile,
+      authUserId,
+      localCurrentUserId: CURRENT_USER_ID,
+      isCurrentUserId,
     }),
-    [currentUser, followEdges],
+    [currentUser, followEdges, ownProfile, isOwnProfileLoading, ownProfileError, authUserId],
   );
 
   return <ProfileContext.Provider value={value}>{children}</ProfileContext.Provider>;
