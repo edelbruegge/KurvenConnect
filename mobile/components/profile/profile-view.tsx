@@ -34,14 +34,16 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
   const router = useRouter();
   const { posts, toggleLike } = useFeedPosts();
   const { getOrCreateConversation } = useMessages();
-  const { isFollowing, followUser, unfollowUser, getFollowerCount, getFollowingCount } = useProfiles();
+  const { isFollowing, followUser, unfollowUser, getFollowerCount, getFollowingCount, isCurrentUserId } = useProfiles();
   const { hasReported } = useReports();
   const { isBlocked, blockUser, unblockUser } = useBlocks();
   const { canMessageUser } = useSafetySelectors();
   const [activeTab, setActiveTab] = useState<'posts' | 'trips' | 'meetups'>('posts');
   const [reportModalVisible, setReportModalVisible] = useState(false);
 
-  const ownPosts = useVisiblePosts(posts.filter((post) => post.userId === profile.id));
+  const ownPosts = useVisiblePosts(
+    posts.filter((post) => (isOwnProfile ? isCurrentUserId(post.userId) : post.userId === profile.id)),
+  );
   const postsOnly = ownPosts.filter((post) => post.category !== 'Fahrt' && post.category !== 'Treffpunkt');
   const tripsOnly = ownPosts.filter((post) => post.category === 'Fahrt');
   const meetupsOnly = ownPosts.filter((post) => post.category === 'Treffpunkt');
@@ -61,7 +63,7 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
       (sum, post) =>
         sum +
         post.comments.filter((comment) =>
-          comment.userId ? comment.userId === profile.id : comment.username === profile.displayName,
+          comment.userId ? isCurrentUserId(comment.userId) : comment.username === profile.displayName,
         ).length,
       0,
     );

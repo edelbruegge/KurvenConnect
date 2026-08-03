@@ -13,6 +13,9 @@ export type FeedComment = {
   initials: string;
   text: string;
   timestamp: string;
+  // 'local' for seed/in-memory comments, 'supabase' for rows loaded from public.post_comments.
+  // Defaults to 'local' when absent (assigned explicitly by FeedPostsProvider on load).
+  source?: 'local' | 'supabase';
 };
 
 export type NewFeedPost = {
@@ -63,6 +66,10 @@ export type FeedPost = {
   requestDetails?: GesuchDetails;
   meetupDetails?: MeetupDetails;
   rideRequestSent?: boolean;
+  // 'local' for seed/in-memory posts, 'supabase' for rows loaded from public.posts. Never
+  // inferred from the shape of `id` (e.g. UUID-looking strings) — always set explicitly by
+  // FeedPostsProvider on load, defaults to 'local' when absent.
+  source?: 'local' | 'supabase';
 };
 
 export function getMeetupAttendeeCount(details: MeetupDetails): number {

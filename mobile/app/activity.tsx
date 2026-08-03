@@ -6,6 +6,7 @@ import { ActivityRow } from '@/components/activity/activity-row';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { FeedColors, FontSizes, Spacing } from '@/constants/theme';
 import { useFeedPosts } from '@/context/feed-posts-context';
+import { useProfiles } from '@/context/profile-context';
 import { getPostDetailPathname, type FeedPost } from '@/data/feed-posts';
 import { CURRENT_USER_ID } from '@/data/users';
 import { useVisiblePosts } from '@/hooks/use-visible-posts';
@@ -13,11 +14,12 @@ import { useVisiblePosts } from '@/hooks/use-visible-posts';
 export default function ActivityScreen() {
   const router = useRouter();
   const { posts } = useFeedPosts();
+  const { isCurrentUserId } = useProfiles();
   const visiblePosts = useVisiblePosts(posts);
 
-  const ownPosts = visiblePosts.filter((post) => post.userId === CURRENT_USER_ID);
+  const ownPosts = visiblePosts.filter((post) => isCurrentUserId(post.userId));
   const likedPosts = visiblePosts.filter((post) => post.likedByCurrentUser);
-  const commentedPosts = visiblePosts.filter((post) => post.comments.some((comment) => comment.userId === CURRENT_USER_ID));
+  const commentedPosts = visiblePosts.filter((post) => post.comments.some((comment) => comment.userId && isCurrentUserId(comment.userId)));
   const rideRequests = visiblePosts.filter((post) => post.category === 'Fahrt' && post.rideRequestSent);
   const meetupParticipations = visiblePosts.filter(
     (post) => post.category === 'Treffpunkt' && post.meetupDetails?.attendeeIds.includes(CURRENT_USER_ID),

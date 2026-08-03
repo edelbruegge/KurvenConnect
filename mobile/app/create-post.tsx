@@ -47,9 +47,10 @@ const initialFormState: CreatePostFormState = {
 
 export default function CreatePostScreen() {
   const router = useRouter();
-  const { addPost } = useFeedPosts();
+  const { addPost, createRemotePost } = useFeedPosts();
   const [form, setForm] = React.useState<CreatePostFormState>(initialFormState);
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
 
   const updateField = <K extends keyof CreatePostFormState>(field: K, value: CreatePostFormState[K]) => {
     setForm((currentForm) => ({ ...currentForm, [field]: value }));
@@ -97,7 +98,11 @@ export default function CreatePostScreen() {
     return true;
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
+    if (isSubmitting) {
+      return;
+    }
+
     if (!form.description.trim()) {
       setErrorMessage('Bitte gib einen Beschreibungstext ein.');
       return;
@@ -159,6 +164,21 @@ export default function CreatePostScreen() {
           return;
         }
       }
+    }
+
+    if (form.category === 'Beitrag') {
+      setIsSubmitting(true);
+      setErrorMessage(null);
+      const { error } = await createRemotePost({ content: form.description });
+      setIsSubmitting(false);
+
+      if (error) {
+        setErrorMessage(error);
+        return;
+      }
+
+      router.replace('/');
+      return;
     }
 
     const selectedGame = seedGames.find((game) => game.id === form.gameId);
@@ -245,12 +265,20 @@ export default function CreatePostScreen() {
             />
           </View>
 
-          <View style={styles.section}>
-            <Pressable onPress={() => updateField('hasImage', !form.hasImage)} style={styles.toggleRow}>
-              <View style={[styles.checkbox, form.hasImage && styles.checkboxActive]} />
-              <Text style={styles.toggleText}>Bildbereich anzeigen</Text>
-            </Pressable>
-          </View>
+          {form.category === 'Beitrag' ? (
+            <View style={styles.section}>
+              <Text style={styles.hintText}>
+                Dieser Beitrag wird online gespeichert. Bilder werden in diesem Schritt noch nicht unterstützt.
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.section}>
+              <Pressable onPress={() => updateField('hasImage', !form.hasImage)} style={styles.toggleRow}>
+                <View style={[styles.checkbox, form.hasImage && styles.checkboxActive]} />
+                <Text style={styles.toggleText}>Bildbereich anzeigen</Text>
+              </Pressable>
+            </View>
+          )}
 
           {form.category === 'Fahrt' ? (
             <View style={styles.section}>
@@ -296,8 +324,11 @@ export default function CreatePostScreen() {
 
           {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
 
-          <Pressable onPress={handleSubmit} disabled={!isFormValid()} style={[styles.submitButton, !isFormValid() && styles.submitButtonDisabled]}>
-            <Text style={styles.submitButtonText}>Beitrag veröffentlichen</Text>
+          <Pressable
+            onPress={handleSubmit}
+            disabled={!isFormValid() || isSubmitting}
+            style={[styles.submitButton, (!isFormValid() || isSubmitting) && styles.submitButtonDisabled]}>
+            <Text style={styles.submitButtonText}>{isSubmitting ? 'Wird veröffentlicht …' : 'Beitrag veröffentlichen'}</Text>
           </Pressable>
           {keyboardVisible ? (
             <Pressable onPress={() => Keyboard.dismiss()} style={styles.closeKeyboardButton} accessibilityRole="button" accessibilityLabel="Tastatur schließen">
@@ -403,6 +434,11 @@ const styles = StyleSheet.create({
   toggleText: {
     color: FeedColors.textPrimary,
     fontSize: FontSizes.body,
+  },
+  hintText: {
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.meta,
+    lineHeight: 18,
   },
   errorText: {
     color: '#F87171',

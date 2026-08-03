@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { FeedPostCard } from '@/components/feed/feed-post-card';
 import { GroupRecommendationCard } from '@/components/groups/group-recommendation-card';
@@ -14,7 +14,7 @@ import { useVisiblePosts } from '@/hooks/use-visible-posts';
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { posts, toggleLike } = useFeedPosts();
+  const { posts, toggleLike, remotePostsError, refreshRemotePosts } = useFeedPosts();
   const { getRecommendedGroups } = useGroups();
 
   const recommendedGroups = getRecommendedGroups();
@@ -40,6 +40,15 @@ export default function HomeScreen() {
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+        {remotePostsError ? (
+          <View style={styles.remoteErrorBanner}>
+            <Text style={styles.remoteErrorText}>{remotePostsError}</Text>
+            <Pressable onPress={refreshRemotePosts} accessibilityRole="button" accessibilityLabel="Erneut versuchen">
+              <Text style={styles.remoteErrorRetry}>Erneut versuchen</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
         {recommendedGroups.length > 0 ? (
           <View style={styles.recommendationsSection}>
             <Text style={styles.recommendationsTitle}>Gruppen für dich</Text>
@@ -107,6 +116,24 @@ const styles = StyleSheet.create({
   },
   recommendationsSection: {
     marginBottom: Spacing.md,
+  },
+  remoteErrorBanner: {
+    backgroundColor: FeedColors.cardBackground,
+    borderRadius: Spacing.sm,
+    borderWidth: 1,
+    borderColor: FeedColors.cardBorder,
+    padding: Spacing.sm,
+    marginBottom: Spacing.md,
+  },
+  remoteErrorText: {
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.meta,
+    marginBottom: Spacing.xs,
+  },
+  remoteErrorRetry: {
+    color: FeedColors.textPrimary,
+    fontSize: FontSizes.meta,
+    fontWeight: '700',
   },
   recommendationsTitle: {
     color: FeedColors.textPrimary,

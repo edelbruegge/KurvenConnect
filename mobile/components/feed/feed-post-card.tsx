@@ -6,6 +6,7 @@ import { CategoryBadge } from '@/components/feed/category-badge';
 import { PostMetadata } from '@/components/feed/post-metadata';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { ClubColors, Colors, FontSizes, FeedColors, Radii, Spacing } from '@/constants/theme';
+import { useFeedPosts } from '@/context/feed-posts-context';
 import { useProfiles } from '@/context/profile-context';
 import { getMeetupAttendeeCount, type FeedPost } from '@/data/feed-posts';
 import { CURRENT_USER_ID } from '@/data/users';
@@ -19,8 +20,10 @@ type FeedPostCardProps = {
 
 export function FeedPostCard({ post, onPress, onLikePress, onCommentPress }: FeedPostCardProps) {
   const router = useRouter();
-  const { getAuthorDisplay } = useProfiles();
-  const author = getAuthorDisplay(post);
+  const { getAuthorDisplay, isCurrentUserId } = useProfiles();
+  const { getRemoteAuthorDisplay } = useFeedPosts();
+  const author =
+    post.source === 'supabase' && !isCurrentUserId(post.userId) ? getRemoteAuthorDisplay(post.userId) : getAuthorDisplay(post);
 
   const handleAuthorPress = (e: GestureResponderEvent) => {
     e.stopPropagation();

@@ -23,13 +23,15 @@ import { useSafetySelectors } from '@/hooks/use-safety-selectors';
 export default function PostDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string; focusComments?: string }>();
-  const { posts, toggleLike, addComment, toggleRideRequest } = useFeedPosts();
+  const { posts, toggleLike, addComment, toggleRideRequest, isRemotePostsLoading, getRemoteAuthorDisplay } = useFeedPosts();
   const { getOrCreateConversation } = useMessages();
   const { isSaved, toggleSaved } = useSaved();
-  const { currentUser, getAuthorDisplay, getCommentAuthorDisplay } = useProfiles();
+  const { getAuthorDisplay, getCommentAuthorDisplay, isCurrentUserId } = useProfiles();
   const { hasReported } = useReports();
   const { canViewContent, isModeratedAway, canMessageUser } = useSafetySelectors();
   const [draftComment, setDraftComment] = useState('');
+  const [isSubmittingComment, setIsSubmittingComment] = useState(false);
+  const [commentError, setCommentError] = useState<string | null>(null);
   const scrollRef = useRef<ScrollView | null>(null);
   const commentInputRef = useRef<TextInput | null>(null);
   const [commentsY, setCommentsY] = useState<number | null>(null);
@@ -57,6 +59,10 @@ export default function PostDetailScreen() {
   }, [focusComments, commentsY, post]);
 
   if (!post) {
+    if (isRemotePostsLoading) {
+      return <NotFoundView title="Beitrag wird geladen …" message="Einen Moment, der Beitrag wird geladen." />;
+    }
+
     return <NotFoundView title="Beitrag nicht gefunden" message="Der angeforderte Beitrag konnte nicht gefunden werden." />;
   }
 
@@ -64,20 +70,29 @@ export default function PostDetailScreen() {
     return <NotFoundView title="Inhalt nicht verfügbar" message="Dieser Inhalt wurde moderativ ausgeblendet." />;
   }
 
-  const handleSubmitComment = () => {
-    if (!draftComment.trim()) {
+  const handleSubmitComment = async () => {
+    if (!draftComment.trim() || isSubmittingComment) {
       return;
     }
 
-    addComment(post.id, draftComment);
+    setIsSubmittingComment(true);
+    setCommentError(null);
+    const { error } = await addComment(post.id, draftComment);
+    setIsSubmittingComment(false);
+
+    if (error) {
+      setCommentError(error);
+      return;
+    }
+
     setDraftComment('');
   };
 
   const isCommentInputValid = draftComment.trim().length > 0;
   const isTrip = post.category === 'Fahrt';
   const rideRequestLabel = post.rideRequestSent ? 'Anfrage zurückziehen' : 'Mitfahren anfragen';
-  const author = getAuthorDisplay(post);
-  const isOwnPost = post.userId === currentUser.id;
+  const author = post.source === 'supabase' && !isCurrentUserId(post.userId) ? getRemoteAuthorDisplay(post.userId) : getAuthorDisplay(post);
+  const isOwnPost = isCurrentUserId(post.userId);
   const visibleComments = post.comments.filter((comment) => canViewContent('comment', comment.id, comment.userId));
 
   const handleAuthorPress = () => {
@@ -214,16 +229,21 @@ export default function PostDetailScreen() {
             />
             <Pressable
               onPress={handleSubmitComment}
-              disabled={!isCommentInputValid}
-              style={[styles.commentButton, !isCommentInputValid && styles.commentButtonDisabled]}
+              disabled={!isCommentInputValid || isSubmittingComment}
+              style={[styles.commentButton, (!isCommentInputValid || isSubmittingComment) && styles.commentButtonDisabled]}
             >
-              <Text style={styles.commentButtonText}>Senden</Text>
+              <Text style={styles.commentButtonText}>{isSubmittingComment ? 'Wird gesendet …' : 'Senden'}</Text>
             </Pressable>
           </View>
 
+          {commentError ? <Text style={styles.commentErrorText}>{commentError}</Text> : null}
+
           {visibleComments.length > 0 ? (
             visibleComments.map((comment) => {
-              const commentAuthor = getCommentAuthorDisplay(comment);
+              const commentAuthor =
+                comment.source === 'supabase' && comment.userId && !isCurrentUserId(comment.userId)
+                  ? getRemoteAuthorDisplay(comment.userId)
+                  : getCommentAuthorDisplay(comment);
 
               return (
               <View key={comment.id} style={styles.commentCard}>
@@ -235,7 +255,7 @@ export default function PostDetailScreen() {
                       <Text style={styles.commentTimestamp}>{comment.timestamp}</Text>
                     </View>
                   </View>
-                  {comment.userId !== currentUser.id ? (
+                  {!(comment.userId && isCurrentUserId(comment.userId)) ? (
                     <OverflowMenu
                       accessibilityLabel="Weitere Aktionen zu diesem Kommentar"
                       actions={[
@@ -472,6 +492,11 @@ const styles = StyleSheet.create({
     color: FeedColors.background,
     fontSize: FontSizes.meta,
     fontWeight: '700',
+  },
+  commentErrorText: {
+    color: '#F87171',
+    fontSize: FontSizes.meta,
+    marginBottom: Spacing.sm,
   },
   commentCard: {
     backgroundColor: FeedColors.imagePlaceholder,
