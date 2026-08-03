@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { MessagesButton } from '@/components/navigation/messages-button';
@@ -12,7 +12,7 @@ import { useVisiblePosts } from '@/hooks/use-visible-posts';
 
 export default function TripsScreen() {
   const router = useRouter();
-  const { posts, toggleLike } = useFeedPosts();
+  const { posts, toggleLike, remoteTripsError, refreshRemoteTrips } = useFeedPosts();
   const visiblePosts = useVisiblePosts(posts);
 
   const trips = visiblePosts.filter((post) => post.category === 'Fahrt');
@@ -35,6 +35,15 @@ export default function TripsScreen() {
           </View>
         </View>
       </View>
+
+      {remoteTripsError ? (
+        <View style={styles.remoteErrorBanner}>
+          <Text style={styles.remoteErrorText}>{remoteTripsError}</Text>
+          <Pressable onPress={refreshRemoteTrips} accessibilityRole="button" accessibilityLabel="Erneut versuchen">
+            <Text style={styles.remoteErrorRetry}>Erneut versuchen</Text>
+          </Pressable>
+        </View>
+      ) : null}
 
       {trips.length === 0 ? (
         <View style={styles.emptyState}>
@@ -116,5 +125,24 @@ const styles = StyleSheet.create({
     fontSize: FontSizes.body,
     textAlign: 'center',
     lineHeight: 20,
+  },
+  remoteErrorBanner: {
+    backgroundColor: FeedColors.cardBackground,
+    borderRadius: Spacing.sm,
+    borderWidth: 1,
+    borderColor: FeedColors.cardBorder,
+    padding: Spacing.sm,
+    marginHorizontal: Spacing.md,
+    marginTop: Spacing.sm,
+  },
+  remoteErrorText: {
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.meta,
+    marginBottom: Spacing.xs,
+  },
+  remoteErrorRetry: {
+    color: FeedColors.textPrimary,
+    fontSize: FontSizes.meta,
+    fontWeight: '700',
   },
 });

@@ -70,6 +70,9 @@ export type FeedPost = {
   // inferred from the shape of `id` (e.g. UUID-looking strings) — always set explicitly by
   // FeedPostsProvider on load, defaults to 'local' when absent.
   source?: 'local' | 'supabase';
+  // Raw ISO timestamp, set only for Supabase-sourced posts/trips. Used exclusively to sort
+  // mixed remote content by actual recency — local seed posts have no comparable timestamp.
+  createdAtIso?: string;
 };
 
 export function getMeetupAttendeeCount(details: MeetupDetails): number {

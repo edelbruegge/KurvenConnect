@@ -47,7 +47,7 @@ const initialFormState: CreatePostFormState = {
 
 export default function CreatePostScreen() {
   const router = useRouter();
-  const { addPost, createRemotePost } = useFeedPosts();
+  const { addPost, createRemotePost, createRemoteTrip } = useFeedPosts();
   const [form, setForm] = React.useState<CreatePostFormState>(initialFormState);
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
@@ -181,23 +181,34 @@ export default function CreatePostScreen() {
       return;
     }
 
+    if (form.category === 'Fahrt') {
+      setIsSubmitting(true);
+      setErrorMessage(null);
+      const { error } = await createRemoteTrip({
+        description: form.description,
+        departure: form.departure,
+        destination: form.destination,
+        departureTime: form.departureTime,
+        freeSeats: Number(form.freeSeats),
+        occasion: form.occasion || undefined,
+      });
+      setIsSubmitting(false);
+
+      if (error) {
+        setErrorMessage(error);
+        return;
+      }
+
+      router.replace('/');
+      return;
+    }
+
     const selectedGame = seedGames.find((game) => game.id === form.gameId);
 
     const postToAdd: NewFeedPost = {
       category: form.category,
       description: form.description.trim(),
       hasImage: form.hasImage,
-      ...(form.category === 'Fahrt'
-        ? {
-            tripDetails: {
-              departure: form.departure.trim(),
-              destination: form.destination.trim(),
-              departureTime: form.departureTime.trim(),
-              freeSeats: Number(form.freeSeats),
-              occasion: form.occasion.trim() || undefined,
-            },
-          }
-        : {}),
       ...(form.category === 'Gesuch'
         ? {
             requestDetails: {
@@ -265,10 +276,12 @@ export default function CreatePostScreen() {
             />
           </View>
 
-          {form.category === 'Beitrag' ? (
+          {form.category === 'Beitrag' || form.category === 'Fahrt' ? (
             <View style={styles.section}>
               <Text style={styles.hintText}>
-                Dieser Beitrag wird online gespeichert. Bilder werden in diesem Schritt noch nicht unterstützt.
+                {form.category === 'Beitrag'
+                  ? 'Dieser Beitrag wird online gespeichert. Bilder werden in diesem Schritt noch nicht unterstützt.'
+                  : 'Diese Fahrt wird online gespeichert. Bilder werden in diesem Schritt noch nicht unterstützt.'}
               </Text>
             </View>
           ) : (

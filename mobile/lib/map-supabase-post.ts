@@ -88,5 +88,6 @@ export function mapSupabasePostToFeedPost(
     likedByCurrentUser,
     comments,
     source: 'supabase',
+    createdAtIso: row.created_at,
   };
 }

@@ -23,7 +23,8 @@ import { useSafetySelectors } from '@/hooks/use-safety-selectors';
 export default function PostDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string; focusComments?: string }>();
-  const { posts, toggleLike, addComment, toggleRideRequest, isRemotePostsLoading, getRemoteAuthorDisplay } = useFeedPosts();
+  const { posts, toggleLike, addComment, toggleRideRequest, isRemotePostsLoading, isRemoteTripsLoading, getRemoteAuthorDisplay } =
+    useFeedPosts();
   const { getOrCreateConversation } = useMessages();
   const { isSaved, toggleSaved } = useSaved();
   const { getAuthorDisplay, getCommentAuthorDisplay, isCurrentUserId } = useProfiles();
@@ -59,7 +60,7 @@ export default function PostDetailScreen() {
   }, [focusComments, commentsY, post]);
 
   if (!post) {
-    if (isRemotePostsLoading) {
+    if (isRemotePostsLoading || isRemoteTripsLoading) {
       return <NotFoundView title="Beitrag wird geladen …" message="Einen Moment, der Beitrag wird geladen." />;
     }
 
@@ -197,7 +198,7 @@ export default function PostDetailScreen() {
             </View>
           ) : null}
 
-          {isTrip ? (
+          {isTrip && !isOwnPost ? (
             <View style={styles.rideRequestSection}>
               <Pressable
                 onPress={() => toggleRideRequest(post.id)}
