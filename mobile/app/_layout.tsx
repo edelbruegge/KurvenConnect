@@ -73,6 +73,10 @@ function RootNavigator() {
             options={{ title: 'Beitrag', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
           />
           <Stack.Screen
+            name="trip/[id]/requests"
+            options={{ title: 'Anfragen verwalten', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
+          />
+          <Stack.Screen
             name="meetup/[id]"
             options={{ title: 'Treffpunkt', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
           />

@@ -2,6 +2,8 @@ import type { ReportTargetType } from './reports';
 
 export type FeedPostCategory = 'Beitrag' | 'Fahrt' | 'Gesuch' | 'Treffpunkt';
 
+export type TripRequestStatus = 'pending' | 'accepted' | 'rejected' | 'cancelled';
+
 export type FeedComment = {
   id: string;
   // Optional only for legacy seed comments by background characters with no matching
@@ -66,6 +68,11 @@ export type FeedPost = {
   requestDetails?: GesuchDetails;
   meetupDetails?: MeetupDetails;
   rideRequestSent?: boolean;
+  // Only set for source:'supabase' trips: the current user's own latest request status for
+  // this trip (any status, not just active ones), and that request's row id (needed to cancel
+  // it). Undefined means the current user has never requested this trip.
+  rideRequestStatus?: TripRequestStatus;
+  rideRequestId?: string;
   // 'local' for seed/in-memory posts, 'supabase' for rows loaded from public.posts. Never
   // inferred from the shape of `id` (e.g. UUID-looking strings) — always set explicitly by
   // FeedPostsProvider on load, defaults to 'local' when absent.

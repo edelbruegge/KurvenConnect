@@ -83,7 +83,9 @@ export function TripCard({ post, onPress, onLikePress }: TripCardProps) {
 
       {post.rideRequestSent ? (
         <View style={styles.requestHint}>
-          <Text style={styles.requestHintText}>Anfrage gesendet</Text>
+          <Text style={styles.requestHintText}>
+            {post.rideRequestStatus === 'accepted' ? 'Anfrage angenommen' : 'Anfrage gesendet'}
+          </Text>
         </View>
       ) : null}
 

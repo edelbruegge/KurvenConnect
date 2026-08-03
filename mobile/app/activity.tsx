@@ -49,7 +49,20 @@ export default function ActivityScreen() {
                 <Text style={styles.emptyText}>{section.emptyText}</Text>
               </View>
             ) : (
-              section.posts.map((post) => <ActivityRow key={post.id} post={post} onPress={() => handleOpenPost(post)} />)
+              section.posts.map((post) => (
+                <ActivityRow
+                  key={post.id}
+                  post={post}
+                  onPress={() => handleOpenPost(post)}
+                  trailing={
+                    section.title === 'Fahrtanfragen' && post.rideRequestStatus ? (
+                      <Text style={styles.rideRequestStatusBadge}>
+                        {post.rideRequestStatus === 'accepted' ? 'Anfrage angenommen' : 'Anfrage gesendet'}
+                      </Text>
+                    ) : undefined
+                  }
+                />
+              ))
             )}
           </View>
         ))}
@@ -90,5 +103,10 @@ const styles = StyleSheet.create({
     fontSize: FontSizes.meta,
     textAlign: 'center',
     marginTop: Spacing.xs,
+  },
+  rideRequestStatusBadge: {
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.meta,
+    fontWeight: '600',
   },
 });

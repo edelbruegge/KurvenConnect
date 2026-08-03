@@ -18,7 +18,6 @@ import {
   type SupabaseTripLikeRow,
   type SupabaseTripRequestRow,
   type SupabaseTripRow,
-  type TripRequestStatus,
 } from '@/lib/map-supabase-trip';
 import { mapTripError } from '@/lib/trip-errors';
 import { supabase } from '@/lib/supabase';
@@ -66,8 +65,11 @@ type FeedPostsContextValue = {
   createRemoteTrip: (input: NewRemoteTripInput) => Promise<{ error: string | null }>;
   toggleRemoteTripLike: (tripId: string) => Promise<void>;
   createRemoteTripRequest: (tripId: string, input?: NewRemoteTripRequestInput) => Promise<{ error: string | null }>;
-  cancelRemoteTripRequest: (tripId: string) => Promise<{ error: string | null }>;
-  updateRemoteTripRequestStatus: (requestId: string, status: TripRequestStatus) => Promise<{ error: string | null }>;
+  cancelRemoteTripRequest: (requestId: string) => Promise<{ error: string | null }>;
+  respondToRemoteTripRequest: (requestId: string, decision: 'accepted' | 'rejected') => Promise<{ error: string | null }>;
+  requestsForOwnedTrips: SupabaseTripRequestRow[];
+  getRequestsForTrip: (tripId: string) => SupabaseTripRequestRow[];
+  pendingRequestCountForTrip: (tripId: string) => number;
 };
 
 const FeedPostsContext = createContext<FeedPostsContextValue | undefined>(undefined);
@@ -118,7 +120,8 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
   const [isRemoteTripsLoading, setIsRemoteTripsLoading] = useState(false);
   const [remoteTripsError, setRemoteTripsError] = useState<string | null>(null);
   const [tripsReloadToken, setTripsReloadToken] = useState(0);
-  const [ownTripRequestIdByTripId, setOwnTripRequestIdByTripId] = useState<Record<string, string>>({});
+  const [ownTripRequestByTripId, setOwnTripRequestByTripId] = useState<Record<string, SupabaseTripRequestRow>>({});
+  const [requestsForOwnedTrips, setRequestsForOwnedTrips] = useState<SupabaseTripRequestRow[]>([]);
   const inFlightTripLikeIds = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -252,7 +255,8 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       setRemoteAuthorProfiles({});
       setIsRemoteTripsLoading(false);
       setRemoteTripsError(null);
-      setOwnTripRequestIdByTripId({});
+      setOwnTripRequestByTripId({});
+      setRequestsForOwnedTrips([]);
       return;
     }
 
@@ -280,7 +284,8 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
 
       if (trips.length === 0) {
         setRemoteTrips([]);
-        setOwnTripRequestIdByTripId({});
+        setOwnTripRequestByTripId({});
+        setRequestsForOwnedTrips([]);
         setIsRemoteTripsLoading(false);
         return;
       }
@@ -342,10 +347,24 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
         }
       });
 
-      const ownPendingRequestIdByTripId: Record<string, string> = {};
+      // RLS on trip_requests already scopes `requests` to exactly what this user is allowed to
+      // see: their own requests (any trip) plus all requests on trips they own. That single
+      // fetch is reused for both derivations below — no extra query needed.
+      const ownedTripIds = new Set(trips.filter((trip) => trip.owner_id === authUserId).map((trip) => trip.id));
+
+      const latestOwnRequestByTripId: Record<string, SupabaseTripRequestRow> = {};
+      const ownedTripRequests: SupabaseTripRequestRow[] = [];
+
       requests.forEach((row) => {
-        if (row.requester_id === authUserId && row.status === 'pending') {
-          ownPendingRequestIdByTripId[row.trip_id] = row.id;
+        if (row.requester_id === authUserId) {
+          const existing = latestOwnRequestByTripId[row.trip_id];
+          if (!existing || new Date(row.created_at).getTime() > new Date(existing.created_at).getTime()) {
+            latestOwnRequestByTripId[row.trip_id] = row;
+          }
+        }
+
+        if (ownedTripIds.has(row.trip_id)) {
+          ownedTripRequests.push(row);
         }
       });
 
@@ -354,14 +373,15 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
           row,
           likeCountByTripId.get(row.id) ?? 0,
           likedTripIdsByCurrentUser.has(row.id),
-          Boolean(ownPendingRequestIdByTripId[row.id]),
+          latestOwnRequestByTripId[row.id],
           authorDisplayById[row.owner_id] ?? UNKNOWN_AUTHOR_DISPLAY,
         ),
       );
 
       setRemoteAuthorProfiles((current) => ({ ...current, ...authorDisplayById }));
       setRemoteTrips(mappedTrips);
-      setOwnTripRequestIdByTripId(ownPendingRequestIdByTripId);
+      setOwnTripRequestByTripId(latestOwnRequestByTripId);
+      setRequestsForOwnedTrips(ownedTripRequests);
       setIsRemoteTripsLoading(false);
     })();
 
@@ -526,7 +546,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       return { error: mapTripError(error) };
     }
 
-    const newTrip = mapSupabaseTripToFeedPost(data as SupabaseTripRow, 0, false, false, getOwnAuthorDisplay());
+    const newTrip = mapSupabaseTripToFeedPost(data as SupabaseTripRow, 0, false, undefined, getOwnAuthorDisplay());
     setRemoteTrips((current) => [newTrip, ...current]);
     return { error: null };
   };
@@ -602,34 +622,79 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
     }
 
     const newRequest = data as SupabaseTripRequestRow;
-    setRemoteTrips((current) => current.map((entry) => (entry.id === tripId ? { ...entry, rideRequestSent: true } : entry)));
-    setOwnTripRequestIdByTripId((current) => ({ ...current, [tripId]: newRequest.id }));
+    setRemoteTrips((current) =>
+      current.map((entry) =>
+        entry.id === tripId
+          ? { ...entry, rideRequestSent: true, rideRequestStatus: newRequest.status, rideRequestId: newRequest.id }
+          : entry,
+      ),
+    );
+    setOwnTripRequestByTripId((current) => ({ ...current, [tripId]: newRequest }));
     return { error: null };
   };
 
-  const cancelRemoteTripRequest = async (tripId: string): Promise<{ error: string | null }> => {
+  type TripRequestRpcResult = { request: SupabaseTripRequestRow; seats_available: number };
+
+  const applyTripRequestSeatUpdate = (tripId: string, seatsAvailable: number) => {
+    setRemoteTrips((current) =>
+      current.map((entry) =>
+        entry.id === tripId && entry.tripDetails
+          ? { ...entry, tripDetails: { ...entry.tripDetails, freeSeats: seatsAvailable } }
+          : entry,
+      ),
+    );
+  };
+
+  const cancelRemoteTripRequest = async (requestId: string): Promise<{ error: string | null }> => {
     if (!authUserId) {
       return { error: NOT_SIGNED_IN_ERROR };
     }
 
-    const requestId = ownTripRequestIdByTripId[tripId];
-
-    if (!requestId) {
-      return { error: null };
-    }
-
-    const { error } = await supabase.from('trip_requests').update({ status: 'cancelled' }).eq('id', requestId);
+    const { data, error } = await supabase.rpc('cancel_trip_request', { p_request_id: requestId });
 
     if (error) {
       return { error: mapTripError(error) };
     }
 
-    setRemoteTrips((current) => current.map((entry) => (entry.id === tripId ? { ...entry, rideRequestSent: false } : entry)));
-    setOwnTripRequestIdByTripId((current) => {
-      const next = { ...current };
-      delete next[tripId];
-      return next;
-    });
+    const result = data as TripRequestRpcResult;
+    const updatedRequest = result.request;
+
+    setRemoteTrips((current) =>
+      current.map((entry) =>
+        entry.id === updatedRequest.trip_id
+          ? {
+              ...entry,
+              rideRequestSent: false,
+              rideRequestStatus: updatedRequest.status,
+              tripDetails: entry.tripDetails ? { ...entry.tripDetails, freeSeats: result.seats_available } : entry.tripDetails,
+            }
+          : entry,
+      ),
+    );
+    setOwnTripRequestByTripId((current) => ({ ...current, [updatedRequest.trip_id]: updatedRequest }));
+    return { error: null };
+  };
+
+  const respondToRemoteTripRequest = async (
+    requestId: string,
+    decision: 'accepted' | 'rejected',
+  ): Promise<{ error: string | null }> => {
+    if (!authUserId) {
+      return { error: NOT_SIGNED_IN_ERROR };
+    }
+
+    const rpcName = decision === 'accepted' ? 'accept_trip_request' : 'reject_trip_request';
+    const { data, error } = await supabase.rpc(rpcName, { p_request_id: requestId });
+
+    if (error) {
+      return { error: mapTripError(error) };
+    }
+
+    const result = data as TripRequestRpcResult;
+    const updatedRequest = result.request;
+
+    setRequestsForOwnedTrips((current) => current.map((row) => (row.id === updatedRequest.id ? updatedRequest : row)));
+    applyTripRequestSeatUpdate(updatedRequest.trip_id, result.seats_available);
     return { error: null };
   };
 
@@ -641,31 +706,20 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
     }
 
     if (trip.rideRequestSent) {
-      await cancelRemoteTripRequest(tripId);
+      const ownRequest = ownTripRequestByTripId[tripId];
+      if (ownRequest) {
+        await cancelRemoteTripRequest(ownRequest.id);
+      }
     } else {
       await createRemoteTripRequest(tripId);
     }
   };
 
-  // Provided so a future owner-facing accept/reject screen can reuse this without another
-  // migration — RLS already allows the trip owner to update a request's status. Not wired
-  // into any screen in this step (no such UI exists yet).
-  const updateRemoteTripRequestStatus = async (
-    requestId: string,
-    status: TripRequestStatus,
-  ): Promise<{ error: string | null }> => {
-    if (!authUserId) {
-      return { error: NOT_SIGNED_IN_ERROR };
-    }
+  const getRequestsForTrip = (tripId: string): SupabaseTripRequestRow[] =>
+    requestsForOwnedTrips.filter((row) => row.trip_id === tripId);
 
-    const { error } = await supabase.from('trip_requests').update({ status }).eq('id', requestId);
-
-    if (error) {
-      return { error: mapTripError(error) };
-    }
-
-    return { error: null };
-  };
+  const pendingRequestCountForTrip = (tripId: string): number =>
+    getRequestsForTrip(tripId).filter((row) => row.status === 'pending').length;
 
   const addPost = (post: NewFeedPost) => {
     const newPost: FeedPost = {
@@ -863,7 +917,10 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       toggleRemoteTripLike,
       createRemoteTripRequest,
       cancelRemoteTripRequest,
-      updateRemoteTripRequestStatus,
+      respondToRemoteTripRequest,
+      requestsForOwnedTrips,
+      getRequestsForTrip,
+      pendingRequestCountForTrip,
     }),
     [
       posts,
@@ -873,7 +930,8 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       remoteTrips,
       isRemoteTripsLoading,
       remoteTripsError,
-      ownTripRequestIdByTripId,
+      ownTripRequestByTripId,
+      requestsForOwnedTrips,
       currentUser,
       authUserId,
     ],

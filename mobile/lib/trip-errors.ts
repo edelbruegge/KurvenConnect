@@ -14,12 +14,24 @@ export function mapTripError(error: unknown): string {
     return GENERIC_ERROR_MESSAGE;
   }
 
-  if (message.includes('row-level security') || message.includes('permission denied')) {
+  if (message.includes('row-level security') || message.includes('permission denied') || message.includes('not authorized')) {
     return 'Du bist nicht berechtigt, diese Aktion durchzuführen.';
   }
 
   if (message.includes('jwt') || message.includes('not authenticated') || message.includes('no session')) {
     return NO_SESSION_MESSAGE;
+  }
+
+  if (message.includes('trip request not found')) {
+    return 'Die Anfrage konnte nicht mehr gefunden werden.';
+  }
+
+  if (message.includes('no seats available')) {
+    return 'Für diese Fahrt ist kein Platz mehr verfügbar.';
+  }
+
+  if (message.includes('no longer pending') || message.includes('can no longer be cancelled')) {
+    return 'Der Status der Anfrage hat sich bereits geändert.';
   }
 
   if (message.includes('duplicate key') || message.includes('already exists')) {
@@ -30,7 +42,7 @@ export function mapTripError(error: unknown): string {
     return 'Bitte gib eine gültige Anzahl freier Plätze ein.';
   }
 
-  if (message.includes('foreign key') && message.includes('trip_id')) {
+  if ((message.includes('foreign key') && message.includes('trip_id')) || message.includes('trip not found')) {
     return 'Diese Fahrt existiert nicht mehr.';
   }
 
@@ -38,7 +50,12 @@ export function mapTripError(error: unknown): string {
     return NETWORK_ERROR_MESSAGE;
   }
 
-  if ((message.includes('relation') && message.includes('does not exist')) || message.includes('could not find the table')) {
+  if (
+    (message.includes('relation') && message.includes('does not exist')) ||
+    message.includes('could not find the table') ||
+    message.includes('could not find the function') ||
+    (message.includes('function') && message.includes('does not exist'))
+  ) {
     return 'Diese Funktion ist noch nicht eingerichtet. Bitte versuche es später erneut.';
   }
 

@@ -9,7 +9,7 @@ import { NotFoundView } from '@/components/navigation/not-found-view';
 import { ReportModal } from '@/components/reports/report-modal';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { OverflowMenu } from '@/components/ui/overflow-menu';
-import { CategoryLabels, ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
+import { CategoryLabels, ClubColors, FeedColors, FontSizes, Radii, Spacing, StatusColors } from '@/constants/theme';
 import { useFeedPosts } from '@/context/feed-posts-context';
 import { useMessages } from '@/context/messages-context';
 import { useProfiles } from '@/context/profile-context';
@@ -23,8 +23,18 @@ import { useSafetySelectors } from '@/hooks/use-safety-selectors';
 export default function PostDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string; focusComments?: string }>();
-  const { posts, toggleLike, addComment, toggleRideRequest, isRemotePostsLoading, isRemoteTripsLoading, getRemoteAuthorDisplay } =
-    useFeedPosts();
+  const {
+    posts,
+    toggleLike,
+    addComment,
+    toggleRideRequest,
+    isRemotePostsLoading,
+    isRemoteTripsLoading,
+    getRemoteAuthorDisplay,
+    createRemoteTripRequest,
+    cancelRemoteTripRequest,
+    pendingRequestCountForTrip,
+  } = useFeedPosts();
   const { getOrCreateConversation } = useMessages();
   const { isSaved, toggleSaved } = useSaved();
   const { getAuthorDisplay, getCommentAuthorDisplay, isCurrentUserId } = useProfiles();
@@ -33,6 +43,9 @@ export default function PostDetailScreen() {
   const [draftComment, setDraftComment] = useState('');
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
   const [commentError, setCommentError] = useState<string | null>(null);
+  const [isSubmittingRideRequest, setIsSubmittingRideRequest] = useState(false);
+  const [rideRequestActionError, setRideRequestActionError] = useState<string | null>(null);
+  const [confirmingCancelAccepted, setConfirmingCancelAccepted] = useState(false);
   const scrollRef = useRef<ScrollView | null>(null);
   const commentInputRef = useRef<TextInput | null>(null);
   const [commentsY, setCommentsY] = useState<number | null>(null);
@@ -103,6 +116,139 @@ export default function PostDetailScreen() {
   const handleMessagePress = () => {
     const conversationId = getOrCreateConversation(post.userId, getConversationReferenceForPost(post));
     router.push({ pathname: '/messages/[id]', params: { id: conversationId } });
+  };
+
+  const renderRideRequestSection = () => {
+    if (post.source !== 'supabase') {
+      return (
+        <View style={styles.rideRequestSection}>
+          <Pressable
+            onPress={() => toggleRideRequest(post.id)}
+            accessibilityRole="button"
+            accessibilityLabel={post.rideRequestSent ? 'Mitfahranfrage zurückziehen' : 'Mitfahren anfragen'}
+            style={[styles.rideRequestButton, post.rideRequestSent && styles.rideRequestButtonActive]}
+          >
+            <Text style={[styles.rideRequestButtonText, post.rideRequestSent && styles.rideRequestButtonTextActive]}>
+              {rideRequestLabel}
+            </Text>
+          </Pressable>
+          <Text style={styles.rideRequestHint}>Die Anfrage ist unverbindlich. Es wird noch kein Platz reserviert.</Text>
+        </View>
+      );
+    }
+
+    const status = post.rideRequestStatus;
+
+    const handleCreateOrRetry = async () => {
+      if (isSubmittingRideRequest) return;
+
+      setIsSubmittingRideRequest(true);
+      setRideRequestActionError(null);
+      const { error } = await createRemoteTripRequest(post.id);
+      setIsSubmittingRideRequest(false);
+
+      if (error) {
+        setRideRequestActionError(error);
+      }
+    };
+
+    const handleCancel = async () => {
+      if (isSubmittingRideRequest || !post.rideRequestId) return;
+
+      setIsSubmittingRideRequest(true);
+      setRideRequestActionError(null);
+      const { error } = await cancelRemoteTripRequest(post.rideRequestId);
+      setIsSubmittingRideRequest(false);
+
+      if (error) {
+        setRideRequestActionError(error);
+      }
+    };
+
+    const handleConfirmCancelAccepted = async () => {
+      setConfirmingCancelAccepted(false);
+      await handleCancel();
+    };
+
+    return (
+      <View style={styles.rideRequestSection}>
+        {rideRequestActionError ? <Text style={styles.rideRequestErrorText}>{rideRequestActionError}</Text> : null}
+
+        {status === 'accepted' ? (
+          <>
+            <View style={styles.rideRequestAcceptedBadge}>
+              <Text style={styles.rideRequestAcceptedBadgeText}>✓ Anfrage angenommen</Text>
+            </View>
+            {confirmingCancelAccepted ? (
+              <View style={styles.confirmBlock}>
+                <Text style={styles.confirmText}>
+                  Möchtest du deine bestätigte Teilnahme wirklich stornieren? Der Platz wird wieder freigegeben.
+                </Text>
+                <View style={styles.confirmActions}>
+                  <Pressable
+                    onPress={handleConfirmCancelAccepted}
+                    style={styles.destructiveButton}
+                    accessibilityRole="button"
+                    accessibilityLabel="Stornieren bestätigen"
+                  >
+                    <Text style={styles.destructiveButtonText}>Stornieren bestätigen</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => setConfirmingCancelAccepted(false)}
+                    style={styles.cancelButton}
+                    accessibilityRole="button"
+                    accessibilityLabel="Abbrechen"
+                  >
+                    <Text style={styles.cancelButtonText}>Abbrechen</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ) : (
+              <Pressable
+                onPress={() => setConfirmingCancelAccepted(true)}
+                disabled={isSubmittingRideRequest}
+                style={[styles.rideRequestButton, styles.rideRequestButtonActive, isSubmittingRideRequest && styles.rideRequestButtonDisabled]}
+                accessibilityRole="button"
+                accessibilityLabel="Teilnahme stornieren"
+              >
+                <Text style={[styles.rideRequestButtonText, styles.rideRequestButtonTextActive]}>Teilnahme stornieren</Text>
+              </Pressable>
+            )}
+          </>
+        ) : status === 'pending' ? (
+          <>
+            <Text style={styles.rideRequestStatusHint}>Anfrage gesendet</Text>
+            <Pressable
+              onPress={handleCancel}
+              disabled={isSubmittingRideRequest}
+              style={[styles.rideRequestButton, styles.rideRequestButtonActive, isSubmittingRideRequest && styles.rideRequestButtonDisabled]}
+              accessibilityRole="button"
+              accessibilityLabel="Anfrage zurückziehen"
+            >
+              <Text style={[styles.rideRequestButtonText, styles.rideRequestButtonTextActive]}>
+                {isSubmittingRideRequest ? 'Wird bearbeitet …' : 'Anfrage zurückziehen'}
+              </Text>
+            </Pressable>
+          </>
+        ) : (
+          <>
+            {status === 'rejected' ? <Text style={styles.rideRequestStatusHint}>Anfrage abgelehnt</Text> : null}
+            <Pressable
+              onPress={handleCreateOrRetry}
+              disabled={isSubmittingRideRequest}
+              style={[styles.rideRequestButton, isSubmittingRideRequest && styles.rideRequestButtonDisabled]}
+              accessibilityRole="button"
+              accessibilityLabel="Mitfahren anfragen"
+            >
+              <Text style={styles.rideRequestButtonText}>
+                {isSubmittingRideRequest ? 'Wird gesendet …' : status === 'rejected' ? 'Erneut anfragen' : 'Mitfahren anfragen'}
+              </Text>
+            </Pressable>
+            <Text style={styles.rideRequestHint}>Die Anfrage ist unverbindlich. Es wird noch kein Platz reserviert.</Text>
+          </>
+        )}
+      </View>
+    );
   };
 
   return (
@@ -198,19 +344,21 @@ export default function PostDetailScreen() {
             </View>
           ) : null}
 
-          {isTrip && !isOwnPost ? (
-            <View style={styles.rideRequestSection}>
+          {isTrip && !isOwnPost ? renderRideRequestSection() : null}
+
+          {isTrip && isOwnPost && post.source === 'supabase' ? (
+            <View style={styles.manageRequestsSection}>
               <Pressable
-                onPress={() => toggleRideRequest(post.id)}
+                onPress={() => router.push({ pathname: '/trip/[id]/requests', params: { id: post.id } })}
+                style={styles.manageRequestsButton}
                 accessibilityRole="button"
-                accessibilityLabel={post.rideRequestSent ? 'Mitfahranfrage zurückziehen' : 'Mitfahren anfragen'}
-                style={[styles.rideRequestButton, post.rideRequestSent && styles.rideRequestButtonActive]}
+                accessibilityLabel="Anfragen verwalten"
               >
-                <Text style={[styles.rideRequestButtonText, post.rideRequestSent && styles.rideRequestButtonTextActive]}>
-                  {rideRequestLabel}
+                <Text style={styles.manageRequestsButtonText}>
+                  Anfragen verwalten
+                  {pendingRequestCountForTrip(post.id) > 0 ? ` (${pendingRequestCountForTrip(post.id)})` : ''}
                 </Text>
               </Pressable>
-              <Text style={styles.rideRequestHint}>Die Anfrage ist unverbindlich. Es wird noch kein Platz reserviert.</Text>
             </View>
           ) : null}
         </View>
@@ -451,6 +599,91 @@ const styles = StyleSheet.create({
     fontSize: FontSizes.meta,
     marginTop: Spacing.sm,
     lineHeight: 18,
+  },
+  rideRequestButtonDisabled: {
+    opacity: 0.5,
+  },
+  rideRequestErrorText: {
+    color: StatusColors.error,
+    fontSize: FontSizes.meta,
+    marginBottom: Spacing.sm,
+  },
+  rideRequestStatusHint: {
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.meta,
+    marginBottom: Spacing.sm,
+  },
+  rideRequestAcceptedBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: ClubColors.surface,
+    borderRadius: Radii.round,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    marginBottom: Spacing.sm,
+  },
+  rideRequestAcceptedBadgeText: {
+    color: ClubColors.text,
+    fontSize: FontSizes.meta,
+    fontWeight: '700',
+  },
+  confirmBlock: {
+    gap: Spacing.sm,
+  },
+  confirmText: {
+    color: FeedColors.textPrimary,
+    fontSize: FontSizes.meta,
+  },
+  confirmActions: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+  },
+  destructiveButton: {
+    flex: 1,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: Radii.round,
+    backgroundColor: 'rgba(248, 113, 113, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(248, 113, 113, 0.4)',
+  },
+  destructiveButtonText: {
+    color: StatusColors.error,
+    fontSize: FontSizes.meta,
+    fontWeight: '700',
+  },
+  cancelButton: {
+    flex: 1,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: Radii.round,
+    borderWidth: 1,
+    borderColor: ClubColors.border,
+  },
+  cancelButtonText: {
+    color: ClubColors.text,
+    fontSize: FontSizes.meta,
+    fontWeight: '600',
+  },
+  manageRequestsSection: {
+    marginTop: Spacing.md,
+    paddingTop: Spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: FeedColors.cardBorder,
+  },
+  manageRequestsButton: {
+    alignSelf: 'flex-start',
+    borderRadius: Radii.round,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderWidth: 1,
+    borderColor: ClubColors.border,
+  },
+  manageRequestsButtonText: {
+    color: ClubColors.text,
+    fontSize: FontSizes.body,
+    fontWeight: '600',
   },
   commentsSection: {
     marginTop: Spacing.md,

@@ -1,5 +1,7 @@
-import type { FeedPost } from '@/data/feed-posts';
+import type { FeedPost, TripRequestStatus } from '@/data/feed-posts';
 import { formatRelativeGermanTime } from '@/lib/map-supabase-post';
+
+export type { TripRequestStatus };
 
 export type SupabaseTripRow = {
   id: string;
@@ -20,8 +22,6 @@ export type SupabaseTripLikeRow = {
   created_at: string;
 };
 
-export type TripRequestStatus = 'pending' | 'accepted' | 'rejected' | 'cancelled';
-
 export type SupabaseTripRequestRow = {
   id: string;
   trip_id: string;
@@ -30,6 +30,7 @@ export type SupabaseTripRequestRow = {
   status: TripRequestStatus;
   created_at: string;
   updated_at: string;
+  responded_at: string | null;
 };
 
 type AuthorDisplay = { displayName: string; initials: string };
@@ -38,7 +39,7 @@ export function mapSupabaseTripToFeedPost(
   row: SupabaseTripRow,
   likeCount: number,
   likedByCurrentUser: boolean,
-  hasActiveOwnRequest: boolean,
+  ownRequest: SupabaseTripRequestRow | undefined,
   author: AuthorDisplay,
 ): FeedPost {
   return {
@@ -52,7 +53,9 @@ export function mapSupabaseTripToFeedPost(
     likes: likeCount,
     likedByCurrentUser,
     comments: [],
-    rideRequestSent: hasActiveOwnRequest,
+    rideRequestSent: ownRequest?.status === 'pending' || ownRequest?.status === 'accepted',
+    rideRequestStatus: ownRequest?.status,
+    rideRequestId: ownRequest?.id,
     source: 'supabase',
     createdAtIso: row.created_at,
     tripDetails: {
