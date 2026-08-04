@@ -4,7 +4,7 @@ import { Keyboard, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, Scro
 
 import { CategoryLabels, ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
 import { useFeedPosts } from '@/context/feed-posts-context';
-import type { FeedPostCategory, NewFeedPost } from '@/data/feed-posts';
+import type { FeedPostCategory } from '@/data/feed-posts';
 import { seedGames } from '@/data/games';
 import { parseGermanDateAndTimeToIso } from '@/lib/map-supabase-meetup';
 
@@ -13,7 +13,6 @@ const categoryOptions: FeedPostCategory[] = ['Beitrag', 'Fahrt', 'Gesuch', 'Tref
 type CreatePostFormState = {
   category: FeedPostCategory;
   description: string;
-  hasImage: boolean;
   departure: string;
   destination: string;
   departureTime: string;
@@ -31,7 +30,6 @@ type CreatePostFormState = {
 const initialFormState: CreatePostFormState = {
   category: 'Beitrag',
   description: '',
-  hasImage: false,
   departure: '',
   destination: '',
   departureTime: '',
@@ -48,7 +46,7 @@ const initialFormState: CreatePostFormState = {
 
 export default function CreatePostScreen() {
   const router = useRouter();
-  const { addPost, createRemotePost, createRemoteTrip, createRemoteMeetup } = useFeedPosts();
+  const { createRemotePost, createRemoteTrip, createRemoteMeetup, createRemoteWantedEntry } = useFeedPosts();
   const [form, setForm] = React.useState<CreatePostFormState>(initialFormState);
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
@@ -240,17 +238,19 @@ export default function CreatePostScreen() {
       return;
     }
 
-    const postToAdd: NewFeedPost = {
-      category: form.category,
-      description: form.description.trim(),
-      hasImage: form.hasImage,
-      requestDetails: {
-        requestedService: form.requestedService.trim(),
-      },
-    };
-
-    addPost(postToAdd);
+    setIsSubmitting(true);
     setErrorMessage(null);
+    const { error } = await createRemoteWantedEntry({
+      description: form.description,
+      requestedService: form.requestedService,
+    });
+    setIsSubmitting(false);
+
+    if (error) {
+      setErrorMessage(error);
+      return;
+    }
+
     router.replace('/');
   };
 
@@ -293,24 +293,17 @@ export default function CreatePostScreen() {
             />
           </View>
 
-          {form.category === 'Beitrag' || form.category === 'Fahrt' || form.category === 'Treffpunkt' ? (
-            <View style={styles.section}>
-              <Text style={styles.hintText}>
-                {form.category === 'Beitrag'
-                  ? 'Dieser Beitrag wird online gespeichert. Bilder werden in diesem Schritt noch nicht unterstützt.'
-                  : form.category === 'Fahrt'
-                    ? 'Diese Fahrt wird online gespeichert. Bilder werden in diesem Schritt noch nicht unterstützt.'
-                    : 'Dieser Treffpunkt wird online gespeichert. Bilder werden in diesem Schritt noch nicht unterstützt.'}
-              </Text>
-            </View>
-          ) : (
-            <View style={styles.section}>
-              <Pressable onPress={() => updateField('hasImage', !form.hasImage)} style={styles.toggleRow}>
-                <View style={[styles.checkbox, form.hasImage && styles.checkboxActive]} />
-                <Text style={styles.toggleText}>Bildbereich anzeigen</Text>
-              </Pressable>
-            </View>
-          )}
+          <View style={styles.section}>
+            <Text style={styles.hintText}>
+              {form.category === 'Beitrag'
+                ? 'Dieser Beitrag wird online gespeichert. Bilder werden in diesem Schritt noch nicht unterstützt.'
+                : form.category === 'Fahrt'
+                  ? 'Diese Fahrt wird online gespeichert. Bilder werden in diesem Schritt noch nicht unterstützt.'
+                  : form.category === 'Treffpunkt'
+                    ? 'Dieser Treffpunkt wird online gespeichert. Bilder werden in diesem Schritt noch nicht unterstützt.'
+                    : 'Dieser Gesucht-Eintrag wird online gespeichert. Bilder werden in diesem Schritt noch nicht unterstützt.'}
+            </Text>
+          </View>
 
           {form.category === 'Fahrt' ? (
             <View style={styles.section}>
@@ -445,27 +438,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.sm,
     paddingVertical: Spacing.sm,
     marginBottom: Spacing.sm,
-  },
-  toggleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    minHeight: 40,
-    paddingVertical: Spacing.xs,
-  },
-  checkbox: {
-    width: 18,
-    height: 18,
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: FeedColors.textSecondary,
-    marginRight: Spacing.sm,
-  },
-  checkboxActive: {
-    backgroundColor: FeedColors.textPrimary,
-  },
-  toggleText: {
-    color: FeedColors.textPrimary,
-    fontSize: FontSizes.body,
   },
   hintText: {
     color: FeedColors.textSecondary,

@@ -28,6 +28,12 @@ import {
   type SupabaseMeetupRow,
 } from '@/lib/map-supabase-meetup';
 import { mapMeetupError } from '@/lib/meetup-errors';
+import {
+  mapSupabaseWantedEntryToFeedPost,
+  type SupabaseWantedEntryRow,
+  type SupabaseWantedLikeRow,
+} from '@/lib/map-supabase-wanted-entry';
+import { mapWantedEntryError } from '@/lib/wanted-entry-errors';
 import { supabase } from '@/lib/supabase';
 
 type AuthorDisplay = { displayName: string; initials: string };
@@ -54,6 +60,11 @@ type NewRemoteMeetupInput = {
   maxAttendees?: number;
   gameId: string;
   gameLabel: string;
+};
+
+type NewRemoteWantedEntryInput = {
+  description: string;
+  requestedService: string;
 };
 
 type FeedPostsContextValue = {
@@ -101,6 +112,14 @@ type FeedPostsContextValue = {
   leaveRemoteMeetup: (meetupId: string) => Promise<{ error: string | null }>;
   getRemoteMeetupAttendees: (meetupId: string) => string[];
   isCurrentUserAttendingMeetup: (meetupId: string) => boolean;
+
+  // Supabase-backed wanted entries ("Gesuch").
+  remoteWantedEntries: FeedPost[];
+  isRemoteWantedEntriesLoading: boolean;
+  remoteWantedEntriesError: string | null;
+  refreshRemoteWantedEntries: () => void;
+  createRemoteWantedEntry: (input: NewRemoteWantedEntryInput) => Promise<{ error: string | null }>;
+  toggleRemoteWantedLike: (wantedEntryId: string) => Promise<void>;
 };
 
 const FeedPostsContext = createContext<FeedPostsContextValue | undefined>(undefined);
@@ -108,9 +127,11 @@ const FeedPostsContext = createContext<FeedPostsContextValue | undefined>(undefi
 const POST_CONTENT_MAX_LENGTH = 2000;
 const COMMENT_CONTENT_MAX_LENGTH = 500;
 const MEETUP_TITLE_MAX_LENGTH = 200;
+const WANTED_SERVICE_MAX_LENGTH = 200;
 const REMOTE_POSTS_LIMIT = 50;
 const REMOTE_TRIPS_LIMIT = 50;
 const REMOTE_MEETUPS_LIMIT = 50;
+const REMOTE_WANTED_ENTRIES_LIMIT = 50;
 
 const POSTS_SELECT_COLUMNS = 'id, author_id, content, category, created_at, updated_at';
 const COMMENTS_SELECT_COLUMNS = 'id, post_id, author_id, content, created_at, updated_at';
@@ -123,6 +144,9 @@ const TRIP_REQUESTS_SELECT_COLUMNS = 'id, trip_id, requester_id, message, status
 const MEETUPS_SELECT_COLUMNS = 'id, organizer_id, title, description, location, starts_at, max_attendees, game_id, game_label, created_at, updated_at';
 const MEETUP_LIKES_SELECT_COLUMNS = 'meetup_id, user_id, created_at';
 const MEETUP_ATTENDEES_SELECT_COLUMNS = 'meetup_id, user_id, joined_at';
+
+const WANTED_ENTRIES_SELECT_COLUMNS = 'id, owner_id, description, requested_service, created_at, updated_at';
+const WANTED_LIKES_SELECT_COLUMNS = 'wanted_entry_id, user_id, created_at';
 
 const NOT_SIGNED_IN_ERROR = 'Bitte melde dich an, um das zu tun.';
 const UNKNOWN_AUTHOR_DISPLAY: AuthorDisplay = { displayName: 'Unbekanntes Mitglied', initials: '?' };
@@ -167,6 +191,12 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
   const [meetupsReloadToken, setMeetupsReloadToken] = useState(0);
   const inFlightMeetupLikeIds = useRef<Set<string>>(new Set());
   const inFlightMeetupAttendanceIds = useRef<Set<string>>(new Set());
+
+  const [remoteWantedEntries, setRemoteWantedEntries] = useState<FeedPost[]>([]);
+  const [isRemoteWantedEntriesLoading, setIsRemoteWantedEntriesLoading] = useState(false);
+  const [remoteWantedEntriesError, setRemoteWantedEntriesError] = useState<string | null>(null);
+  const [wantedEntriesReloadToken, setWantedEntriesReloadToken] = useState(0);
+  const inFlightWantedLikeIds = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!authUserId) {
@@ -555,6 +585,111 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
     };
   }, [authUserId, meetupsReloadToken]);
 
+  useEffect(() => {
+    if (!authUserId) {
+      setRemoteWantedEntries([]);
+      setRemoteAuthorProfiles({});
+      setIsRemoteWantedEntriesLoading(false);
+      setRemoteWantedEntriesError(null);
+      return;
+    }
+
+    let isCurrent = true;
+    setIsRemoteWantedEntriesLoading(true);
+    setRemoteWantedEntriesError(null);
+
+    (async () => {
+      const { data: wantedRows, error: wantedError } = await supabase
+        .from('wanted_entries')
+        .select(WANTED_ENTRIES_SELECT_COLUMNS)
+        .order('created_at', { ascending: false })
+        .limit(REMOTE_WANTED_ENTRIES_LIMIT);
+
+      if (!isCurrent) return;
+
+      if (wantedError) {
+        setRemoteWantedEntriesError(mapWantedEntryError(wantedError));
+        setRemoteWantedEntries([]);
+        setIsRemoteWantedEntriesLoading(false);
+        return;
+      }
+
+      const wantedEntries = (wantedRows ?? []) as SupabaseWantedEntryRow[];
+
+      if (wantedEntries.length === 0) {
+        setRemoteWantedEntries([]);
+        setIsRemoteWantedEntriesLoading(false);
+        return;
+      }
+
+      const wantedEntryIds = wantedEntries.map((entry) => entry.id);
+
+      const { data: likeRows, error: likesError } = await supabase
+        .from('wanted_likes')
+        .select(WANTED_LIKES_SELECT_COLUMNS)
+        .in('wanted_entry_id', wantedEntryIds);
+
+      if (!isCurrent) return;
+
+      if (likesError) {
+        setRemoteWantedEntriesError(mapWantedEntryError(likesError));
+        setRemoteWantedEntries([]);
+        setIsRemoteWantedEntriesLoading(false);
+        return;
+      }
+
+      const likes = (likeRows ?? []) as SupabaseWantedLikeRow[];
+
+      const authorIds = new Set<string>(wantedEntries.map((entry) => entry.owner_id));
+
+      const { data: profileRows, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, display_name')
+        .in('id', Array.from(authorIds));
+
+      if (!isCurrent) return;
+
+      if (profilesError) {
+        setRemoteWantedEntriesError(mapWantedEntryError(profilesError));
+        setRemoteWantedEntries([]);
+        setIsRemoteWantedEntriesLoading(false);
+        return;
+      }
+
+      const authorDisplayById: Record<string, AuthorDisplay> = {};
+      (profileRows ?? []).forEach((row: { id: string; display_name: string | null }) => {
+        const displayName = row.display_name?.trim() || 'Neues Mitglied';
+        authorDisplayById[row.id] = { displayName, initials: getInitialsFromName(displayName) };
+      });
+
+      const likeCountByWantedEntryId = new Map<string, number>();
+      const likedWantedEntryIdsByCurrentUser = new Set<string>();
+      likes.forEach((row) => {
+        likeCountByWantedEntryId.set(row.wanted_entry_id, (likeCountByWantedEntryId.get(row.wanted_entry_id) ?? 0) + 1);
+        if (row.user_id === authUserId) {
+          likedWantedEntryIdsByCurrentUser.add(row.wanted_entry_id);
+        }
+      });
+
+      const mappedWantedEntries = wantedEntries.map((row) =>
+        mapSupabaseWantedEntryToFeedPost(
+          row,
+          likeCountByWantedEntryId.get(row.id) ?? 0,
+          likedWantedEntryIdsByCurrentUser.has(row.id),
+          authorDisplayById[row.owner_id] ?? UNKNOWN_AUTHOR_DISPLAY,
+        ),
+      );
+
+      setRemoteAuthorProfiles((current) => ({ ...current, ...authorDisplayById }));
+      setRemoteWantedEntries(mappedWantedEntries);
+      setIsRemoteWantedEntriesLoading(false);
+    })();
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [authUserId, wantedEntriesReloadToken]);
+
   const refreshRemotePosts = () => {
     setReloadToken((token) => token + 1);
   };
@@ -565,6 +700,10 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
 
   const refreshRemoteMeetups = () => {
     setMeetupsReloadToken((token) => token + 1);
+  };
+
+  const refreshRemoteWantedEntries = () => {
+    setWantedEntriesReloadToken((token) => token + 1);
   };
 
   const getOwnAuthorDisplay = (): AuthorDisplay => {
@@ -1060,6 +1199,77 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const createRemoteWantedEntry = async (input: NewRemoteWantedEntryInput): Promise<{ error: string | null }> => {
+    if (!authUserId) {
+      return { error: NOT_SIGNED_IN_ERROR };
+    }
+
+    const trimmedDescription = input.description.trim();
+    const trimmedRequestedService = input.requestedService.trim();
+
+    if (!trimmedDescription || !trimmedRequestedService) {
+      return { error: 'Bitte fülle alle Pflichtfelder aus.' };
+    }
+
+    if (trimmedDescription.length > POST_CONTENT_MAX_LENGTH) {
+      return { error: `Deine Beschreibung ist zu lang (max. ${POST_CONTENT_MAX_LENGTH} Zeichen).` };
+    }
+
+    if (trimmedRequestedService.length > WANTED_SERVICE_MAX_LENGTH) {
+      return { error: `Die gesuchte Leistung ist zu lang (max. ${WANTED_SERVICE_MAX_LENGTH} Zeichen).` };
+    }
+
+    const { data, error } = await supabase
+      .from('wanted_entries')
+      .insert({ owner_id: authUserId, description: trimmedDescription, requested_service: trimmedRequestedService })
+      .select(WANTED_ENTRIES_SELECT_COLUMNS)
+      .single();
+
+    if (error) {
+      return { error: mapWantedEntryError(error) };
+    }
+
+    const newWantedEntry = mapSupabaseWantedEntryToFeedPost(data as SupabaseWantedEntryRow, 0, false, getOwnAuthorDisplay());
+    setRemoteWantedEntries((current) => [newWantedEntry, ...current]);
+    return { error: null };
+  };
+
+  const toggleRemoteWantedLike = async (wantedEntryId: string): Promise<void> => {
+    if (!authUserId || inFlightWantedLikeIds.current.has(wantedEntryId)) {
+      return;
+    }
+
+    const wantedEntry = remoteWantedEntries.find((entry) => entry.id === wantedEntryId);
+
+    if (!wantedEntry) {
+      return;
+    }
+
+    inFlightWantedLikeIds.current.add(wantedEntryId);
+    const wasLiked = wantedEntry.likedByCurrentUser;
+
+    try {
+      const { error } = wasLiked
+        ? await supabase.from('wanted_likes').delete().eq('wanted_entry_id', wantedEntryId).eq('user_id', authUserId)
+        : await supabase.from('wanted_likes').insert({ wanted_entry_id: wantedEntryId, user_id: authUserId });
+
+      if (error) {
+        // Leave UI state unchanged on error.
+        return;
+      }
+
+      setRemoteWantedEntries((current) =>
+        current.map((entry) => {
+          if (entry.id !== wantedEntryId) return entry;
+          const nextLiked = !wasLiked;
+          return { ...entry, likedByCurrentUser: nextLiked, likes: Math.max(0, entry.likes + (nextLiked ? 1 : -1)) };
+        }),
+      );
+    } finally {
+      inFlightWantedLikeIds.current.delete(wantedEntryId);
+    }
+  };
+
   const addPost = (post: NewFeedPost) => {
     const newPost: FeedPost = {
       id: `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -1085,7 +1295,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
   // dimension is preserved on remoteMeetups itself, even though this shared merge re-sorts by
   // creation time for a single, predictable ordering across all categories.
   const posts = useMemo(() => {
-    const remoteCombined = [...remotePosts, ...remoteTrips, ...remoteMeetups].sort(
+    const remoteCombined = [...remotePosts, ...remoteTrips, ...remoteMeetups, ...remoteWantedEntries].sort(
       (a, b) => getCreatedAtMs(b) - getCreatedAtMs(a),
     );
 
@@ -1099,7 +1309,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
     }
 
     return merged;
-  }, [remotePosts, remoteTrips, remoteMeetups, localPosts]);
+  }, [remotePosts, remoteTrips, remoteMeetups, remoteWantedEntries, localPosts]);
 
   const getPostById = (id: string) => posts.find((post) => post.id === id);
 
@@ -1123,6 +1333,8 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
         void toggleRemoteTripLike(postId);
       } else if (post.category === 'Treffpunkt') {
         void toggleRemoteMeetupLike(postId);
+      } else if (post.category === 'Gesuch') {
+        void toggleRemoteWantedLike(postId);
       } else {
         void toggleRemoteLike(postId);
       }
@@ -1169,9 +1381,9 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       source: 'local',
     };
 
-    // Trip/meetup comments are not persisted in this step (in scope only for "Beitrag"): append
-    // in-memory to whichever array currently holds this post — a no-op on the others, since
-    // post IDs are unique across local posts, remote trips and remote meetups.
+    // Trip/meetup/wanted-entry comments are not persisted in this step (in scope only for
+    // "Beitrag"): append in-memory to whichever array currently holds this post — a no-op on
+    // the others, since post IDs are unique across local posts and each remote source.
     setLocalPosts((currentPosts) =>
       currentPosts.map((post) => (post.id !== postId ? post : { ...post, comments: [...post.comments, newComment] })),
     );
@@ -1180,6 +1392,9 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
     );
     setRemoteMeetups((currentMeetups) =>
       currentMeetups.map((meetup) => (meetup.id !== postId ? meetup : { ...meetup, comments: [...meetup.comments, newComment] })),
+    );
+    setRemoteWantedEntries((currentWantedEntries) =>
+      currentWantedEntries.map((entry) => (entry.id !== postId ? entry : { ...entry, comments: [...entry.comments, newComment] })),
     );
 
     return { error: null };
@@ -1287,6 +1502,12 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       leaveRemoteMeetup,
       getRemoteMeetupAttendees,
       isCurrentUserAttendingMeetup,
+      remoteWantedEntries,
+      isRemoteWantedEntriesLoading,
+      remoteWantedEntriesError,
+      refreshRemoteWantedEntries,
+      createRemoteWantedEntry,
+      toggleRemoteWantedLike,
     }),
     [
       posts,
@@ -1301,6 +1522,9 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       remoteMeetups,
       isRemoteMeetupsLoading,
       remoteMeetupsError,
+      remoteWantedEntries,
+      isRemoteWantedEntriesLoading,
+      remoteWantedEntriesError,
       currentUser,
       authUserId,
     ],

@@ -14,7 +14,8 @@ import { useVisiblePosts } from '@/hooks/use-visible-posts';
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { posts, toggleLike, remotePostsError, refreshRemotePosts } = useFeedPosts();
+  const { posts, toggleLike, remotePostsError, refreshRemotePosts, remoteWantedEntriesError, refreshRemoteWantedEntries } =
+    useFeedPosts();
   const { getRecommendedGroups } = useGroups();
 
   const recommendedGroups = getRecommendedGroups();
@@ -44,6 +45,15 @@ export default function HomeScreen() {
           <View style={styles.remoteErrorBanner}>
             <Text style={styles.remoteErrorText}>{remotePostsError}</Text>
             <Pressable onPress={refreshRemotePosts} accessibilityRole="button" accessibilityLabel="Erneut versuchen">
+              <Text style={styles.remoteErrorRetry}>Erneut versuchen</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
+        {remoteWantedEntriesError ? (
+          <View style={styles.remoteErrorBanner}>
+            <Text style={styles.remoteErrorText}>{remoteWantedEntriesError}</Text>
+            <Pressable onPress={refreshRemoteWantedEntries} accessibilityRole="button" accessibilityLabel="Erneut versuchen">
               <Text style={styles.remoteErrorRetry}>Erneut versuchen</Text>
             </Pressable>
           </View>

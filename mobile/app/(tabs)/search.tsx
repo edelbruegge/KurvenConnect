@@ -23,6 +23,10 @@ function matchesQuery(post: FeedPost, query: string): boolean {
     haystack.push(post.meetupDetails.title, post.meetupDetails.location, post.meetupDetails.gameLabel);
   }
 
+  if (post.category === 'Gesuch' && post.requestDetails) {
+    haystack.push(post.requestDetails.requestedService);
+  }
+
   return haystack.some((value) => value.toLowerCase().includes(query));
 }
 
