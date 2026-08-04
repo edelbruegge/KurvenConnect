@@ -45,6 +45,9 @@ const MAPPING = {
   ellipsis: 'more-vert',
   'flag.fill': 'flag',
   nosign: 'block',
+  'sportscourt.fill': 'stadium',
+  'square.grid.2x2.fill': 'dashboard',
+  'person.fill.questionmark': 'person-search',
 } as const satisfies IconMapping;
 
 /**

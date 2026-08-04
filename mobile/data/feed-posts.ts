@@ -80,7 +80,16 @@ export type FeedPost = {
   // Raw ISO timestamp, set only for Supabase-sourced posts/trips. Used exclusively to sort
   // mixed remote content by actual recency — local seed posts have no comparable timestamp.
   createdAtIso?: string;
+  // Optional matchday reference (from data/games.ts) for Beitrag/Fahrt/Gesuch, used by the
+  // Stadion hub to filter content per game. Treffpunkt uses meetupDetails.gameId/gameLabel
+  // instead (established earlier, left untouched) — read gameId via getPostGameId() below.
+  gameId?: string;
+  gameLabel?: string;
 };
+
+export function getPostGameId(post: FeedPost): string | undefined {
+  return post.category === 'Treffpunkt' ? post.meetupDetails?.gameId : post.gameId;
+}
 
 export function getMeetupAttendeeCount(details: MeetupDetails): number {
   return 1 + details.attendeeIds.length;
@@ -151,6 +160,8 @@ export const feedPosts: FeedPost[] = [
       },
     ],
     hasImage: true,
+    gameId: 'game-arminia-paderborn',
+    gameLabel: 'Arminia Bielefeld – SC Paderborn',
   },
   {
     id: '3',
@@ -180,6 +191,8 @@ export const feedPosts: FeedPost[] = [
       occasion: 'Auswärtsspiel',
     },
     rideRequestSent: false,
+    gameId: 'game-bochum-arminia',
+    gameLabel: 'VfL Bochum – Arminia Bielefeld',
   },
   {
     id: '4',
@@ -211,6 +224,8 @@ export const feedPosts: FeedPost[] = [
     requestDetails: {
       requestedService: 'Unterstützung bei der Organisation',
     },
+    gameId: 'game-arminia-paderborn',
+    gameLabel: 'Arminia Bielefeld – SC Paderborn',
   },
   {
     id: '5',
@@ -294,6 +309,8 @@ export const feedPosts: FeedPost[] = [
       occasion: 'Auswärtsspiel',
     },
     rideRequestSent: false,
+    gameId: 'game-bochum-arminia',
+    gameLabel: 'VfL Bochum – Arminia Bielefeld',
   },
   {
     id: '9',
@@ -330,5 +347,7 @@ export const feedPosts: FeedPost[] = [
     requestDetails: {
       requestedService: 'Empfehlung für die Anreiseroute',
     },
+    gameId: 'game-bochum-arminia',
+    gameLabel: 'VfL Bochum – Arminia Bielefeld',
   },
 ];

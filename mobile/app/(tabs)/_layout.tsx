@@ -55,18 +55,10 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="trips"
+        name="stadion"
         options={{
-          title: 'Fahrten',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="car.fill" color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="meetups"
-        options={{
-          title: 'Treffen',
-          tabBarAccessibilityLabel: 'Treffpunkte anzeigen',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="person.3.fill" color={color} />,
+          title: 'Stadion',
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="sportscourt.fill" color={color} />,
         }}
       />
       <Tabs.Screen
@@ -74,6 +66,23 @@ export default function TabLayout() {
         options={{
           title: 'Profil',
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="person.fill" color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="trips"
+        options={{
+          title: 'Fahrten',
+          href: null,
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="car.fill" color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="meetups"
+        options={{
+          title: 'Treffen',
+          href: null,
+          tabBarAccessibilityLabel: 'Treffpunkte anzeigen',
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="person.3.fill" color={color} />,
         }}
       />
     </Tabs>

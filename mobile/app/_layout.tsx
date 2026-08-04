@@ -81,6 +81,10 @@ function RootNavigator() {
             options={{ title: 'Treffpunkt', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
           />
           <Stack.Screen
+            name="stadion/[module]"
+            options={{ title: 'Stadion', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
+          />
+          <Stack.Screen
             name="messages"
             options={{ title: 'Nachrichten', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
           />
