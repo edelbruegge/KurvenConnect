@@ -8,7 +8,6 @@ import { FeedColors, FontSizes, Spacing } from '@/constants/theme';
 import { useFeedPosts } from '@/context/feed-posts-context';
 import { useProfiles } from '@/context/profile-context';
 import { getPostDetailPathname, type FeedPost } from '@/data/feed-posts';
-import { CURRENT_USER_ID } from '@/data/users';
 import { useVisiblePosts } from '@/hooks/use-visible-posts';
 
 export default function ActivityScreen() {
@@ -22,7 +21,7 @@ export default function ActivityScreen() {
   const commentedPosts = visiblePosts.filter((post) => post.comments.some((comment) => comment.userId && isCurrentUserId(comment.userId)));
   const rideRequests = visiblePosts.filter((post) => post.category === 'Fahrt' && post.rideRequestSent);
   const meetupParticipations = visiblePosts.filter(
-    (post) => post.category === 'Treffpunkt' && post.meetupDetails?.attendeeIds.includes(CURRENT_USER_ID),
+    (post) => post.category === 'Treffpunkt' && post.meetupDetails?.attendeeIds.some((id) => isCurrentUserId(id)),
   );
 
   const sections: { title: string; posts: FeedPost[]; emptyText: string }[] = [

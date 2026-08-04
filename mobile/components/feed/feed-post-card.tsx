@@ -9,7 +9,6 @@ import { ClubColors, Colors, FontSizes, FeedColors, Radii, Spacing } from '@/con
 import { useFeedPosts } from '@/context/feed-posts-context';
 import { useProfiles } from '@/context/profile-context';
 import { getMeetupAttendeeCount, type FeedPost } from '@/data/feed-posts';
-import { CURRENT_USER_ID } from '@/data/users';
 
 type FeedPostCardProps = {
   post: FeedPost;
@@ -67,7 +66,7 @@ export function FeedPostCard({ post, onPress, onLikePress, onCommentPress }: Fee
         <View style={styles.attendeeRow}>
           <IconSymbol size={14} name="person.3.fill" color={FeedColors.textSecondary} />
           <Text style={styles.attendeeText}>{getMeetupAttendeeCount(post.meetupDetails)} Teilnehmer</Text>
-          {post.meetupDetails.attendeeIds.includes(CURRENT_USER_ID) ? (
+          {post.meetupDetails.attendeeIds.some((id) => isCurrentUserId(id)) ? (
             <View style={styles.attendingTag}>
               <Text style={styles.attendingTagText}>Du nimmst teil</Text>
             </View>

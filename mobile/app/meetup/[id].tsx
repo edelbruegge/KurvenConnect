@@ -32,6 +32,18 @@ import { useSafetySelectors } from '@/hooks/use-safety-selectors';
 import { getMeetupAttendeeCount, isMeetupFull } from '@/data/feed-posts';
 import { getConversationReferenceForPost } from '@/data/messages';
 import type { ReportTargetType } from '@/data/reports';
+import { getInitialsFromName, mapSupabaseProfileRow, type SupabaseProfileRow } from '@/lib/map-supabase-profile';
+import { supabase } from '@/lib/supabase';
+
+const ATTENDEE_PROFILE_SELECT_COLUMNS = 'id, display_name, club, location, bio, avatar_url, created_at, updated_at';
+
+type AttendeeDisplay = {
+  id: string;
+  displayName: string;
+  initials: string;
+  club: string | null;
+  location: string | null;
+};
 
 async function openInMaps(address: string) {
   const encoded = encodeURIComponent(address);
@@ -56,10 +68,11 @@ async function openInMaps(address: string) {
 export default function MeetupDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string; focusComments?: string }>();
-  const { posts, toggleLike, addComment, toggleMeetupAttendance } = useFeedPosts();
+  const { posts, toggleLike, addComment, toggleMeetupAttendance, isRemoteMeetupsLoading, getRemoteAuthorDisplay, joinRemoteMeetup, leaveRemoteMeetup } =
+    useFeedPosts();
   const { getOrCreateConversation } = useMessages();
   const { isSaved, toggleSaved } = useSaved();
-  const { currentUser, getAuthorDisplay, getCommentAuthorDisplay, getUserById } = useProfiles();
+  const { getAuthorDisplay, getCommentAuthorDisplay, getUserById, isCurrentUserId } = useProfiles();
   const { hasReported } = useReports();
   const { isUserSuspended } = useModeration();
   const { canViewContent, isModeratedAway, canMessageUser } = useSafetySelectors();
@@ -69,6 +82,9 @@ export default function MeetupDetailScreen() {
   const [commentsY, setCommentsY] = useState<number | null>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [reportTarget, setReportTarget] = useState<{ type: ReportTargetType; id: string; title: string } | null>(null);
+  const [remoteAttendeeProfiles, setRemoteAttendeeProfiles] = useState<Record<string, AttendeeDisplay>>({});
+  const [isSubmittingAttendance, setIsSubmittingAttendance] = useState(false);
+  const [attendanceError, setAttendanceError] = useState<string | null>(null);
 
   const post = params.id ? posts.find((entry) => entry.id === params.id) : undefined;
   const focusComments = params.focusComments === 'true';
@@ -90,7 +106,56 @@ export default function MeetupDetailScreen() {
     setTimeout(() => commentInputRef.current?.focus(), 250);
   }, [focusComments, commentsY, post]);
 
-  if (!post || post.category !== 'Treffpunkt' || !post.meetupDetails) {
+  const unresolvedAttendeeIdsKey = (post?.meetupDetails?.attendeeIds ?? [])
+    .filter((id) => !getUserById(id))
+    .sort()
+    .join(',');
+
+  useEffect(() => {
+    const unresolvedIds = unresolvedAttendeeIdsKey ? unresolvedAttendeeIdsKey.split(',') : [];
+
+    if (unresolvedIds.length === 0) {
+      setRemoteAttendeeProfiles({});
+      return;
+    }
+
+    let isCurrent = true;
+
+    supabase
+      .from('profiles')
+      .select(ATTENDEE_PROFILE_SELECT_COLUMNS)
+      .in('id', unresolvedIds)
+      .then(({ data }) => {
+        if (!isCurrent) return;
+
+        const map: Record<string, AttendeeDisplay> = {};
+        ((data ?? []) as SupabaseProfileRow[]).forEach((row) => {
+          const mapped = mapSupabaseProfileRow(row);
+          map[row.id] = {
+            id: row.id,
+            displayName: mapped.displayName,
+            initials: getInitialsFromName(mapped.displayName),
+            club: mapped.club,
+            location: mapped.location,
+          };
+        });
+        setRemoteAttendeeProfiles(map);
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [unresolvedAttendeeIdsKey]);
+
+  if (!post) {
+    if (isRemoteMeetupsLoading) {
+      return <NotFoundView title="Treffpunkt wird geladen …" message="Einen Moment, der Treffpunkt wird geladen." />;
+    }
+
+    return <NotFoundView title="Treffpunkt nicht gefunden" message="Der angeforderte Treffpunkt konnte nicht gefunden werden." />;
+  }
+
+  if (post.category !== 'Treffpunkt' || !post.meetupDetails) {
     return <NotFoundView title="Treffpunkt nicht gefunden" message="Der angeforderte Treffpunkt konnte nicht gefunden werden." />;
   }
 
@@ -99,17 +164,53 @@ export default function MeetupDetailScreen() {
   }
 
   const meetup = post.meetupDetails;
-  const author = getAuthorDisplay(post);
-  const isOrganizer = post.userId === currentUser.id;
-  const isAttending = meetup.attendeeIds.includes(currentUser.id);
+  const author =
+    post.source === 'supabase' && !isCurrentUserId(post.userId) ? getRemoteAuthorDisplay(post.userId) : getAuthorDisplay(post);
+  const isOrganizer = isCurrentUserId(post.userId);
+  const isAttending = meetup.attendeeIds.some((id) => isCurrentUserId(id));
   const attendeeCount = getMeetupAttendeeCount(meetup);
   const full = isMeetupFull(meetup);
 
-  const attendees = meetup.attendeeIds
-    .map((id) => getUserById(id))
-    .filter((profile): profile is NonNullable<typeof profile> => profile !== undefined)
-    .filter((profile) => !isUserSuspended(profile.id));
+  const getAttendeeDisplay = (id: string): AttendeeDisplay => {
+    const localProfile = getUserById(id);
+
+    if (localProfile) {
+      return { id, displayName: localProfile.displayName, initials: localProfile.initials, club: localProfile.club, location: localProfile.location };
+    }
+
+    return (
+      remoteAttendeeProfiles[id] ?? { id, displayName: 'Unbekanntes Mitglied', initials: '?', club: null, location: null }
+    );
+  };
+
+  const attendees = meetup.attendeeIds.map((id) => getAttendeeDisplay(id)).filter((attendee) => !isUserSuspended(attendee.id));
   const visibleComments = post.comments.filter((comment) => canViewContent('comment', comment.id, comment.userId));
+
+  const handleJoin = async () => {
+    if (isSubmittingAttendance) return;
+
+    setIsSubmittingAttendance(true);
+    setAttendanceError(null);
+    const { error } = await joinRemoteMeetup(post.id);
+    setIsSubmittingAttendance(false);
+
+    if (error) {
+      setAttendanceError(error);
+    }
+  };
+
+  const handleLeave = async () => {
+    if (isSubmittingAttendance) return;
+
+    setIsSubmittingAttendance(true);
+    setAttendanceError(null);
+    const { error } = await leaveRemoteMeetup(post.id);
+    setIsSubmittingAttendance(false);
+
+    if (error) {
+      setAttendanceError(error);
+    }
+  };
 
   const handleAuthorPress = () => {
     router.push({ pathname: '/profile/[id]', params: { id: post.userId } });
@@ -211,6 +312,8 @@ export default function MeetupDetailScreen() {
               <PostMetadata post={post} variant="detail" />
 
               <View style={styles.actionsSection}>
+                {attendanceError ? <Text style={styles.attendanceErrorText}>{attendanceError}</Text> : null}
+
                 {isOrganizer ? (
                   <View style={styles.statusPill}>
                     <Text style={styles.statusPillText}>Von dir organisiert</Text>
@@ -222,12 +325,15 @@ export default function MeetupDetailScreen() {
                       <Text style={[styles.statusPillText, styles.statusPillSuccessText]}>Du nimmst teil</Text>
                     </View>
                     <Pressable
-                      onPress={() => toggleMeetupAttendance(post.id)}
-                      style={styles.cancelButton}
+                      onPress={post.source === 'supabase' ? handleLeave : () => toggleMeetupAttendance(post.id)}
+                      disabled={post.source === 'supabase' && isSubmittingAttendance}
+                      style={[styles.cancelButton, post.source === 'supabase' && isSubmittingAttendance && styles.actionButtonDisabled]}
                       accessibilityRole="button"
                       accessibilityLabel="Teilnahme absagen"
                     >
-                      <Text style={styles.cancelButtonText}>Teilnahme absagen</Text>
+                      <Text style={styles.cancelButtonText}>
+                        {post.source === 'supabase' && isSubmittingAttendance ? 'Wird bearbeitet …' : 'Teilnahme absagen'}
+                      </Text>
                     </Pressable>
                   </View>
                 ) : full ? (
@@ -236,12 +342,15 @@ export default function MeetupDetailScreen() {
                   </View>
                 ) : (
                   <Pressable
-                    onPress={() => toggleMeetupAttendance(post.id)}
-                    style={styles.joinButton}
+                    onPress={post.source === 'supabase' ? handleJoin : () => toggleMeetupAttendance(post.id)}
+                    disabled={post.source === 'supabase' && isSubmittingAttendance}
+                    style={[styles.joinButton, post.source === 'supabase' && isSubmittingAttendance && styles.actionButtonDisabled]}
                     accessibilityRole="button"
                     accessibilityLabel="Teilnehmen"
                   >
-                    <Text style={styles.joinButtonText}>Teilnehmen</Text>
+                    <Text style={styles.joinButtonText}>
+                      {post.source === 'supabase' && isSubmittingAttendance ? 'Wird bearbeitet …' : 'Teilnehmen'}
+                    </Text>
                   </Pressable>
                 )}
 
@@ -295,10 +404,11 @@ export default function MeetupDetailScreen() {
                     <Avatar initials={attendee.initials} />
                     <View style={styles.attendeeInfo}>
                       <Text style={styles.attendeeName}>{attendee.displayName}</Text>
-                      <Text style={styles.attendeeMeta}>
-                        {attendee.club}
-                        {attendee.location ? ` · ${attendee.location}` : ''}
-                      </Text>
+                      {attendee.club || attendee.location ? (
+                        <Text style={styles.attendeeMeta}>
+                          {[attendee.club, attendee.location].filter(Boolean).join(' · ')}
+                        </Text>
+                      ) : null}
                     </View>
                   </Pressable>
                 ))
@@ -341,7 +451,7 @@ export default function MeetupDetailScreen() {
                           <Text style={styles.commentTimestamp}>{comment.timestamp}</Text>
                         </View>
                       </View>
-                      {comment.userId !== currentUser.id ? (
+                      {!(comment.userId && isCurrentUserId(comment.userId)) ? (
                         <OverflowMenu
                           accessibilityLabel="Weitere Aktionen zu diesem Kommentar"
                           actions={[
@@ -523,6 +633,14 @@ const styles = StyleSheet.create({
   },
   statusPillErrorText: {
     color: StatusColors.error,
+  },
+  attendanceErrorText: {
+    color: StatusColors.error,
+    fontSize: FontSizes.meta,
+    marginBottom: Spacing.sm,
+  },
+  actionButtonDisabled: {
+    opacity: 0.5,
   },
   joinButton: {
     backgroundColor: ClubColors.primary,

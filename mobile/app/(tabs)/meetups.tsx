@@ -14,7 +14,7 @@ import { useVisiblePosts } from '@/hooks/use-visible-posts';
 
 export default function MeetupsScreen() {
   const router = useRouter();
-  const { posts, toggleLike } = useFeedPosts();
+  const { posts, toggleLike, remoteMeetupsError, refreshRemoteMeetups } = useFeedPosts();
   const visiblePosts = useVisiblePosts(posts);
   const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
 
@@ -68,6 +68,15 @@ export default function MeetupsScreen() {
           </Pressable>
         ))}
       </ScrollView>
+
+      {remoteMeetupsError ? (
+        <View style={styles.remoteErrorBanner}>
+          <Text style={styles.remoteErrorText}>{remoteMeetupsError}</Text>
+          <Pressable onPress={refreshRemoteMeetups} accessibilityRole="button" accessibilityLabel="Erneut versuchen">
+            <Text style={styles.remoteErrorRetry}>Erneut versuchen</Text>
+          </Pressable>
+        </View>
+      ) : null}
 
       {filteredMeetups.length === 0 ? (
         <View style={styles.emptyState}>
@@ -180,5 +189,24 @@ const styles = StyleSheet.create({
     fontSize: FontSizes.body,
     textAlign: 'center',
     lineHeight: 20,
+  },
+  remoteErrorBanner: {
+    backgroundColor: FeedColors.cardBackground,
+    borderRadius: Spacing.sm,
+    borderWidth: 1,
+    borderColor: FeedColors.cardBorder,
+    padding: Spacing.sm,
+    marginHorizontal: Spacing.md,
+    marginTop: Spacing.sm,
+  },
+  remoteErrorText: {
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.meta,
+    marginBottom: Spacing.xs,
+  },
+  remoteErrorRetry: {
+    color: FeedColors.textPrimary,
+    fontSize: FontSizes.meta,
+    fontWeight: '700',
   },
 });

@@ -20,6 +20,14 @@ import {
   type SupabaseTripRow,
 } from '@/lib/map-supabase-trip';
 import { mapTripError } from '@/lib/trip-errors';
+import {
+  mapSupabaseMeetupToFeedPost,
+  parseGermanDateAndTimeToIso,
+  type SupabaseMeetupAttendeeRow,
+  type SupabaseMeetupLikeRow,
+  type SupabaseMeetupRow,
+} from '@/lib/map-supabase-meetup';
+import { mapMeetupError } from '@/lib/meetup-errors';
 import { supabase } from '@/lib/supabase';
 
 type AuthorDisplay = { displayName: string; initials: string };
@@ -35,6 +43,17 @@ type NewRemoteTripInput = {
 
 type NewRemoteTripRequestInput = {
   message?: string;
+};
+
+type NewRemoteMeetupInput = {
+  description: string;
+  title: string;
+  location: string;
+  date: string;
+  eventTime: string;
+  maxAttendees?: number;
+  gameId: string;
+  gameLabel: string;
 };
 
 type FeedPostsContextValue = {
@@ -70,14 +89,28 @@ type FeedPostsContextValue = {
   requestsForOwnedTrips: SupabaseTripRequestRow[];
   getRequestsForTrip: (tripId: string) => SupabaseTripRequestRow[];
   pendingRequestCountForTrip: (tripId: string) => number;
+
+  // Supabase-backed meetups ("Treffpunkt").
+  remoteMeetups: FeedPost[];
+  isRemoteMeetupsLoading: boolean;
+  remoteMeetupsError: string | null;
+  refreshRemoteMeetups: () => void;
+  createRemoteMeetup: (input: NewRemoteMeetupInput) => Promise<{ error: string | null }>;
+  toggleRemoteMeetupLike: (meetupId: string) => Promise<void>;
+  joinRemoteMeetup: (meetupId: string) => Promise<{ error: string | null }>;
+  leaveRemoteMeetup: (meetupId: string) => Promise<{ error: string | null }>;
+  getRemoteMeetupAttendees: (meetupId: string) => string[];
+  isCurrentUserAttendingMeetup: (meetupId: string) => boolean;
 };
 
 const FeedPostsContext = createContext<FeedPostsContextValue | undefined>(undefined);
 
 const POST_CONTENT_MAX_LENGTH = 2000;
 const COMMENT_CONTENT_MAX_LENGTH = 500;
+const MEETUP_TITLE_MAX_LENGTH = 200;
 const REMOTE_POSTS_LIMIT = 50;
 const REMOTE_TRIPS_LIMIT = 50;
+const REMOTE_MEETUPS_LIMIT = 50;
 
 const POSTS_SELECT_COLUMNS = 'id, author_id, content, category, created_at, updated_at';
 const COMMENTS_SELECT_COLUMNS = 'id, post_id, author_id, content, created_at, updated_at';
@@ -86,6 +119,10 @@ const LIKES_SELECT_COLUMNS = 'post_id, user_id, created_at';
 const TRIPS_SELECT_COLUMNS = 'id, owner_id, departure, destination, departure_time, seats_available, occasion, description, created_at, updated_at';
 const TRIP_LIKES_SELECT_COLUMNS = 'trip_id, user_id, created_at';
 const TRIP_REQUESTS_SELECT_COLUMNS = 'id, trip_id, requester_id, message, status, created_at, updated_at';
+
+const MEETUPS_SELECT_COLUMNS = 'id, organizer_id, title, description, location, starts_at, max_attendees, game_id, game_label, created_at, updated_at';
+const MEETUP_LIKES_SELECT_COLUMNS = 'meetup_id, user_id, created_at';
+const MEETUP_ATTENDEES_SELECT_COLUMNS = 'meetup_id, user_id, joined_at';
 
 const NOT_SIGNED_IN_ERROR = 'Bitte melde dich an, um das zu tun.';
 const UNKNOWN_AUTHOR_DISPLAY: AuthorDisplay = { displayName: 'Unbekanntes Mitglied', initials: '?' };
@@ -123,6 +160,13 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
   const [ownTripRequestByTripId, setOwnTripRequestByTripId] = useState<Record<string, SupabaseTripRequestRow>>({});
   const [requestsForOwnedTrips, setRequestsForOwnedTrips] = useState<SupabaseTripRequestRow[]>([]);
   const inFlightTripLikeIds = useRef<Set<string>>(new Set());
+
+  const [remoteMeetups, setRemoteMeetups] = useState<FeedPost[]>([]);
+  const [isRemoteMeetupsLoading, setIsRemoteMeetupsLoading] = useState(false);
+  const [remoteMeetupsError, setRemoteMeetupsError] = useState<string | null>(null);
+  const [meetupsReloadToken, setMeetupsReloadToken] = useState(0);
+  const inFlightMeetupLikeIds = useRef<Set<string>>(new Set());
+  const inFlightMeetupAttendanceIds = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!authUserId) {
@@ -390,12 +434,137 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
     };
   }, [authUserId, tripsReloadToken]);
 
+  useEffect(() => {
+    if (!authUserId) {
+      setRemoteMeetups([]);
+      setRemoteAuthorProfiles({});
+      setIsRemoteMeetupsLoading(false);
+      setRemoteMeetupsError(null);
+      return;
+    }
+
+    let isCurrent = true;
+    setIsRemoteMeetupsLoading(true);
+    setRemoteMeetupsError(null);
+
+    (async () => {
+      const { data: meetupRows, error: meetupsError } = await supabase
+        .from('meetups')
+        .select(MEETUPS_SELECT_COLUMNS)
+        .order('starts_at', { ascending: true })
+        .limit(REMOTE_MEETUPS_LIMIT);
+
+      if (!isCurrent) return;
+
+      if (meetupsError) {
+        setRemoteMeetupsError(mapMeetupError(meetupsError));
+        setRemoteMeetups([]);
+        setIsRemoteMeetupsLoading(false);
+        return;
+      }
+
+      const meetups = (meetupRows ?? []) as SupabaseMeetupRow[];
+
+      if (meetups.length === 0) {
+        setRemoteMeetups([]);
+        setIsRemoteMeetupsLoading(false);
+        return;
+      }
+
+      const meetupIds = meetups.map((meetup) => meetup.id);
+
+      const [likesResult, attendeesResult] = await Promise.all([
+        supabase.from('meetup_likes').select(MEETUP_LIKES_SELECT_COLUMNS).in('meetup_id', meetupIds),
+        supabase.from('meetup_attendees').select(MEETUP_ATTENDEES_SELECT_COLUMNS).in('meetup_id', meetupIds),
+      ]);
+
+      if (!isCurrent) return;
+
+      if (likesResult.error) {
+        setRemoteMeetupsError(mapMeetupError(likesResult.error));
+        setRemoteMeetups([]);
+        setIsRemoteMeetupsLoading(false);
+        return;
+      }
+
+      if (attendeesResult.error) {
+        setRemoteMeetupsError(mapMeetupError(attendeesResult.error));
+        setRemoteMeetups([]);
+        setIsRemoteMeetupsLoading(false);
+        return;
+      }
+
+      const likes = (likesResult.data ?? []) as SupabaseMeetupLikeRow[];
+      const attendeeRows = (attendeesResult.data ?? []) as SupabaseMeetupAttendeeRow[];
+
+      const authorIds = new Set<string>(meetups.map((meetup) => meetup.organizer_id));
+
+      const { data: profileRows, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, display_name')
+        .in('id', Array.from(authorIds));
+
+      if (!isCurrent) return;
+
+      if (profilesError) {
+        setRemoteMeetupsError(mapMeetupError(profilesError));
+        setRemoteMeetups([]);
+        setIsRemoteMeetupsLoading(false);
+        return;
+      }
+
+      const authorDisplayById: Record<string, AuthorDisplay> = {};
+      (profileRows ?? []).forEach((row: { id: string; display_name: string | null }) => {
+        const displayName = row.display_name?.trim() || 'Neues Mitglied';
+        authorDisplayById[row.id] = { displayName, initials: getInitialsFromName(displayName) };
+      });
+
+      const likeCountByMeetupId = new Map<string, number>();
+      const likedMeetupIdsByCurrentUser = new Set<string>();
+      likes.forEach((row) => {
+        likeCountByMeetupId.set(row.meetup_id, (likeCountByMeetupId.get(row.meetup_id) ?? 0) + 1);
+        if (row.user_id === authUserId) {
+          likedMeetupIdsByCurrentUser.add(row.meetup_id);
+        }
+      });
+
+      const attendeeIdsByMeetupId = new Map<string, string[]>();
+      attendeeRows.forEach((row) => {
+        const list = attendeeIdsByMeetupId.get(row.meetup_id) ?? [];
+        list.push(row.user_id);
+        attendeeIdsByMeetupId.set(row.meetup_id, list);
+      });
+
+      const mappedMeetups = meetups.map((row) =>
+        mapSupabaseMeetupToFeedPost(
+          row,
+          attendeeIdsByMeetupId.get(row.id) ?? [],
+          likeCountByMeetupId.get(row.id) ?? 0,
+          likedMeetupIdsByCurrentUser.has(row.id),
+          authorDisplayById[row.organizer_id] ?? UNKNOWN_AUTHOR_DISPLAY,
+        ),
+      );
+
+      setRemoteAuthorProfiles((current) => ({ ...current, ...authorDisplayById }));
+      setRemoteMeetups(mappedMeetups);
+      setIsRemoteMeetupsLoading(false);
+    })();
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [authUserId, meetupsReloadToken]);
+
   const refreshRemotePosts = () => {
     setReloadToken((token) => token + 1);
   };
 
   const refreshRemoteTrips = () => {
     setTripsReloadToken((token) => token + 1);
+  };
+
+  const refreshRemoteMeetups = () => {
+    setMeetupsReloadToken((token) => token + 1);
   };
 
   const getOwnAuthorDisplay = (): AuthorDisplay => {
@@ -721,6 +890,176 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
   const pendingRequestCountForTrip = (tripId: string): number =>
     getRequestsForTrip(tripId).filter((row) => row.status === 'pending').length;
 
+  const createRemoteMeetup = async (input: NewRemoteMeetupInput): Promise<{ error: string | null }> => {
+    if (!authUserId) {
+      return { error: NOT_SIGNED_IN_ERROR };
+    }
+
+    const trimmedDescription = input.description.trim();
+    const trimmedTitle = input.title.trim();
+    const trimmedLocation = input.location.trim();
+
+    if (!trimmedDescription || !trimmedTitle || !trimmedLocation || !input.gameId) {
+      return { error: 'Bitte fülle alle Pflichtfelder aus.' };
+    }
+
+    if (trimmedTitle.length > MEETUP_TITLE_MAX_LENGTH) {
+      return { error: `Der Titel ist zu lang (max. ${MEETUP_TITLE_MAX_LENGTH} Zeichen).` };
+    }
+
+    if (trimmedDescription.length > POST_CONTENT_MAX_LENGTH) {
+      return { error: `Deine Beschreibung ist zu lang (max. ${POST_CONTENT_MAX_LENGTH} Zeichen).` };
+    }
+
+    if (input.maxAttendees != null && (!Number.isInteger(input.maxAttendees) || input.maxAttendees <= 0)) {
+      return { error: 'Bitte gib eine gültige positive Zahl für die maximale Teilnehmerzahl ein.' };
+    }
+
+    const startsAtIso = parseGermanDateAndTimeToIso(input.date, input.eventTime);
+
+    if (!startsAtIso) {
+      return { error: 'Bitte gib Datum (TT.MM.JJJJ) und Uhrzeit (HH:MM) im richtigen Format ein.' };
+    }
+
+    const { data, error } = await supabase
+      .from('meetups')
+      .insert({
+        organizer_id: authUserId,
+        title: trimmedTitle,
+        description: trimmedDescription,
+        location: trimmedLocation,
+        starts_at: startsAtIso,
+        max_attendees: input.maxAttendees ?? null,
+        game_id: input.gameId,
+        game_label: input.gameLabel,
+      })
+      .select(MEETUPS_SELECT_COLUMNS)
+      .single();
+
+    if (error) {
+      return { error: mapMeetupError(error) };
+    }
+
+    const newMeetup = mapSupabaseMeetupToFeedPost(data as SupabaseMeetupRow, [], 0, false, getOwnAuthorDisplay());
+    setRemoteMeetups((current) => [newMeetup, ...current]);
+    return { error: null };
+  };
+
+  const toggleRemoteMeetupLike = async (meetupId: string): Promise<void> => {
+    if (!authUserId || inFlightMeetupLikeIds.current.has(meetupId)) {
+      return;
+    }
+
+    const meetup = remoteMeetups.find((entry) => entry.id === meetupId);
+
+    if (!meetup) {
+      return;
+    }
+
+    inFlightMeetupLikeIds.current.add(meetupId);
+    const wasLiked = meetup.likedByCurrentUser;
+
+    try {
+      const { error } = wasLiked
+        ? await supabase.from('meetup_likes').delete().eq('meetup_id', meetupId).eq('user_id', authUserId)
+        : await supabase.from('meetup_likes').insert({ meetup_id: meetupId, user_id: authUserId });
+
+      if (error) {
+        // Leave UI state unchanged on error.
+        return;
+      }
+
+      setRemoteMeetups((current) =>
+        current.map((entry) => {
+          if (entry.id !== meetupId) return entry;
+          const nextLiked = !wasLiked;
+          return { ...entry, likedByCurrentUser: nextLiked, likes: Math.max(0, entry.likes + (nextLiked ? 1 : -1)) };
+        }),
+      );
+    } finally {
+      inFlightMeetupLikeIds.current.delete(meetupId);
+    }
+  };
+
+  type MeetupAttendanceRpcResult = { attendee_ids: string[] };
+
+  const applyMeetupAttendeeIds = (meetupId: string, attendeeIds: string[]) => {
+    setRemoteMeetups((current) =>
+      current.map((entry) =>
+        entry.id === meetupId && entry.meetupDetails ? { ...entry, meetupDetails: { ...entry.meetupDetails, attendeeIds } } : entry,
+      ),
+    );
+  };
+
+  const joinRemoteMeetup = async (meetupId: string): Promise<{ error: string | null }> => {
+    if (!authUserId) {
+      return { error: NOT_SIGNED_IN_ERROR };
+    }
+
+    if (inFlightMeetupAttendanceIds.current.has(meetupId)) {
+      return { error: null };
+    }
+
+    inFlightMeetupAttendanceIds.current.add(meetupId);
+
+    try {
+      const { data, error } = await supabase.rpc('join_meetup', { p_meetup_id: meetupId });
+
+      if (error) {
+        return { error: mapMeetupError(error) };
+      }
+
+      const result = data as MeetupAttendanceRpcResult;
+      applyMeetupAttendeeIds(meetupId, result.attendee_ids ?? []);
+      return { error: null };
+    } finally {
+      inFlightMeetupAttendanceIds.current.delete(meetupId);
+    }
+  };
+
+  const leaveRemoteMeetup = async (meetupId: string): Promise<{ error: string | null }> => {
+    if (!authUserId) {
+      return { error: NOT_SIGNED_IN_ERROR };
+    }
+
+    if (inFlightMeetupAttendanceIds.current.has(meetupId)) {
+      return { error: null };
+    }
+
+    inFlightMeetupAttendanceIds.current.add(meetupId);
+
+    try {
+      const { data, error } = await supabase.rpc('leave_meetup', { p_meetup_id: meetupId });
+
+      if (error) {
+        return { error: mapMeetupError(error) };
+      }
+
+      const result = data as MeetupAttendanceRpcResult;
+      applyMeetupAttendeeIds(meetupId, result.attendee_ids ?? []);
+      return { error: null };
+    } finally {
+      inFlightMeetupAttendanceIds.current.delete(meetupId);
+    }
+  };
+
+  const getRemoteMeetupAttendees = (meetupId: string): string[] => getPostById(meetupId)?.meetupDetails?.attendeeIds ?? [];
+
+  const isCurrentUserAttendingMeetup = (meetupId: string): boolean =>
+    authUserId != null && getRemoteMeetupAttendees(meetupId).includes(authUserId);
+
+  const toggleRemoteMeetupAttendance = async (meetupId: string): Promise<void> => {
+    if (!authUserId) {
+      return;
+    }
+
+    if (isCurrentUserAttendingMeetup(meetupId)) {
+      await leaveRemoteMeetup(meetupId);
+    } else {
+      await joinRemoteMeetup(meetupId);
+    }
+  };
+
   const addPost = (post: NewFeedPost) => {
     const newPost: FeedPost = {
       id: `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -739,11 +1078,16 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
     setLocalPosts((current) => [newPost, ...current]);
   };
 
-  // Remote content first (posts and trips merged and sorted by actual creation time), then
-  // local seed/created posts in their existing order — local seed timestamps are fuzzy German
-  // relative strings ("vor 12 Min.") that can't be reliably parsed for cross-source sorting.
+  // Remote content first (posts, trips and meetups merged and sorted by actual creation time),
+  // then local seed/created posts in their existing order — local seed timestamps are fuzzy
+  // German relative strings ("vor 12 Min.") that can't be reliably parsed for cross-source
+  // sorting. Meetups are additionally queried ordered by starts_at (soonest first) so that
+  // dimension is preserved on remoteMeetups itself, even though this shared merge re-sorts by
+  // creation time for a single, predictable ordering across all categories.
   const posts = useMemo(() => {
-    const remoteCombined = [...remotePosts, ...remoteTrips].sort((a, b) => getCreatedAtMs(b) - getCreatedAtMs(a));
+    const remoteCombined = [...remotePosts, ...remoteTrips, ...remoteMeetups].sort(
+      (a, b) => getCreatedAtMs(b) - getCreatedAtMs(a),
+    );
 
     const seenIds = new Set<string>();
     const merged: FeedPost[] = [];
@@ -755,7 +1099,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
     }
 
     return merged;
-  }, [remotePosts, remoteTrips, localPosts]);
+  }, [remotePosts, remoteTrips, remoteMeetups, localPosts]);
 
   const getPostById = (id: string) => posts.find((post) => post.id === id);
 
@@ -777,6 +1121,8 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
     if (post?.source === 'supabase') {
       if (post.category === 'Fahrt') {
         void toggleRemoteTripLike(postId);
+      } else if (post.category === 'Treffpunkt') {
+        void toggleRemoteMeetupLike(postId);
       } else {
         void toggleRemoteLike(postId);
       }
@@ -823,14 +1169,17 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       source: 'local',
     };
 
-    // Trip comments are not persisted in this step (in scope only for "Beitrag"): append
-    // in-memory to whichever array currently holds this post — a no-op on the other one,
-    // since post IDs are unique across local posts and remote trips.
+    // Trip/meetup comments are not persisted in this step (in scope only for "Beitrag"): append
+    // in-memory to whichever array currently holds this post — a no-op on the others, since
+    // post IDs are unique across local posts, remote trips and remote meetups.
     setLocalPosts((currentPosts) =>
       currentPosts.map((post) => (post.id !== postId ? post : { ...post, comments: [...post.comments, newComment] })),
     );
     setRemoteTrips((currentTrips) =>
       currentTrips.map((trip) => (trip.id !== postId ? trip : { ...trip, comments: [...trip.comments, newComment] })),
+    );
+    setRemoteMeetups((currentMeetups) =>
+      currentMeetups.map((meetup) => (meetup.id !== postId ? meetup : { ...meetup, comments: [...meetup.comments, newComment] })),
     );
 
     return { error: null };
@@ -859,6 +1208,13 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
   };
 
   const toggleMeetupAttendance = (postId: string) => {
+    const post = getPostById(postId);
+
+    if (post?.source === 'supabase' && post.category === 'Treffpunkt') {
+      void toggleRemoteMeetupAttendance(postId);
+      return;
+    }
+
     setLocalPosts((currentPosts) =>
       currentPosts.map((post) => {
         if (post.id !== postId || post.category !== 'Treffpunkt' || !post.meetupDetails) {
@@ -921,6 +1277,16 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       requestsForOwnedTrips,
       getRequestsForTrip,
       pendingRequestCountForTrip,
+      remoteMeetups,
+      isRemoteMeetupsLoading,
+      remoteMeetupsError,
+      refreshRemoteMeetups,
+      createRemoteMeetup,
+      toggleRemoteMeetupLike,
+      joinRemoteMeetup,
+      leaveRemoteMeetup,
+      getRemoteMeetupAttendees,
+      isCurrentUserAttendingMeetup,
     }),
     [
       posts,
@@ -932,6 +1298,9 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       remoteTripsError,
       ownTripRequestByTripId,
       requestsForOwnedTrips,
+      remoteMeetups,
+      isRemoteMeetupsLoading,
+      remoteMeetupsError,
       currentUser,
       authUserId,
     ],

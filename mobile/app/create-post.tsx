@@ -6,6 +6,7 @@ import { CategoryLabels, ClubColors, FeedColors, FontSizes, Radii, Spacing } fro
 import { useFeedPosts } from '@/context/feed-posts-context';
 import type { FeedPostCategory, NewFeedPost } from '@/data/feed-posts';
 import { seedGames } from '@/data/games';
+import { parseGermanDateAndTimeToIso } from '@/lib/map-supabase-meetup';
 
 const categoryOptions: FeedPostCategory[] = ['Beitrag', 'Fahrt', 'Gesuch', 'Treffpunkt'];
 
@@ -47,7 +48,7 @@ const initialFormState: CreatePostFormState = {
 
 export default function CreatePostScreen() {
   const router = useRouter();
-  const { addPost, createRemotePost, createRemoteTrip } = useFeedPosts();
+  const { addPost, createRemotePost, createRemoteTrip, createRemoteMeetup } = useFeedPosts();
   const [form, setForm] = React.useState<CreatePostFormState>(initialFormState);
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
@@ -152,6 +153,11 @@ export default function CreatePostScreen() {
         return;
       }
 
+      if (!parseGermanDateAndTimeToIso(form.date, form.eventTime)) {
+        setErrorMessage('Bitte gib Datum (TT.MM.JJJJ) und Uhrzeit (HH:MM) im richtigen Format ein.');
+        return;
+      }
+
       if (form.description.trim().length < 5) {
         setErrorMessage('Die Beschreibung muss mindestens 5 Zeichen lang sein.');
         return;
@@ -203,33 +209,44 @@ export default function CreatePostScreen() {
       return;
     }
 
-    const selectedGame = seedGames.find((game) => game.id === form.gameId);
+    if (form.category === 'Treffpunkt') {
+      const selectedGame = seedGames.find((game) => game.id === form.gameId);
+
+      if (!selectedGame) {
+        setErrorMessage('Bitte wähle ein Spiel aus.');
+        return;
+      }
+
+      setIsSubmitting(true);
+      setErrorMessage(null);
+      const { error } = await createRemoteMeetup({
+        description: form.description,
+        title: form.meetupTitle,
+        location: form.location,
+        date: form.date,
+        eventTime: form.eventTime,
+        maxAttendees: form.maxAttendees.trim() ? Number(form.maxAttendees) : undefined,
+        gameId: selectedGame.id,
+        gameLabel: selectedGame.label,
+      });
+      setIsSubmitting(false);
+
+      if (error) {
+        setErrorMessage(error);
+        return;
+      }
+
+      router.replace('/');
+      return;
+    }
 
     const postToAdd: NewFeedPost = {
       category: form.category,
       description: form.description.trim(),
       hasImage: form.hasImage,
-      ...(form.category === 'Gesuch'
-        ? {
-            requestDetails: {
-              requestedService: form.requestedService.trim(),
-            },
-          }
-        : {}),
-      ...(form.category === 'Treffpunkt' && selectedGame
-        ? {
-            meetupDetails: {
-              gameId: selectedGame.id,
-              gameLabel: selectedGame.label,
-              title: form.meetupTitle.trim(),
-              location: form.location.trim(),
-              date: form.date.trim(),
-              eventTime: form.eventTime.trim(),
-              maxAttendees: form.maxAttendees.trim() ? Number(form.maxAttendees) : undefined,
-              attendeeIds: [],
-            },
-          }
-        : {}),
+      requestDetails: {
+        requestedService: form.requestedService.trim(),
+      },
     };
 
     addPost(postToAdd);
@@ -276,12 +293,14 @@ export default function CreatePostScreen() {
             />
           </View>
 
-          {form.category === 'Beitrag' || form.category === 'Fahrt' ? (
+          {form.category === 'Beitrag' || form.category === 'Fahrt' || form.category === 'Treffpunkt' ? (
             <View style={styles.section}>
               <Text style={styles.hintText}>
                 {form.category === 'Beitrag'
                   ? 'Dieser Beitrag wird online gespeichert. Bilder werden in diesem Schritt noch nicht unterstützt.'
-                  : 'Diese Fahrt wird online gespeichert. Bilder werden in diesem Schritt noch nicht unterstützt.'}
+                  : form.category === 'Fahrt'
+                    ? 'Diese Fahrt wird online gespeichert. Bilder werden in diesem Schritt noch nicht unterstützt.'
+                    : 'Dieser Treffpunkt wird online gespeichert. Bilder werden in diesem Schritt noch nicht unterstützt.'}
               </Text>
             </View>
           ) : (
