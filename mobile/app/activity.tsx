@@ -13,12 +13,14 @@ import { useVisiblePosts } from '@/hooks/use-visible-posts';
 export default function ActivityScreen() {
   const router = useRouter();
   const { posts } = useFeedPosts();
-  const { isCurrentUserId } = useProfiles();
+  const { isCurrentUserId, isContentOwnedByCurrentUser } = useProfiles();
   const visiblePosts = useVisiblePosts(posts);
 
-  const ownPosts = visiblePosts.filter((post) => isCurrentUserId(post.userId));
+  const ownPosts = visiblePosts.filter((post) => isContentOwnedByCurrentUser({ source: post.source, ownerId: post.userId }));
   const likedPosts = visiblePosts.filter((post) => post.likedByCurrentUser);
-  const commentedPosts = visiblePosts.filter((post) => post.comments.some((comment) => comment.userId && isCurrentUserId(comment.userId)));
+  const commentedPosts = visiblePosts.filter((post) =>
+    post.comments.some((comment) => comment.userId && isContentOwnedByCurrentUser({ source: comment.source, ownerId: comment.userId })),
+  );
   const rideRequests = visiblePosts.filter((post) => post.category === 'Fahrt' && post.rideRequestSent);
   const meetupParticipations = visiblePosts.filter(
     (post) => post.category === 'Treffpunkt' && post.meetupDetails?.attendeeIds.some((id) => isCurrentUserId(id)),

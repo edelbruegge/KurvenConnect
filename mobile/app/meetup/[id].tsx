@@ -72,7 +72,7 @@ export default function MeetupDetailScreen() {
     useFeedPosts();
   const { getOrCreateConversation } = useMessages();
   const { isSaved, toggleSaved } = useSaved();
-  const { getAuthorDisplay, getCommentAuthorDisplay, getUserById, isCurrentUserId } = useProfiles();
+  const { getAuthorDisplay, getCommentAuthorDisplay, getUserById, isCurrentUserId, isContentOwnedByCurrentUser } = useProfiles();
   const { hasReported } = useReports();
   const { isUserSuspended } = useModeration();
   const { canViewContent, isModeratedAway, canMessageUser } = useSafetySelectors();
@@ -166,7 +166,7 @@ export default function MeetupDetailScreen() {
   const meetup = post.meetupDetails;
   const author =
     post.source === 'supabase' && !isCurrentUserId(post.userId) ? getRemoteAuthorDisplay(post.userId) : getAuthorDisplay(post);
-  const isOrganizer = isCurrentUserId(post.userId);
+  const isOrganizer = isContentOwnedByCurrentUser({ source: post.source, ownerId: post.userId });
   const isAttending = meetup.attendeeIds.some((id) => isCurrentUserId(id));
   const attendeeCount = getMeetupAttendeeCount(meetup);
   const full = isMeetupFull(meetup);
@@ -451,7 +451,7 @@ export default function MeetupDetailScreen() {
                           <Text style={styles.commentTimestamp}>{comment.timestamp}</Text>
                         </View>
                       </View>
-                      {!(comment.userId && isCurrentUserId(comment.userId)) ? (
+                      {!(comment.userId && isContentOwnedByCurrentUser({ source: comment.source, ownerId: comment.userId })) ? (
                         <OverflowMenu
                           accessibilityLabel="Weitere Aktionen zu diesem Kommentar"
                           actions={[

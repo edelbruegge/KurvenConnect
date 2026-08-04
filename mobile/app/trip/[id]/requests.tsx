@@ -38,12 +38,12 @@ export default function TripRequestsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string }>();
   const { getPostById, getRequestsForTrip, respondToRemoteTripRequest } = useFeedPosts();
-  const { isCurrentUserId } = useProfiles();
+  const { isContentOwnedByCurrentUser } = useProfiles();
   const { getOrCreateConversation } = useMessages();
   const { canMessageUser } = useSafetySelectors();
 
   const trip = params.id ? getPostById(params.id) : undefined;
-  const isOwnedSupabaseTrip = Boolean(trip && trip.source === 'supabase' && isCurrentUserId(trip.userId));
+  const isOwnedSupabaseTrip = Boolean(trip && trip.source === 'supabase' && isContentOwnedByCurrentUser({ source: trip.source, ownerId: trip.userId }));
   const requests = params.id && isOwnedSupabaseTrip ? getRequestsForTrip(params.id) : [];
 
   const [requesterProfiles, setRequesterProfiles] = useState<Record<string, RequesterDisplay>>({});

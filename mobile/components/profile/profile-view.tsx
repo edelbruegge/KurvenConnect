@@ -34,7 +34,7 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
   const router = useRouter();
   const { posts, toggleLike } = useFeedPosts();
   const { getOrCreateConversation } = useMessages();
-  const { isFollowing, followUser, unfollowUser, getFollowerCount, getFollowingCount, isCurrentUserId } = useProfiles();
+  const { isFollowing, followUser, unfollowUser, getFollowerCount, getFollowingCount, isContentOwnedByCurrentUser } = useProfiles();
   const { hasReported } = useReports();
   const { isBlocked, blockUser, unblockUser } = useBlocks();
   const { canMessageUser } = useSafetySelectors();
@@ -42,7 +42,9 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
   const [reportModalVisible, setReportModalVisible] = useState(false);
 
   const ownPosts = useVisiblePosts(
-    posts.filter((post) => (isOwnProfile ? isCurrentUserId(post.userId) : post.userId === profile.id)),
+    posts.filter((post) =>
+      isOwnProfile ? isContentOwnedByCurrentUser({ source: post.source, ownerId: post.userId }) : post.userId === profile.id,
+    ),
   );
   const postsOnly = ownPosts.filter((post) => post.category !== 'Fahrt' && post.category !== 'Treffpunkt');
   const tripsOnly = ownPosts.filter((post) => post.category === 'Fahrt');
@@ -63,7 +65,9 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
       (sum, post) =>
         sum +
         post.comments.filter((comment) =>
-          comment.userId ? isCurrentUserId(comment.userId) : comment.username === profile.displayName,
+          comment.userId
+            ? isContentOwnedByCurrentUser({ source: comment.source, ownerId: comment.userId })
+            : comment.username === profile.displayName,
         ).length,
       0,
     );

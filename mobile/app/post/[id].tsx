@@ -37,7 +37,7 @@ export default function PostDetailScreen() {
   } = useFeedPosts();
   const { getOrCreateConversation } = useMessages();
   const { isSaved, toggleSaved } = useSaved();
-  const { getAuthorDisplay, getCommentAuthorDisplay, isCurrentUserId } = useProfiles();
+  const { getAuthorDisplay, getCommentAuthorDisplay, isCurrentUserId, isContentOwnedByCurrentUser } = useProfiles();
   const { hasReported } = useReports();
   const { canViewContent, isModeratedAway, canMessageUser } = useSafetySelectors();
   const [draftComment, setDraftComment] = useState('');
@@ -106,7 +106,7 @@ export default function PostDetailScreen() {
   const isTrip = post.category === 'Fahrt';
   const rideRequestLabel = post.rideRequestSent ? 'Anfrage zurückziehen' : 'Mitfahren anfragen';
   const author = post.source === 'supabase' && !isCurrentUserId(post.userId) ? getRemoteAuthorDisplay(post.userId) : getAuthorDisplay(post);
-  const isOwnPost = isCurrentUserId(post.userId);
+  const isOwnPost = isContentOwnedByCurrentUser({ source: post.source, ownerId: post.userId });
   const visibleComments = post.comments.filter((comment) => canViewContent('comment', comment.id, comment.userId));
 
   const handleAuthorPress = () => {
@@ -404,7 +404,7 @@ export default function PostDetailScreen() {
                       <Text style={styles.commentTimestamp}>{comment.timestamp}</Text>
                     </View>
                   </View>
-                  {!(comment.userId && isCurrentUserId(comment.userId)) ? (
+                  {!(comment.userId && isContentOwnedByCurrentUser({ source: comment.source, ownerId: comment.userId })) ? (
                     <OverflowMenu
                       accessibilityLabel="Weitere Aktionen zu diesem Kommentar"
                       actions={[

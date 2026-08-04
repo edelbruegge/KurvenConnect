@@ -43,6 +43,7 @@ type ProfileContextValue = {
   authUserId: string | null;
   localCurrentUserId: string;
   isCurrentUserId: (id: string) => boolean;
+  isContentOwnedByCurrentUser: (input: { source: 'local' | 'supabase' | undefined; ownerId: string }) => boolean;
 };
 
 const ProfileContext = createContext<ProfileContextValue | undefined>(undefined);
@@ -60,6 +61,18 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
   const [reloadToken, setReloadToken] = useState(0);
 
   const isCurrentUserId = (id: string) => id === CURRENT_USER_ID || (authUserId !== null && id === authUserId);
+
+  // Source-aware ownership check for content (posts, trips, meetups, wanted entries, comments).
+  // Unlike isCurrentUserId (an identity bridge for participation/self-recognition checks),
+  // this never lets a 'local' seed item become "owned" by whichever real account is signed in —
+  // local seed content stays tied to its fixed seed author permanently.
+  const isContentOwnedByCurrentUser = (input: { source: 'local' | 'supabase' | undefined; ownerId: string }): boolean => {
+    if (input.source === 'supabase') {
+      return authUserId !== null && input.ownerId === authUserId;
+    }
+
+    return input.ownerId === CURRENT_USER_ID;
+  };
 
   useEffect(() => {
     if (!authUserId) {
@@ -171,8 +184,15 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
   }, [ownProfile]);
 
   const getUserById = (id: string): UserProfile | undefined => {
-    if (isCurrentUserId(id)) {
+    // Own real Supabase account: show the enriched, currently-signed-in profile.
+    if (authUserId !== null && id === authUserId) {
       return currentUser;
+    }
+
+    // The fixed local seed identity — always the original seed profile, never the identity of
+    // whichever real account happens to be signed in right now.
+    if (id === CURRENT_USER_ID) {
+      return currentUserSeed;
     }
 
     return sampleProfiles.find((profile) => profile.id === id);
@@ -265,6 +285,7 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
       authUserId,
       localCurrentUserId: CURRENT_USER_ID,
       isCurrentUserId,
+      isContentOwnedByCurrentUser,
     }),
     [currentUser, followEdges, ownProfile, isOwnProfileLoading, ownProfileError, authUserId],
   );

@@ -1150,6 +1150,10 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
 
       const result = data as MeetupAttendanceRpcResult;
       applyMeetupAttendeeIds(meetupId, result.attendee_ids ?? []);
+      // Re-sync with the server's authoritative state so Feed/Stadion/Activity/Profile can never
+      // drift from what was actually persisted, even if this meetup wasn't already present in
+      // the locally-held remoteMeetups state for some reason.
+      refreshRemoteMeetups();
       return { error: null };
     } finally {
       inFlightMeetupAttendanceIds.current.delete(meetupId);
@@ -1176,6 +1180,8 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
 
       const result = data as MeetupAttendanceRpcResult;
       applyMeetupAttendeeIds(meetupId, result.attendee_ids ?? []);
+      // Same re-sync rationale as joinRemoteMeetup above.
+      refreshRemoteMeetups();
       return { error: null };
     } finally {
       inFlightMeetupAttendanceIds.current.delete(meetupId);

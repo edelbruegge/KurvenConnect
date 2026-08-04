@@ -55,6 +55,10 @@ export function mapMeetupError(error: unknown): string {
     return 'Dieser Treffpunkt existiert nicht mehr.';
   }
 
+  if (message.includes('foreign key') && message.includes('user_id')) {
+    return 'Dein Profil ist noch nicht vollständig eingerichtet. Bitte versuche es erneut oder öffne zuerst dein Profil.';
+  }
+
   if (message.includes('network') || message.includes('fetch') || message.includes('failed to connect') || message.includes('timeout')) {
     return NETWORK_ERROR_MESSAGE;
   }
