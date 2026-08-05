@@ -39,7 +39,7 @@ export default function TripRequestsScreen() {
   const params = useLocalSearchParams<{ id?: string }>();
   const { getPostById, getRequestsForTrip, respondToRemoteTripRequest } = useFeedPosts();
   const { isContentOwnedByCurrentUser } = useProfiles();
-  const { getOrCreateConversation } = useMessages();
+  const { getOrCreateDirectConversation } = useMessages();
   const { canMessageUser } = useSafetySelectors();
 
   const trip = params.id ? getPostById(params.id) : undefined;
@@ -50,6 +50,8 @@ export default function TripRequestsScreen() {
   const [respondingRequestId, setRespondingRequestId] = useState<string | null>(null);
   const [confirmingRejectRequestId, setConfirmingRejectRequestId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [startingConversationRequesterId, setStartingConversationRequesterId] = useState<string | null>(null);
+  const [messageError, setMessageError] = useState<string | null>(null);
 
   const requesterIdsKey = Array.from(new Set(requests.map((request) => request.requester_id)))
     .sort()
@@ -131,9 +133,29 @@ export default function TripRequestsScreen() {
     }
   };
 
-  const handleMessagePress = (requesterId: string) => {
-    const conversationId = getOrCreateConversation(requesterId, getConversationReferenceForPost(trip));
-    router.push({ pathname: '/messages/[id]', params: { id: conversationId } });
+  const handleMessagePress = async (requesterId: string) => {
+    if (startingConversationRequesterId) {
+      return;
+    }
+
+    const reference = getConversationReferenceForPost(trip);
+
+    setStartingConversationRequesterId(requesterId);
+    setMessageError(null);
+    const { conversationId, error } = await getOrCreateDirectConversation({ otherUserId: requesterId, reference });
+    setStartingConversationRequesterId(null);
+
+    if (error || !conversationId) {
+      setMessageError(error ?? 'Die Unterhaltung konnte nicht gestartet werden.');
+      return;
+    }
+
+    router.push({
+      pathname: '/messages/[id]',
+      params: reference
+        ? { id: conversationId, referenceType: reference.type, referenceId: reference.id, referenceTitle: reference.title }
+        : { id: conversationId },
+    });
   };
 
   const renderRequestCard = (request: SupabaseTripRequestRow) => {
@@ -210,12 +232,15 @@ export default function TripRequestsScreen() {
 
             {canMessageUser(request.requester_id) ? (
               <Pressable
-                onPress={() => handleMessagePress(request.requester_id)}
-                style={styles.messageButton}
+                onPress={() => void handleMessagePress(request.requester_id)}
+                disabled={startingConversationRequesterId === request.requester_id}
+                style={[styles.messageButton, startingConversationRequesterId === request.requester_id && styles.actionButtonDisabled]}
                 accessibilityRole="button"
                 accessibilityLabel={`Nachricht senden an ${requester.displayName}`}
               >
-                <Text style={styles.messageButtonText}>Nachricht senden</Text>
+                <Text style={styles.messageButtonText}>
+                  {startingConversationRequesterId === request.requester_id ? 'Wird gestartet …' : 'Nachricht senden'}
+                </Text>
               </Pressable>
             ) : null}
           </View>
@@ -228,6 +253,7 @@ export default function TripRequestsScreen() {
     <SafeAreaView style={styles.safeArea}>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         {actionError ? <Text style={styles.actionErrorText}>{actionError}</Text> : null}
+        {messageError ? <Text style={styles.actionErrorText}>{messageError}</Text> : null}
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Offen ({pendingRequests.length})</Text>

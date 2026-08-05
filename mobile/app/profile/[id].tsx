@@ -52,6 +52,7 @@ export default function PublicProfileScreen() {
             memberSince: mapped.createdAt ? new Date(mapped.createdAt).getFullYear().toString() : '',
             isCurrentUser: false,
             avatarUrl: mapped.avatarUrl ?? undefined,
+            source: 'supabase',
           });
         } else {
           setRemoteProfile(null);

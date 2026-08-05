@@ -4,24 +4,34 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Avatar } from '@/components/feed/avatar';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
+import { useAuth } from '@/context/auth-context';
 import { useMessages } from '@/context/messages-context';
 import { useProfiles } from '@/context/profile-context';
-import { getOtherParticipantId } from '@/data/messages';
+import { getOtherParticipantId, type Conversation } from '@/data/messages';
 import { CURRENT_USER_ID } from '@/data/users';
 import { useSafetySelectors } from '@/hooks/use-safety-selectors';
 
 export function MessagesList() {
   const router = useRouter();
-  const { conversations } = useMessages();
+  const { user } = useAuth();
+  const authUserId = user?.id ?? null;
+  const { conversations, getRemoteParticipantDisplay } = useMessages();
   const { getUserById } = useProfiles();
   const { canMessageUser } = useSafetySelectors();
 
+  const myIdForConversation = (conversation: Conversation) => (conversation.source === 'supabase' ? authUserId : CURRENT_USER_ID);
+
   const ownConversations = conversations.filter((conversation) => {
-    if (!conversation.participantIds.includes(CURRENT_USER_ID)) {
+    const myId = myIdForConversation(conversation);
+
+    if (conversation.source === 'supabase') {
+      // Remote conversations are already scoped to the signed-in user via RLS.
+      if (!myId) return false;
+    } else if (!conversation.participantIds.includes(CURRENT_USER_ID)) {
       return false;
     }
 
-    const otherUserId = getOtherParticipantId(conversation, CURRENT_USER_ID);
+    const otherUserId = myId ? getOtherParticipantId(conversation, myId) : undefined;
     return !otherUserId || canMessageUser(otherUserId);
   });
 
@@ -44,8 +54,10 @@ export function MessagesList() {
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
       {ownConversations.map((conversation) => {
-        const otherUserId = getOtherParticipantId(conversation, CURRENT_USER_ID);
-        const otherUser = otherUserId ? getUserById(otherUserId) : undefined;
+        const myId = myIdForConversation(conversation);
+        const otherUserId = myId ? getOtherParticipantId(conversation, myId) : undefined;
+        const otherUser =
+          conversation.source === 'supabase' && otherUserId ? getRemoteParticipantDisplay(otherUserId) : otherUserId ? getUserById(otherUserId) : undefined;
         const isUnread = conversation.unreadCount > 0;
 
         return (

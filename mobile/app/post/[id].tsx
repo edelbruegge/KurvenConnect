@@ -35,7 +35,7 @@ export default function PostDetailScreen() {
     cancelRemoteTripRequest,
     pendingRequestCountForTrip,
   } = useFeedPosts();
-  const { getOrCreateConversation } = useMessages();
+  const { getOrCreateConversation, getOrCreateDirectConversation } = useMessages();
   const { isSaved, toggleSaved } = useSaved();
   const { getAuthorDisplay, getCommentAuthorDisplay, isCurrentUserId, isContentOwnedByCurrentUser } = useProfiles();
   const { hasReported } = useReports();
@@ -46,6 +46,8 @@ export default function PostDetailScreen() {
   const [isSubmittingRideRequest, setIsSubmittingRideRequest] = useState(false);
   const [rideRequestActionError, setRideRequestActionError] = useState<string | null>(null);
   const [confirmingCancelAccepted, setConfirmingCancelAccepted] = useState(false);
+  const [isStartingConversation, setIsStartingConversation] = useState(false);
+  const [messageError, setMessageError] = useState<string | null>(null);
   const scrollRef = useRef<ScrollView | null>(null);
   const commentInputRef = useRef<TextInput | null>(null);
   const [commentsY, setCommentsY] = useState<number | null>(null);
@@ -113,9 +115,35 @@ export default function PostDetailScreen() {
     router.push({ pathname: '/profile/[id]', params: { id: post.userId } });
   };
 
-  const handleMessagePress = () => {
-    const conversationId = getOrCreateConversation(post.userId, getConversationReferenceForPost(post));
-    router.push({ pathname: '/messages/[id]', params: { id: conversationId } });
+  const handleMessagePress = async () => {
+    if (isStartingConversation) {
+      return;
+    }
+
+    const reference = getConversationReferenceForPost(post);
+
+    if (post.source !== 'supabase') {
+      const conversationId = getOrCreateConversation(post.userId, reference);
+      router.push({ pathname: '/messages/[id]', params: { id: conversationId } });
+      return;
+    }
+
+    setIsStartingConversation(true);
+    setMessageError(null);
+    const { conversationId, error } = await getOrCreateDirectConversation({ otherUserId: post.userId, reference });
+    setIsStartingConversation(false);
+
+    if (error || !conversationId) {
+      setMessageError(error ?? 'Die Unterhaltung konnte nicht gestartet werden.');
+      return;
+    }
+
+    router.push({
+      pathname: '/messages/[id]',
+      params: reference
+        ? { id: conversationId, referenceType: reference.type, referenceId: reference.id, referenceTitle: reference.title }
+        : { id: conversationId },
+    });
   };
 
   const renderRideRequestSection = () => {
@@ -332,14 +360,16 @@ export default function PostDetailScreen() {
 
           {!isOwnPost && canMessageUser(post.userId) ? (
             <View style={styles.messageSection}>
+              {messageError ? <Text style={styles.messageErrorText}>{messageError}</Text> : null}
               <Pressable
-                onPress={handleMessagePress}
-                style={styles.messageButton}
+                onPress={() => void handleMessagePress()}
+                disabled={isStartingConversation}
+                style={[styles.messageButton, isStartingConversation && styles.actionButtonDisabled]}
                 accessibilityRole="button"
                 accessibilityLabel={`Nachricht senden an ${author.displayName}`}
               >
                 <IconSymbol size={16} name="message" color={ClubColors.text} />
-                <Text style={styles.messageButtonText}>Nachricht senden</Text>
+                <Text style={styles.messageButtonText}>{isStartingConversation ? 'Wird gestartet …' : 'Nachricht senden'}</Text>
               </Pressable>
             </View>
           ) : null}
@@ -551,6 +581,14 @@ const styles = StyleSheet.create({
   },
   messageSection: {
     marginTop: Spacing.md,
+  },
+  messageErrorText: {
+    color: '#F87171',
+    fontSize: FontSizes.meta,
+    marginBottom: Spacing.sm,
+  },
+  actionButtonDisabled: {
+    opacity: 0.5,
   },
   messageButton: {
     flexDirection: 'row',

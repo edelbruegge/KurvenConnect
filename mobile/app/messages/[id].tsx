@@ -18,21 +18,52 @@ import { NotFoundView } from '@/components/navigation/not-found-view';
 import { ReportModal } from '@/components/reports/report-modal';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { OverflowMenu } from '@/components/ui/overflow-menu';
-import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
+import { ClubColors, FeedColors, FontSizes, Radii, Spacing, StatusColors } from '@/constants/theme';
+import { useAuth } from '@/context/auth-context';
 import { useBlocks } from '@/context/blocks-context';
 import { useMessages } from '@/context/messages-context';
 import { useModeration } from '@/context/moderation-context';
 import { useProfiles } from '@/context/profile-context';
 import { useReports } from '@/context/reports-context';
-import { getOtherParticipantId } from '@/data/messages';
+import { getOtherParticipantId, type ConversationReference } from '@/data/messages';
 import type { ReportTargetType } from '@/data/reports';
 import { CURRENT_USER_ID } from '@/data/users';
 import { useSafetySelectors } from '@/hooks/use-safety-selectors';
 
+function referenceFromParams(params: { referenceType?: string; referenceId?: string; referenceTitle?: string }): ConversationReference {
+  if (!params.referenceType || !params.referenceId || !params.referenceTitle) {
+    return null;
+  }
+
+  if (
+    params.referenceType === 'trip' ||
+    params.referenceType === 'meetup' ||
+    params.referenceType === 'post' ||
+    params.referenceType === 'request' ||
+    params.referenceType === 'profile'
+  ) {
+    return { type: params.referenceType, id: params.referenceId, title: params.referenceTitle };
+  }
+
+  return null;
+}
+
 export default function MessageConversationScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ id?: string }>();
-  const { conversations, getMessagesForConversation, sendMessage, markConversationAsRead } = useMessages();
+  const params = useLocalSearchParams<{ id?: string; referenceType?: string; referenceId?: string; referenceTitle?: string }>();
+  const { user } = useAuth();
+  const authUserId = user?.id ?? null;
+  const {
+    conversations,
+    getMessagesForConversation,
+    sendMessage,
+    markConversationAsRead,
+    loadRemoteMessages,
+    isRemoteMessagesLoading,
+    remoteMessagesError,
+    getRemoteParticipantDisplay,
+    sendRemoteMessage,
+  } = useMessages();
   const { getUserById } = useProfiles();
   const { hasReported } = useReports();
   const { isBlocked, blockUser, unblockUser } = useBlocks();
@@ -42,9 +73,14 @@ export default function MessageConversationScreen() {
   const scrollRef = useRef<ScrollView | null>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [reportTarget, setReportTarget] = useState<{ type: ReportTargetType; id: string; title: string } | null>(null);
+  const [pendingReference, setPendingReference] = useState<ConversationReference>(() => referenceFromParams(params));
+  const [isSendingRemoteMessage, setIsSendingRemoteMessage] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
 
   const conversation = params.id ? conversations.find((entry) => entry.id === params.id) : undefined;
-  const isParticipant = conversation?.participantIds.includes(CURRENT_USER_ID) ?? false;
+  const isRemoteConversation = conversation?.source === 'supabase';
+  const myId = isRemoteConversation ? authUserId : CURRENT_USER_ID;
+  const isParticipant = Boolean(myId && conversation?.participantIds.includes(myId));
 
   useEffect(() => {
     const show = Keyboard.addListener('keyboardDidShow', () => setKeyboardVisible(true));
@@ -63,19 +99,30 @@ export default function MessageConversationScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversation?.id]);
 
+  useEffect(() => {
+    if (conversation && isParticipant && isRemoteConversation) {
+      loadRemoteMessages(conversation.id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversation?.id, isRemoteConversation]);
+
   if (!conversation || !isParticipant) {
     return <NotFoundView title="Unterhaltung nicht gefunden" message="Die angeforderte Unterhaltung konnte nicht gefunden werden." />;
   }
 
-  const otherUserId = getOtherParticipantId(conversation, CURRENT_USER_ID);
-  const otherUser = otherUserId ? getUserById(otherUserId) : undefined;
+  const otherUserId = myId ? getOtherParticipantId(conversation, myId) : undefined;
+  const otherUser = isRemoteConversation && otherUserId ? getRemoteParticipantDisplay(otherUserId) : otherUserId ? getUserById(otherUserId) : undefined;
   const messages = getMessagesForConversation(conversation.id).filter(
     (message) => !isContentModerationHidden('message', message.id),
   );
-  const reference = conversation.reference;
-  const referencePathname = reference?.type === 'meetup' ? '/meetup/[id]' : '/post/[id]';
+  const latestMessageReference = [...messages].reverse().find((message) => message.reference)?.reference ?? null;
+  const reference = isRemoteConversation ? (latestMessageReference ?? pendingReference) : conversation.reference;
+  const referencePathname =
+    reference?.type === 'meetup' ? '/meetup/[id]' : reference?.type === 'profile' ? '/profile/[id]' : '/post/[id]';
   const isPersonallyBlocked = otherUserId ? isBlocked(otherUserId) : false;
   const isChatLocked = otherUserId ? !canMessageUser(otherUserId) : false;
+  const isRemoteMessagesLoadingNow = isRemoteConversation ? isRemoteMessagesLoading(conversation.id) : false;
+  const remoteMessagesErrorNow = isRemoteConversation ? remoteMessagesError(conversation.id) : null;
 
   const handleAuthorPress = () => {
     if (otherUserId) {
@@ -89,17 +136,38 @@ export default function MessageConversationScreen() {
     }
   };
 
-  const handleSend = () => {
-    if (!draftText.trim()) {
+  const handleSend = async () => {
+    if (!draftText.trim() || isSendingRemoteMessage) {
       return;
     }
 
-    sendMessage(conversation.id, draftText);
+    if (!isRemoteConversation) {
+      sendMessage(conversation.id, draftText);
+      setDraftText('');
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 50);
+      return;
+    }
+
+    setIsSendingRemoteMessage(true);
+    setSendError(null);
+    const { error } = await sendRemoteMessage({
+      conversationId: conversation.id,
+      content: draftText,
+      reference: pendingReference ?? undefined,
+    });
+    setIsSendingRemoteMessage(false);
+
+    if (error) {
+      setSendError(error);
+      return;
+    }
+
     setDraftText('');
+    setPendingReference(null);
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 50);
   };
 
-  const isSendValid = draftText.trim().length > 0;
+  const isSendValid = draftText.trim().length > 0 && !isSendingRemoteMessage;
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -155,11 +223,26 @@ export default function MessageConversationScreen() {
             keyboardDismissMode="on-drag"
             onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: false })}
           >
+            {remoteMessagesErrorNow ? (
+              <View style={styles.remoteErrorBanner}>
+                <Text style={styles.remoteErrorText}>{remoteMessagesErrorNow}</Text>
+                <Pressable
+                  onPress={() => loadRemoteMessages(conversation.id)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Erneut versuchen"
+                >
+                  <Text style={styles.remoteErrorRetry}>Erneut versuchen</Text>
+                </Pressable>
+              </View>
+            ) : null}
+
             {messages.length === 0 ? (
-              <Text style={styles.emptyMessages}>Noch keine Nachrichten. Schreib die erste Nachricht.</Text>
+              <Text style={styles.emptyMessages}>
+                {isRemoteMessagesLoadingNow ? 'Nachrichten werden geladen …' : 'Noch keine Nachrichten. Schreib die erste Nachricht.'}
+              </Text>
             ) : (
               messages.map((message) => {
-                const isOwn = message.senderId === CURRENT_USER_ID;
+                const isOwn = myId != null && message.senderId === myId;
 
                 return (
                   <View key={message.id} style={[styles.bubbleRow, isOwn && styles.bubbleRowOwn]}>
@@ -200,23 +283,26 @@ export default function MessageConversationScreen() {
             </View>
           ) : (
             <View style={styles.composer}>
-              <TextInput
-                value={draftText}
-                onChangeText={setDraftText}
-                placeholder="Nachricht schreiben…"
-                placeholderTextColor={FeedColors.textSecondary}
-                multiline
-                style={styles.composerInput}
-              />
-              <Pressable
-                onPress={handleSend}
-                disabled={!isSendValid}
-                style={[styles.sendButton, !isSendValid && styles.sendButtonDisabled]}
-                accessibilityRole="button"
-                accessibilityLabel="Nachricht senden"
-              >
-                <Text style={styles.sendButtonText}>Senden</Text>
-              </Pressable>
+              {sendError ? <Text style={styles.sendErrorText}>{sendError}</Text> : null}
+              <View style={styles.composerRow}>
+                <TextInput
+                  value={draftText}
+                  onChangeText={setDraftText}
+                  placeholder="Nachricht schreiben…"
+                  placeholderTextColor={FeedColors.textSecondary}
+                  multiline
+                  style={styles.composerInput}
+                />
+                <Pressable
+                  onPress={() => void handleSend()}
+                  disabled={!isSendValid}
+                  style={[styles.sendButton, !isSendValid && styles.sendButtonDisabled]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Nachricht senden"
+                >
+                  <Text style={styles.sendButtonText}>{isSendingRemoteMessage ? 'Wird gesendet …' : 'Senden'}</Text>
+                </Pressable>
+              </View>
             </View>
           )}
 
@@ -340,12 +426,37 @@ const styles = StyleSheet.create({
     textAlign: 'right',
   },
   composer: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: Spacing.sm,
     padding: Spacing.md,
     borderTopWidth: 1,
     borderTopColor: FeedColors.cardBorder,
+  },
+  composerRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: Spacing.sm,
+  },
+  sendErrorText: {
+    color: StatusColors.error,
+    fontSize: FontSizes.meta,
+    marginBottom: Spacing.sm,
+  },
+  remoteErrorBanner: {
+    backgroundColor: FeedColors.cardBackground,
+    borderRadius: Spacing.sm,
+    borderWidth: 1,
+    borderColor: FeedColors.cardBorder,
+    padding: Spacing.sm,
+    marginBottom: Spacing.md,
+  },
+  remoteErrorText: {
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.meta,
+    marginBottom: Spacing.xs,
+  },
+  remoteErrorRetry: {
+    color: FeedColors.textPrimary,
+    fontSize: FontSizes.meta,
+    fontWeight: '700',
   },
   lockedBanner: {
     flexDirection: 'row',

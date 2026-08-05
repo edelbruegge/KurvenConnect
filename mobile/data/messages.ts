@@ -22,6 +22,11 @@ export type ConversationReference =
       id: string;
       title: string;
     }
+  | {
+      type: 'profile';
+      id: string;
+      title: string;
+    }
   | null;
 
 export type Message = {
@@ -31,6 +36,14 @@ export type Message = {
   text: string;
   createdAt: string;
   read: boolean;
+  // 'local' for seed/in-memory messages, 'supabase' for rows loaded from public.messages.
+  // Defaults to 'local' when absent, same convention as FeedPost.source.
+  source?: 'local' | 'supabase';
+  // Only set for source:'supabase' messages that carried a content reference at send time.
+  reference?: ConversationReference;
+  // Raw ISO timestamp, set only for source:'supabase' messages — used for chronological merge
+  // safety, same convention as FeedPost.createdAtIso.
+  createdAtIso?: string;
 };
 
 export type Conversation = {
@@ -41,6 +54,12 @@ export type Conversation = {
   lastMessageAt: string;
   unreadCount: number;
   createdAt: string;
+  // 'local' for seed/in-memory conversations, 'supabase' for rows loaded from
+  // public.conversations. Defaults to 'local' when absent, same convention as FeedPost.source.
+  source?: 'local' | 'supabase';
+  // Raw ISO timestamp, set only for source:'supabase' conversations — used to sort remote
+  // conversations by actual recency.
+  lastMessageAtIso?: string;
 };
 
 export function getConversationReferenceForPost(post: FeedPost): ConversationReference {

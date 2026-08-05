@@ -8,6 +8,10 @@ export type UserProfile = {
   memberSince: string;
   isCurrentUser: boolean;
   avatarUrl?: string;
+  // 'local' for the fixed seed identity/known seed users, 'supabase' for a profile fetched
+  // directly from public.profiles (app/profile/[id].tsx). Defaults to 'local' when absent, same
+  // convention as FeedPost.source.
+  source?: 'local' | 'supabase';
 };
 
 export const CURRENT_USER_ID = 'user-marco-b';

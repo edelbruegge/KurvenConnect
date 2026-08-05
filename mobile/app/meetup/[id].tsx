@@ -70,7 +70,7 @@ export default function MeetupDetailScreen() {
   const params = useLocalSearchParams<{ id?: string; focusComments?: string }>();
   const { posts, toggleLike, addComment, toggleMeetupAttendance, isRemoteMeetupsLoading, getRemoteAuthorDisplay, joinRemoteMeetup, leaveRemoteMeetup } =
     useFeedPosts();
-  const { getOrCreateConversation } = useMessages();
+  const { getOrCreateConversation, getOrCreateDirectConversation } = useMessages();
   const { isSaved, toggleSaved } = useSaved();
   const { getAuthorDisplay, getCommentAuthorDisplay, getUserById, isCurrentUserId, isContentOwnedByCurrentUser } = useProfiles();
   const { hasReported } = useReports();
@@ -85,6 +85,8 @@ export default function MeetupDetailScreen() {
   const [remoteAttendeeProfiles, setRemoteAttendeeProfiles] = useState<Record<string, AttendeeDisplay>>({});
   const [isSubmittingAttendance, setIsSubmittingAttendance] = useState(false);
   const [attendanceError, setAttendanceError] = useState<string | null>(null);
+  const [isStartingConversation, setIsStartingConversation] = useState(false);
+  const [messageError, setMessageError] = useState<string | null>(null);
 
   const post = params.id ? posts.find((entry) => entry.id === params.id) : undefined;
   const focusComments = params.focusComments === 'true';
@@ -216,9 +218,35 @@ export default function MeetupDetailScreen() {
     router.push({ pathname: '/profile/[id]', params: { id: post.userId } });
   };
 
-  const handleMessagePress = () => {
-    const conversationId = getOrCreateConversation(post.userId, getConversationReferenceForPost(post));
-    router.push({ pathname: '/messages/[id]', params: { id: conversationId } });
+  const handleMessagePress = async () => {
+    if (isStartingConversation) {
+      return;
+    }
+
+    const reference = getConversationReferenceForPost(post);
+
+    if (post.source !== 'supabase') {
+      const conversationId = getOrCreateConversation(post.userId, reference);
+      router.push({ pathname: '/messages/[id]', params: { id: conversationId } });
+      return;
+    }
+
+    setIsStartingConversation(true);
+    setMessageError(null);
+    const { conversationId, error } = await getOrCreateDirectConversation({ otherUserId: post.userId, reference });
+    setIsStartingConversation(false);
+
+    if (error || !conversationId) {
+      setMessageError(error ?? 'Die Unterhaltung konnte nicht gestartet werden.');
+      return;
+    }
+
+    router.push({
+      pathname: '/messages/[id]',
+      params: reference
+        ? { id: conversationId, referenceType: reference.type, referenceId: reference.id, referenceTitle: reference.title }
+        : { id: conversationId },
+    });
   };
 
   const handleOpenAttendeeProfile = (userId: string) => {
@@ -355,15 +383,19 @@ export default function MeetupDetailScreen() {
                 )}
 
                 {!isOrganizer && canMessageUser(post.userId) ? (
-                  <Pressable
-                    onPress={handleMessagePress}
-                    style={styles.mapButton}
-                    accessibilityRole="button"
-                    accessibilityLabel="Nachricht an Organisator"
-                  >
-                    <IconSymbol size={16} name="message" color={ClubColors.text} />
-                    <Text style={styles.mapButtonText}>Nachricht an Organisator</Text>
-                  </Pressable>
+                  <>
+                    {messageError ? <Text style={styles.attendanceErrorText}>{messageError}</Text> : null}
+                    <Pressable
+                      onPress={() => void handleMessagePress()}
+                      disabled={isStartingConversation}
+                      style={[styles.mapButton, isStartingConversation && styles.actionButtonDisabled]}
+                      accessibilityRole="button"
+                      accessibilityLabel="Nachricht an Organisator"
+                    >
+                      <IconSymbol size={16} name="message" color={ClubColors.text} />
+                      <Text style={styles.mapButtonText}>{isStartingConversation ? 'Wird gestartet …' : 'Nachricht an Organisator'}</Text>
+                    </Pressable>
+                  </>
                 ) : null}
 
                 <Pressable

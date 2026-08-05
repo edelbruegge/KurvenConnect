@@ -13,7 +13,7 @@ import { TripCard } from '@/components/trips/trip-card';
 import { ReportModal } from '@/components/reports/report-modal';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { OverflowMenu } from '@/components/ui/overflow-menu';
-import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
+import { ClubColors, FeedColors, FontSizes, Radii, Spacing, StatusColors } from '@/constants/theme';
 import { useBlocks } from '@/context/blocks-context';
 import { useFeedPosts } from '@/context/feed-posts-context';
 import { useMessages } from '@/context/messages-context';
@@ -33,13 +33,15 @@ type ProfileViewProps = {
 export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewProps) {
   const router = useRouter();
   const { posts, toggleLike } = useFeedPosts();
-  const { getOrCreateConversation } = useMessages();
+  const { getOrCreateConversation, getOrCreateDirectConversation } = useMessages();
   const { isFollowing, followUser, unfollowUser, getFollowerCount, getFollowingCount, isContentOwnedByCurrentUser } = useProfiles();
   const { hasReported } = useReports();
   const { isBlocked, blockUser, unblockUser } = useBlocks();
   const { canMessageUser } = useSafetySelectors();
   const [activeTab, setActiveTab] = useState<'posts' | 'trips' | 'meetups'>('posts');
   const [reportModalVisible, setReportModalVisible] = useState(false);
+  const [isStartingConversation, setIsStartingConversation] = useState(false);
+  const [messageError, setMessageError] = useState<string | null>(null);
 
   const ownPosts = useVisiblePosts(
     posts.filter((post) =>
@@ -101,9 +103,31 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
     router.push({ pathname: getPostDetailPathname(post), params: { id: post.id } });
   };
 
-  const handleMessagePress = () => {
-    const conversationId = getOrCreateConversation(profile.id);
-    router.push({ pathname: '/messages/[id]', params: { id: conversationId } });
+  const handleMessagePress = async () => {
+    if (isStartingConversation) {
+      return;
+    }
+
+    if (profile.source !== 'supabase') {
+      const conversationId = getOrCreateConversation(profile.id);
+      router.push({ pathname: '/messages/[id]', params: { id: conversationId } });
+      return;
+    }
+
+    setIsStartingConversation(true);
+    setMessageError(null);
+    const { conversationId, error } = await getOrCreateDirectConversation({ otherUserId: profile.id });
+    setIsStartingConversation(false);
+
+    if (error || !conversationId) {
+      setMessageError(error ?? 'Die Unterhaltung konnte nicht gestartet werden.');
+      return;
+    }
+
+    router.push({
+      pathname: '/messages/[id]',
+      params: { id: conversationId, referenceType: 'profile', referenceId: profile.id, referenceTitle: profile.displayName },
+    });
   };
 
   return (
@@ -183,16 +207,18 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
               </Pressable>
               {canMessageUser(profile.id) ? (
                 <Pressable
-                  onPress={handleMessagePress}
-                  style={[styles.editButton, styles.actionRowButton]}
+                  onPress={() => void handleMessagePress()}
+                  disabled={isStartingConversation}
+                  style={[styles.editButton, styles.actionRowButton, isStartingConversation && styles.actionButtonDisabled]}
                   accessibilityRole="button"
                   accessibilityLabel={`Nachricht an ${profile.displayName} schreiben`}
                 >
                   <IconSymbol size={18} name="message" color={FeedColors.textPrimary} />
-                  <Text style={styles.editButtonText}>Nachricht</Text>
+                  <Text style={styles.editButtonText}>{isStartingConversation ? 'Wird gestartet …' : 'Nachricht'}</Text>
                 </Pressable>
               ) : null}
             </View>
+            {messageError ? <Text style={styles.messageErrorText}>{messageError}</Text> : null}
             <View style={styles.profileOverflowWrapper}>
               <OverflowMenu
                 accessibilityLabel="Weitere Aktionen zu diesem Nutzer"
@@ -386,6 +412,14 @@ const styles = StyleSheet.create({
   },
   followingButtonText: {
     color: ClubColors.text,
+  },
+  actionButtonDisabled: {
+    opacity: 0.5,
+  },
+  messageErrorText: {
+    color: StatusColors.error,
+    fontSize: FontSizes.meta,
+    marginTop: Spacing.xs,
   },
   statsWrapper: {
     marginTop: Spacing.md,
