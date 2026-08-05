@@ -25,13 +25,21 @@ function getNotificationIcon(type: NotificationType): IconSymbolName {
     case 'new_follower':
       return 'person.badge.plus';
     case 'trip_request':
+    case 'trip_request_received':
       return 'car.fill';
+    case 'trip_request_accepted':
+      return 'checkmark.circle.fill';
+    case 'trip_request_rejected':
+      return 'xmark.circle.fill';
     case 'meetup_join':
     case 'meetup_leave':
+    case 'meetup_joined':
+    case 'meetup_left':
       return 'person.3.fill';
     case 'request_reply':
       return 'text.magnifyingglass';
     case 'new_message':
+    case 'message_received':
       return 'message';
     case 'system':
       return 'bell.fill';
@@ -40,7 +48,15 @@ function getNotificationIcon(type: NotificationType): IconSymbolName {
 
 export default function NotificationsScreen() {
   const router = useRouter();
-  const { notifications, markAsRead, markAllAsRead } = useNotifications();
+  const {
+    notifications,
+    markAsRead,
+    markAllAsRead,
+    isRemoteNotificationsLoading,
+    remoteNotificationsError,
+    refreshRemoteNotifications,
+    getRemoteActorDisplay,
+  } = useNotifications();
   const { getConversationById, markConversationAsRead } = useMessages();
   const { getUserById } = useProfiles();
   const { getPostById } = useFeedPosts();
@@ -113,21 +129,42 @@ export default function NotificationsScreen() {
       return;
     }
 
+    // A trip's owner is directed to their request management screen rather than the generic
+    // trip detail — trip_request_accepted/rejected (the requester's perspective) fall through
+    // to the generic /post/[id] branch below instead, since they have no access to that screen.
+    if (reference.type === 'trip' && notification.type === 'trip_request_received') {
+      router.push({ pathname: '/trip/[id]/requests', params: { id: reference.id } });
+      return;
+    }
+
     router.push({ pathname: '/post/[id]', params: { id: reference.id } });
   };
 
   const hasUnread = visibleNotifications.some((notification) => isUnread(notification));
 
+  const errorBanner = remoteNotificationsError ? (
+    <View style={styles.remoteErrorBanner}>
+      <Text style={styles.remoteErrorText}>{remoteNotificationsError}</Text>
+      <Pressable onPress={refreshRemoteNotifications} accessibilityRole="button" accessibilityLabel="Erneut versuchen">
+        <Text style={styles.remoteErrorRetry}>Erneut versuchen</Text>
+      </Pressable>
+    </View>
+  ) : null;
+
   return (
     <SafeAreaView style={styles.safeArea}>
       {visibleNotifications.length === 0 ? (
         <View style={styles.emptyState}>
+          {errorBanner}
           <IconSymbol size={40} name="bell.fill" color={FeedColors.textSecondary} />
-          <Text style={styles.emptyTitle}>Noch keine Benachrichtigungen.</Text>
+          <Text style={styles.emptyTitle}>
+            {isRemoteNotificationsLoading ? 'Benachrichtigungen werden geladen …' : 'Noch keine Benachrichtigungen.'}
+          </Text>
           <Text style={styles.emptyText}>Hier erscheinen künftig Aktivitäten rund um deine Inhalte.</Text>
         </View>
       ) : (
         <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+          {errorBanner}
           {hasUnread ? (
             <Pressable onPress={markAllAsRead} style={styles.markAllButton} accessibilityRole="button" accessibilityLabel="Alle als gelesen markieren">
               <Text style={styles.markAllButtonText}>Alle als gelesen markieren</Text>
@@ -136,7 +173,11 @@ export default function NotificationsScreen() {
 
           {visibleNotifications.map((notification) => {
             const unread = isUnread(notification);
-            const actor = notification.actorId ? getUserById(notification.actorId) : undefined;
+            const actor = notification.actorId
+              ? notification.source === 'supabase'
+                ? getRemoteActorDisplay(notification.actorId)
+                : getUserById(notification.actorId)
+              : undefined;
 
             return (
               <Pressable
@@ -169,6 +210,24 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: FeedColors.background,
+  },
+  remoteErrorBanner: {
+    backgroundColor: FeedColors.cardBackground,
+    borderRadius: Spacing.sm,
+    borderWidth: 1,
+    borderColor: FeedColors.cardBorder,
+    padding: Spacing.sm,
+    marginBottom: Spacing.md,
+  },
+  remoteErrorText: {
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.meta,
+    marginBottom: Spacing.xs,
+  },
+  remoteErrorRetry: {
+    color: FeedColors.textPrimary,
+    fontSize: FontSizes.meta,
+    fontWeight: '700',
   },
   scroll: {
     flex: 1,

@@ -9,7 +9,15 @@ export type NotificationType =
   | 'meetup_leave'
   | 'request_reply'
   | 'new_message'
-  | 'system';
+  | 'system'
+  // Server-generated (source: 'supabase') notification types — see
+  // supabase/migrations/20260804120000_create_notifications.sql.
+  | 'message_received'
+  | 'trip_request_received'
+  | 'trip_request_accepted'
+  | 'trip_request_rejected'
+  | 'meetup_joined'
+  | 'meetup_left';
 
 export type NotificationReference =
   | { type: 'post' | 'trip' | 'request'; id: string }
@@ -27,6 +35,12 @@ export type AppNotification = {
   reference: NotificationReference;
   createdAt: string;
   read: boolean;
+  // 'local' for seed/in-memory notifications, 'supabase' for rows loaded from
+  // public.notifications. Defaults to 'local' when absent, same convention as FeedPost.source.
+  source?: 'local' | 'supabase';
+  // Raw ISO timestamp, set only for source:'supabase' notifications — used to sort remote
+  // notifications by actual recency.
+  createdAtIso?: string;
 };
 
 export const seedNotifications: AppNotification[] = [
