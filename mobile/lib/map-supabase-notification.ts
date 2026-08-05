@@ -54,3 +54,53 @@ export function mapSupabaseNotificationToNotification(row: SupabaseNotificationR
     createdAtIso: row.created_at,
   };
 }
+
+export type NotificationDisplayContext = {
+  // A resolved, real display name for notification.actorId — pass undefined (not a placeholder
+  // string like "Unbekanntes Mitglied") when the actor is missing or unresolved, so the ride
+  // request text can fall back to "Jemand" itself rather than showing a fallback-of-a-fallback.
+  actorDisplayName?: string;
+  // Only pass departure/destination when they come from an actually-loaded trip; the function
+  // itself re-validates both are non-empty before ever using them.
+  tripRoute?: { departure: string; destination: string };
+};
+
+export type NotificationDisplayContent = {
+  // null => no separate title line; the notification card renders body only, exactly as before
+  // this change. Only the three trip-request types below ever get a title.
+  title: string | null;
+  body: string;
+};
+
+/**
+ * The single, central place that decides what a notification's title/body actually say.
+ * Deliberately never touches notification.text/DB body/reference IDs for the trip-request
+ * types — every visible word for those three is a fixed template string interpolated only with
+ * a validated actor name and/or validated route, so no technical value (UUID, event_key,
+ * timestamp, status code, seat count, ...) can ever end up in what the user reads. All other
+ * notification types are untouched and keep showing their existing stored/seed text as-is.
+ */
+export function getNotificationDisplayContent(
+  notification: AppNotification,
+  context: NotificationDisplayContext = {},
+): NotificationDisplayContent {
+  const actorName = context.actorDisplayName?.trim() || null;
+  const route = context.tripRoute;
+  const hasCleanRoute = Boolean(route && route.departure.trim() && route.destination.trim());
+  const routeSuffix = hasCleanRoute ? ` von ${route!.departure.trim()} nach ${route!.destination.trim()}` : '';
+
+  if (notification.type === 'trip_request_received') {
+    const who = actorName ?? 'Jemand';
+    return { title: 'Neue Fahrtanfrage', body: `${who} möchte bei deiner Fahrt${routeSuffix} mitfahren.` };
+  }
+
+  if (notification.type === 'trip_request_accepted') {
+    return { title: 'Fahrtanfrage angenommen', body: `Deine Anfrage für die Fahrt${routeSuffix} wurde angenommen.` };
+  }
+
+  if (notification.type === 'trip_request_rejected') {
+    return { title: 'Fahrtanfrage abgelehnt', body: `Deine Anfrage für die Fahrt${routeSuffix} wurde abgelehnt.` };
+  }
+
+  return { title: null, body: notification.text };
+}

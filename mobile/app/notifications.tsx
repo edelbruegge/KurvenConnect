@@ -15,6 +15,9 @@ import { getOtherParticipantId } from '@/data/messages';
 import type { AppNotification, NotificationType } from '@/data/notifications';
 import { CURRENT_USER_ID } from '@/data/users';
 import { useSafetySelectors } from '@/hooks/use-safety-selectors';
+import { getNotificationDisplayContent } from '@/lib/map-supabase-notification';
+
+const TRIP_REQUEST_NOTIFICATION_TYPES: NotificationType[] = ['trip_request_received', 'trip_request_accepted', 'trip_request_rejected'];
 
 function getNotificationIcon(type: NotificationType): IconSymbolName {
   switch (type) {
@@ -178,6 +181,20 @@ export default function NotificationsScreen() {
                 ? getRemoteActorDisplay(notification.actorId)
                 : getUserById(notification.actorId)
               : undefined;
+            // getRemoteActorDisplay always returns a fallback object (initials '?') instead of
+            // undefined when the actor profile is unresolved — treat that the same as "no actor"
+            // here, so the ride-request text below falls back to its own "Jemand" wording rather
+            // than ever showing a placeholder name.
+            const actorDisplayName = actor && actor.initials !== '?' ? actor.displayName : undefined;
+
+            const isTripRequestNotification = TRIP_REQUEST_NOTIFICATION_TYPES.includes(notification.type);
+            const tripPost =
+              isTripRequestNotification && notification.reference?.type === 'trip' ? getPostById(notification.reference.id) : undefined;
+            const tripRoute = tripPost?.tripDetails
+              ? { departure: tripPost.tripDetails.departure, destination: tripPost.tripDetails.destination }
+              : undefined;
+
+            const display = getNotificationDisplayContent(notification, { actorDisplayName, tripRoute });
 
             return (
               <Pressable
@@ -193,7 +210,8 @@ export default function NotificationsScreen() {
                   </View>
                 )}
                 <View style={styles.rowContent}>
-                  <Text style={[styles.text, unread && styles.textUnread]}>{notification.text}</Text>
+                  {display.title ? <Text style={[styles.notificationTitle, unread && styles.textUnread]}>{display.title}</Text> : null}
+                  <Text style={[styles.text, unread && styles.textUnread]}>{display.body}</Text>
                   <Text style={styles.time}>{notification.createdAt}</Text>
                 </View>
                 {unread ? <View style={styles.unreadDot} /> : null}
@@ -267,6 +285,12 @@ const styles = StyleSheet.create({
   },
   rowContent: {
     flex: 1,
+  },
+  notificationTitle: {
+    color: FeedColors.textPrimary,
+    fontSize: FontSizes.body,
+    fontWeight: '700',
+    marginBottom: 2,
   },
   text: {
     color: FeedColors.textSecondary,
