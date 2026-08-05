@@ -63,6 +63,10 @@ export default function MessageConversationScreen() {
     remoteMessagesError,
     getRemoteParticipantDisplay,
     sendRemoteMessage,
+    setActiveConversationId,
+    realtimeStatus,
+    realtimeError,
+    retryRealtime,
   } = useMessages();
   const { getUserById } = useProfiles();
   const { hasReported } = useReports();
@@ -71,6 +75,7 @@ export default function MessageConversationScreen() {
   const { canMessageUser } = useSafetySelectors();
   const [draftText, setDraftText] = useState('');
   const scrollRef = useRef<ScrollView | null>(null);
+  const isAtBottomRef = useRef(true);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [reportTarget, setReportTarget] = useState<{ type: ReportTargetType; id: string; title: string } | null>(null);
   const [pendingReference, setPendingReference] = useState<ConversationReference>(() => referenceFromParams(params));
@@ -103,6 +108,17 @@ export default function MessageConversationScreen() {
     if (conversation && isParticipant && isRemoteConversation) {
       loadRemoteMessages(conversation.id);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversation?.id, isRemoteConversation]);
+
+  useEffect(() => {
+    if (conversation && isParticipant && isRemoteConversation) {
+      setActiveConversationId(conversation.id);
+    }
+
+    return () => {
+      setActiveConversationId(null);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversation?.id, isRemoteConversation]);
 
@@ -213,6 +229,14 @@ export default function MessageConversationScreen() {
                 </Text>
               </Pressable>
             ) : null}
+            {isRemoteConversation && realtimeStatus === 'error' ? (
+              <View style={styles.realtimeBanner}>
+                <Text style={styles.realtimeBannerText}>{realtimeError ?? 'Live-Aktualisierung unterbrochen'}</Text>
+                <Pressable onPress={retryRealtime} accessibilityRole="button" accessibilityLabel="Erneut verbinden">
+                  <Text style={styles.realtimeBannerRetry}>Erneut verbinden</Text>
+                </Pressable>
+              </View>
+            ) : null}
           </View>
 
           <ScrollView
@@ -221,7 +245,17 @@ export default function MessageConversationScreen() {
             contentContainerStyle={styles.messagesContainer}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
-            onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: false })}
+            onScroll={(e) => {
+              const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+              const distanceFromBottom = contentSize.height - contentOffset.y - layoutMeasurement.height;
+              isAtBottomRef.current = distanceFromBottom < 80;
+            }}
+            scrollEventThrottle={100}
+            onContentSizeChange={() => {
+              if (isAtBottomRef.current) {
+                scrollRef.current?.scrollToEnd({ animated: true });
+              }
+            }}
           >
             {remoteMessagesErrorNow ? (
               <View style={styles.remoteErrorBanner}>
@@ -454,6 +488,29 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.xs,
   },
   remoteErrorRetry: {
+    color: FeedColors.textPrimary,
+    fontSize: FontSizes.meta,
+    fontWeight: '700',
+  },
+  realtimeBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.sm,
+    marginTop: Spacing.xs,
+    backgroundColor: FeedColors.imagePlaceholder,
+    borderRadius: Radii.md,
+    borderWidth: 1,
+    borderColor: FeedColors.cardBorder,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 6,
+  },
+  realtimeBannerText: {
+    flex: 1,
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.meta,
+  },
+  realtimeBannerRetry: {
     color: FeedColors.textPrimary,
     fontSize: FontSizes.meta,
     fontWeight: '700',

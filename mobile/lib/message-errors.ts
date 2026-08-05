@@ -66,3 +66,21 @@ export function mapMessageError(error: unknown): string {
 
   return GENERIC_ERROR_MESSAGE;
 }
+
+const REALTIME_INTERRUPTED_MESSAGE = 'Die Live-Aktualisierung ist derzeit unterbrochen. Du kannst den Chat weiterhin verwenden.';
+
+/**
+ * Translates Supabase Realtime channel/subscription errors (CHANNEL_ERROR, TIMED_OUT, a
+ * publication the table hasn't been added to yet, a dropped auth session mid-subscription, ...)
+ * into a single short, non-blocking German status message. Never surfaces raw WebSocket/Phoenix
+ * details in the UI — those are only logged in development.
+ */
+export function mapRealtimeError(error: unknown): string {
+  const rawMessage = error instanceof Error ? error.message : String((error as { message?: string })?.message ?? error ?? '');
+
+  if (__DEV__) {
+    console.error('[messages:realtime]', rawMessage);
+  }
+
+  return REALTIME_INTERRUPTED_MESSAGE;
+}

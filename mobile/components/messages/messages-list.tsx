@@ -15,7 +15,7 @@ export function MessagesList() {
   const router = useRouter();
   const { user } = useAuth();
   const authUserId = user?.id ?? null;
-  const { conversations, getRemoteParticipantDisplay } = useMessages();
+  const { conversations, getRemoteParticipantDisplay, realtimeStatus, realtimeError, retryRealtime } = useMessages();
   const { getUserById } = useProfiles();
   const { canMessageUser } = useSafetySelectors();
 
@@ -53,6 +53,14 @@ export function MessagesList() {
 
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+      {realtimeStatus === 'error' ? (
+        <View style={styles.realtimeBanner}>
+          <Text style={styles.realtimeBannerText}>{realtimeError ?? 'Live-Aktualisierung unterbrochen'}</Text>
+          <Pressable onPress={retryRealtime} accessibilityRole="button" accessibilityLabel="Erneut verbinden">
+            <Text style={styles.realtimeBannerRetry}>Erneut verbinden</Text>
+          </Pressable>
+        </View>
+      ) : null}
       {ownConversations.map((conversation) => {
         const myId = myIdForConversation(conversation);
         const otherUserId = myId ? getOtherParticipantId(conversation, myId) : undefined;
@@ -103,6 +111,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.md,
     paddingTop: Spacing.md,
     paddingBottom: Spacing.xl,
+  },
+  realtimeBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.sm,
+    marginBottom: Spacing.sm,
+    backgroundColor: FeedColors.cardBackground,
+    borderRadius: Radii.md,
+    borderWidth: 1,
+    borderColor: FeedColors.cardBorder,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 6,
+  },
+  realtimeBannerText: {
+    flex: 1,
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.meta,
+  },
+  realtimeBannerRetry: {
+    color: FeedColors.textPrimary,
+    fontSize: FontSizes.meta,
+    fontWeight: '700',
   },
   row: {
     flexDirection: 'row',

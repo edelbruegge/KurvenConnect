@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 
 import { useAuth } from '@/context/auth-context';
 import {
@@ -18,10 +19,20 @@ import {
   type SupabaseConversationRow,
   type SupabaseMessageRow,
 } from '@/lib/map-supabase-message';
-import { mapMessageError } from '@/lib/message-errors';
+import { mapMessageError, mapRealtimeError } from '@/lib/message-errors';
 import { supabase } from '@/lib/supabase';
 
 type AuthorDisplay = { displayName: string; initials: string };
+
+// A minimal structural view of the postgres_changes INSERT payload — only the fields this
+// handler actually reads. Avoids importing @supabase/realtime-js's payload types directly (a
+// transitive dependency of @supabase/supabase-js, not declared in package.json); the real
+// payload supabase-js hands us is always assignable to this shape.
+type RealtimeMessageInsertPayload = {
+  new: Record<string, unknown>;
+};
+
+type RealtimeStatus = 'idle' | 'connecting' | 'subscribed' | 'reconnecting' | 'error' | 'closed';
 
 type NewRemoteConversationInput = {
   otherUserId: string;
@@ -58,6 +69,13 @@ type MessagesContextValue = {
   sendRemoteMessage: (input: NewRemoteMessageInput) => Promise<{ error: string | null }>;
   markRemoteConversationRead: (conversationId: string) => Promise<void>;
   unreadConversationCount: number;
+
+  // Realtime synchronization for newly inserted messages.
+  activeConversationId: string | null;
+  setActiveConversationId: (id: string | null) => void;
+  realtimeStatus: RealtimeStatus;
+  realtimeError: string | null;
+  retryRealtime: () => void;
 };
 
 const MessagesContext = createContext<MessagesContextValue | undefined>(undefined);
@@ -98,6 +116,32 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
   const inFlightGetOrCreateOtherUserIds = useRef<Set<string>>(new Set());
   const messagesRequestSeq = useRef<Record<string, number>>({});
 
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [realtimeStatus, setRealtimeStatus] = useState<RealtimeStatus>('idle');
+  const [realtimeError, setRealtimeError] = useState<string | null>(null);
+  const [realtimeReconnectToken, setRealtimeReconnectToken] = useState(0);
+  const conversationsRefreshScheduledRef = useRef(false);
+
+  // "Latest ref" mirrors so the realtime subscription effect (and its AppState companion) can
+  // stay on a stable dependency list — [authUserId, realtimeReconnectToken] — without tearing
+  // down and rebuilding the channel every time a chat is opened/closed or the status changes.
+  const activeConversationIdRef = useRef<string | null>(null);
+  const realtimeStatusRef = useRef<RealtimeStatus>('idle');
+
+  useEffect(() => {
+    activeConversationIdRef.current = activeConversationId;
+  }, [activeConversationId]);
+
+  useEffect(() => {
+    realtimeStatusRef.current = realtimeStatus;
+  }, [realtimeStatus]);
+
+  useEffect(() => {
+    if (!isRemoteConversationsLoading) {
+      conversationsRefreshScheduledRef.current = false;
+    }
+  }, [isRemoteConversationsLoading]);
+
   useEffect(() => {
     if (!authUserId) {
       // Signed out (or account switched away from): never keep showing stale remote content.
@@ -108,9 +152,11 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
       setRemoteMessagesErrorByConversationId({});
       setIsRemoteConversationsLoading(false);
       setRemoteConversationsError(null);
+      setActiveConversationId(null);
       inFlightSendConversationIds.current.clear();
       inFlightGetOrCreateOtherUserIds.current.clear();
       messagesRequestSeq.current = {};
+      conversationsRefreshScheduledRef.current = false;
       return;
     }
 
@@ -299,6 +345,177 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
   const isRemoteMessagesLoading = (conversationId: string) => isRemoteMessagesLoadingByConversationId[conversationId] ?? false;
   const remoteMessagesError = (conversationId: string) => remoteMessagesErrorByConversationId[conversationId] ?? null;
   const getRemoteParticipantDisplay = (userId: string): AuthorDisplay => remoteParticipantProfiles[userId] ?? UNKNOWN_PARTICIPANT_DISPLAY;
+
+  // Central handler for every realtime INSERT event on public.messages, regardless of which
+  // conversation it belongs to (RLS already restricts delivery to conversations the current
+  // account is a member of — see the migration's SELECT policy). Reads authUserId directly from
+  // the render this closure was captured in; the "latest ref" wrapper below is what keeps that
+  // read fresh without resubscribing the channel.
+  const handleRealtimeMessageInsert = (payload: RealtimeMessageInsertPayload) => {
+    if (!authUserId) {
+      return;
+    }
+
+    const row = payload.new;
+    const isValidRow =
+      row &&
+      typeof row.id === 'string' &&
+      typeof row.conversation_id === 'string' &&
+      typeof row.sender_id === 'string' &&
+      typeof row.content === 'string' &&
+      typeof row.created_at === 'string';
+
+    if (!isValidRow) {
+      if (__DEV__) {
+        console.error('[messages:realtime] invalid INSERT payload', payload);
+      }
+      return;
+    }
+
+    const message = mapSupabaseMessageToMessage(row as unknown as SupabaseMessageRow);
+    const isOwnMessage = message.senderId === authUserId;
+    const isActiveConversation = activeConversationIdRef.current === message.conversationId;
+
+    let alreadyKnown = false;
+
+    setRemoteMessagesByConversationId((current) => {
+      const existing = current[message.conversationId] ?? [];
+
+      if (existing.some((entry) => entry.id === message.id)) {
+        alreadyKnown = true;
+        return current;
+      }
+
+      const next = [...existing, message].sort((a, b) => (a.createdAtIso ?? '').localeCompare(b.createdAtIso ?? ''));
+      return { ...current, [message.conversationId]: next };
+    });
+
+    // Duplicate of a message this client already knows about (typically its own just-sent
+    // message, already applied via sendRemoteMessage's insert().select() response) — stop here,
+    // no unread bump, no conversation-preview update, no phantom re-application.
+    if (alreadyKnown) {
+      return;
+    }
+
+    let conversationKnown = true;
+
+    setRemoteConversations((current) => {
+      const index = current.findIndex((conversation) => conversation.id === message.conversationId);
+
+      if (index === -1) {
+        conversationKnown = false;
+        return current;
+      }
+
+      const conversation = current[index];
+      const shouldCountAsUnread = !isOwnMessage && !isActiveConversation;
+      const next = [...current];
+      next[index] = {
+        ...conversation,
+        lastMessageText: message.text,
+        lastMessageAt: message.createdAt,
+        lastMessageAtIso: message.createdAtIso,
+        unreadCount: shouldCountAsUnread ? conversation.unreadCount + 1 : conversation.unreadCount,
+      };
+      return next;
+    });
+
+    if (!conversationKnown && !conversationsRefreshScheduledRef.current) {
+      // A message for a conversation this session hasn't loaded yet — resync from the server
+      // instead of fabricating a conversation with guessed participants. Guarded so a burst of
+      // events for the same unseen conversation can't trigger a refresh loop.
+      conversationsRefreshScheduledRef.current = true;
+      refreshRemoteConversations();
+    }
+
+    if (isActiveConversation && !isOwnMessage) {
+      void markRemoteConversationRead(message.conversationId);
+    }
+  };
+
+  const handleRealtimeMessageInsertRef = useRef(handleRealtimeMessageInsert);
+  handleRealtimeMessageInsertRef.current = handleRealtimeMessageInsert;
+
+  useEffect(() => {
+    if (!authUserId) {
+      setRealtimeStatus('idle');
+      setRealtimeError(null);
+      return;
+    }
+
+    let isCurrent = true;
+    setRealtimeStatus((current) => (current === 'error' || current === 'closed' ? 'reconnecting' : 'connecting'));
+    setRealtimeError(null);
+
+    const channel = supabase
+      .channel(`messages:${authUserId}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages' },
+        (payload) => {
+          if (!isCurrent) return;
+          handleRealtimeMessageInsertRef.current(payload);
+        },
+      )
+      .subscribe((status, err) => {
+        if (!isCurrent) return;
+
+        if (status === 'SUBSCRIBED') {
+          setRealtimeStatus('subscribed');
+          setRealtimeError(null);
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          setRealtimeStatus('error');
+          setRealtimeError(mapRealtimeError(err ?? new Error(status)));
+        } else if (status === 'CLOSED') {
+          setRealtimeStatus((current) => (current === 'error' ? current : 'closed'));
+        }
+      });
+
+    return () => {
+      isCurrent = false;
+      void supabase.removeChannel(channel);
+    };
+  }, [authUserId, realtimeReconnectToken]);
+
+  const retryRealtime = () => {
+    if (!authUserId) {
+      return;
+    }
+
+    setRealtimeStatus('reconnecting');
+    setRealtimeError(null);
+    setRealtimeReconnectToken((token) => token + 1);
+  };
+
+  // Single, provider-level AppState listener (MessagesProvider is mounted exactly once at the
+  // app root, so this is the only such listener that ever exists).
+  useEffect(() => {
+    const appStateRef = { current: AppState.currentState };
+
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      const cameToForeground = /inactive|background/.test(appStateRef.current) && nextState === 'active';
+      appStateRef.current = nextState;
+
+      if (!cameToForeground || !authUserId) {
+        return;
+      }
+
+      if (realtimeStatusRef.current !== 'subscribed') {
+        retryRealtime();
+      }
+
+      refreshRemoteConversations();
+
+      if (activeConversationIdRef.current) {
+        loadRemoteMessages(activeConversationIdRef.current);
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authUserId]);
 
   const getOrCreateDirectConversation = async (
     input: NewRemoteConversationInput,
@@ -561,6 +778,11 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
       sendRemoteMessage,
       markRemoteConversationRead,
       unreadConversationCount,
+      activeConversationId,
+      setActiveConversationId,
+      realtimeStatus,
+      realtimeError,
+      retryRealtime,
     }),
     [
       conversations,
@@ -574,6 +796,9 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
       remoteParticipantProfiles,
       unreadConversationCount,
       authUserId,
+      activeConversationId,
+      realtimeStatus,
+      realtimeError,
     ],
   );
 
