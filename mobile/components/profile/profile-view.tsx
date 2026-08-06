@@ -383,6 +383,7 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
           title="Nutzer melden"
           targetType="user"
           targetId={profile.id}
+          source={profile.source}
         />
       ) : null}
     </SafeAreaView>

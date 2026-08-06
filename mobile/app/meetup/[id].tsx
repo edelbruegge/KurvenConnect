@@ -83,7 +83,9 @@ export default function MeetupDetailScreen() {
   const commentInputRef = useRef<TextInput | null>(null);
   const [commentsY, setCommentsY] = useState<number | null>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
-  const [reportTarget, setReportTarget] = useState<{ type: ReportTargetType; id: string; title: string } | null>(null);
+  const [reportTarget, setReportTarget] = useState<{ type: ReportTargetType; id: string; title: string; source?: 'local' | 'supabase' } | null>(
+    null,
+  );
   const [remoteAttendeeProfiles, setRemoteAttendeeProfiles] = useState<Record<string, AttendeeDisplay>>({});
   const [isSubmittingAttendance, setIsSubmittingAttendance] = useState(false);
   const [attendanceError, setAttendanceError] = useState<string | null>(null);
@@ -161,6 +163,10 @@ export default function MeetupDetailScreen() {
 
   if (post.category !== 'Treffpunkt' || !post.meetupDetails) {
     return <NotFoundView title="Treffpunkt nicht gefunden" message="Der angeforderte Treffpunkt konnte nicht gefunden werden." />;
+  }
+
+  if (hasReported('meetup', post.id)) {
+    return <NotFoundView title="Inhalt nicht verfügbar" message="Dieser Inhalt wurde von dir gemeldet und wird nicht mehr angezeigt." />;
   }
 
   if (isModeratedAway('meetup', post.id, post.userId)) {
@@ -294,7 +300,7 @@ export default function MeetupDetailScreen() {
                       label: hasReported('meetup', post.id) ? 'Bereits gemeldet' : 'Treffpunkt melden',
                       icon: 'flag.fill',
                       disabled: hasReported('meetup', post.id),
-                      onPress: () => setReportTarget({ type: 'meetup', id: post.id, title: 'Treffpunkt melden' }),
+                      onPress: () => setReportTarget({ type: 'meetup', id: post.id, title: 'Treffpunkt melden', source: post.source }),
                     },
                   ]}
                 />
@@ -498,7 +504,7 @@ export default function MeetupDetailScreen() {
                               label: hasReported('comment', comment.id) ? 'Bereits gemeldet' : 'Kommentar melden',
                               icon: 'flag.fill',
                               disabled: hasReported('comment', comment.id),
-                              onPress: () => setReportTarget({ type: 'comment', id: comment.id, title: 'Kommentar melden' }),
+                              onPress: () => setReportTarget({ type: 'comment', id: comment.id, title: 'Kommentar melden', source: comment.source }),
                             },
                           ]}
                         />
@@ -527,6 +533,7 @@ export default function MeetupDetailScreen() {
           title={reportTarget.title}
           targetType={reportTarget.type}
           targetId={reportTarget.id}
+          source={reportTarget.source}
         />
       ) : null}
     </SafeAreaView>

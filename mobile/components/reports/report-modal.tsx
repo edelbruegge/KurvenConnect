@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
+import { ClubColors, FeedColors, FontSizes, Radii, Spacing, StatusColors } from '@/constants/theme';
 import { useReports } from '@/context/reports-context';
 import { REPORT_REASONS, type ReportReason, type ReportTargetType } from '@/data/reports';
 
@@ -12,13 +12,18 @@ type ReportModalProps = {
   title: string;
   targetType: ReportTargetType;
   targetId: string;
+  // 'supabase' reports real Supabase content/users persistently; anything else (including
+  // omitted) keeps using the existing local in-memory path.
+  source?: 'local' | 'supabase';
 };
 
-export function ReportModal({ visible, onClose, title, targetType, targetId }: ReportModalProps) {
-  const { submitReport } = useReports();
+export function ReportModal({ visible, onClose, title, targetType, targetId, source }: ReportModalProps) {
+  const { reportTarget } = useReports();
   const [selectedReason, setSelectedReason] = useState<ReportReason | null>(null);
   const [details, setDetails] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const handleClose = () => {
     onClose();
@@ -26,15 +31,25 @@ export function ReportModal({ visible, onClose, title, targetType, targetId }: R
       setSelectedReason(null);
       setDetails('');
       setSubmitted(false);
+      setSubmitError(null);
     }, 200);
   };
 
-  const handleSubmit = () => {
-    if (!selectedReason) {
+  const handleSubmit = async () => {
+    if (!selectedReason || isSubmitting) {
       return;
     }
 
-    submitReport({ targetType, targetId, reason: selectedReason, details });
+    setIsSubmitting(true);
+    setSubmitError(null);
+    const { error } = await reportTarget({ targetType, targetId, reason: selectedReason, details, source });
+    setIsSubmitting(false);
+
+    if (error) {
+      setSubmitError(error);
+      return;
+    }
+
     setSubmitted(true);
     setTimeout(handleClose, 900);
   };
@@ -80,14 +95,16 @@ export function ReportModal({ visible, onClose, title, targetType, targetId }: R
                   multiline
                 />
 
+                {submitError ? <Text style={styles.submitErrorText}>{submitError}</Text> : null}
+
                 <Pressable
-                  onPress={handleSubmit}
-                  disabled={!selectedReason}
-                  style={[styles.submitButton, !selectedReason && styles.submitButtonDisabled]}
+                  onPress={() => void handleSubmit()}
+                  disabled={!selectedReason || isSubmitting}
+                  style={[styles.submitButton, (!selectedReason || isSubmitting) && styles.submitButtonDisabled]}
                   accessibilityRole="button"
                   accessibilityLabel="Meldung absenden"
                 >
-                  <Text style={styles.submitButtonText}>Meldung absenden</Text>
+                  <Text style={styles.submitButtonText}>{isSubmitting ? 'Wird gesendet …' : 'Meldung absenden'}</Text>
                 </Pressable>
 
                 <Pressable onPress={handleClose} style={styles.cancelButton} accessibilityRole="button" accessibilityLabel="Abbrechen">
@@ -165,6 +182,11 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.sm,
     minHeight: 56,
     marginBottom: Spacing.md,
+  },
+  submitErrorText: {
+    color: StatusColors.error,
+    fontSize: FontSizes.meta,
+    marginBottom: Spacing.sm,
   },
   submitButton: {
     backgroundColor: ClubColors.primary,

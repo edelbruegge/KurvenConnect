@@ -54,4 +54,16 @@ export type Report = {
   reviewedAt?: string;
   resolutionNote?: string;
   moderationAction?: ModerationActionType;
+  // 'local' for seed/in-memory reports (and message/group reports, which have no Supabase
+  // backing), 'supabase' for rows loaded from public.reports. Defaults to 'local' when absent,
+  // same convention as FeedPost.source.
+  source?: 'local' | 'supabase';
+  // Raw ISO timestamp, set only for source:'supabase' reports.
+  createdAtIso?: string;
 };
+
+// The single, central key used everywhere a "was this target reported" lookup happens — never
+// duplicate this string format at a call site.
+export function getReportTargetKey(targetType: ReportTargetType, targetId: string): string {
+  return `${targetType}:${targetId}`;
+}

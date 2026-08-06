@@ -77,7 +77,9 @@ export default function MessageConversationScreen() {
   const scrollRef = useRef<ScrollView | null>(null);
   const isAtBottomRef = useRef(true);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
-  const [reportTarget, setReportTarget] = useState<{ type: ReportTargetType; id: string; title: string } | null>(null);
+  const [reportTarget, setReportTarget] = useState<{ type: ReportTargetType; id: string; title: string; source?: 'local' | 'supabase' } | null>(
+    null,
+  );
   const [pendingReference, setPendingReference] = useState<ConversationReference>(() => referenceFromParams(params));
   const [isSendingRemoteMessage, setIsSendingRemoteMessage] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -235,7 +237,8 @@ export default function MessageConversationScreen() {
                       label: hasReported('user', otherUserId) ? 'Bereits gemeldet' : 'Nutzer melden',
                       icon: 'flag.fill',
                       disabled: hasReported('user', otherUserId),
-                      onPress: () => setReportTarget({ type: 'user', id: otherUserId, title: 'Nutzer melden' }),
+                      onPress: () =>
+                        setReportTarget({ type: 'user', id: otherUserId, title: 'Nutzer melden', source: isRemoteConversation ? 'supabase' : 'local' }),
                     },
                     {
                       key: 'block-user',
@@ -385,6 +388,7 @@ export default function MessageConversationScreen() {
           title={reportTarget.title}
           targetType={reportTarget.type}
           targetId={reportTarget.id}
+          source={reportTarget.source}
         />
       ) : null}
     </SafeAreaView>

@@ -7,6 +7,7 @@ import { ProfileView } from '@/components/profile/profile-view';
 import { FeedColors } from '@/constants/theme';
 import { useModeration } from '@/context/moderation-context';
 import { useProfiles } from '@/context/profile-context';
+import { useReports } from '@/context/reports-context';
 import type { UserProfile } from '@/data/users';
 import { getInitialsFromName, mapSupabaseProfileRow } from '@/lib/map-supabase-profile';
 import { supabase } from '@/lib/supabase';
@@ -17,6 +18,7 @@ export default function PublicProfileScreen() {
   const params = useLocalSearchParams<{ id?: string }>();
   const { getUserById } = useProfiles();
   const { isUserSuspended } = useModeration();
+  const { isUserReported } = useReports();
 
   const localProfile = params.id ? getUserById(params.id) : undefined;
   const [remoteProfile, setRemoteProfile] = useState<UserProfile | null>(null);
@@ -80,6 +82,10 @@ export default function PublicProfileScreen() {
     }
 
     return <NotFoundView title="Profil nicht gefunden" message="Das angeforderte Profil konnte nicht gefunden werden." />;
+  }
+
+  if (isUserReported(profile.id)) {
+    return <NotFoundView title="Profil nicht verfügbar" message="Dieses Profil wurde von dir gemeldet und wird nicht mehr angezeigt." />;
   }
 
   if (isUserSuspended(profile.id)) {

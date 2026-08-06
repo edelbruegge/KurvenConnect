@@ -54,7 +54,9 @@ export default function PostDetailScreen() {
   const commentInputRef = useRef<TextInput | null>(null);
   const [commentsY, setCommentsY] = useState<number | null>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
-  const [reportTarget, setReportTarget] = useState<{ type: ReportTargetType; id: string; title: string } | null>(null);
+  const [reportTarget, setReportTarget] = useState<{ type: ReportTargetType; id: string; title: string; source?: 'local' | 'supabase' } | null>(
+    null,
+  );
 
   const post = params.id ? posts.find((entry) => entry.id === params.id) : undefined;
   const focusComments = params.focusComments === 'true';
@@ -82,6 +84,10 @@ export default function PostDetailScreen() {
     }
 
     return <NotFoundView title="Beitrag nicht gefunden" message="Der angeforderte Beitrag konnte nicht gefunden werden." />;
+  }
+
+  if (hasReported(getReportTargetTypeForPost(post.category), post.id)) {
+    return <NotFoundView title="Inhalt nicht verfügbar" message="Dieser Inhalt wurde von dir gemeldet und wird nicht mehr angezeigt." />;
   }
 
   if (isModeratedAway(getReportTargetTypeForPost(post.category), post.id, post.userId)) {
@@ -318,6 +324,7 @@ export default function PostDetailScreen() {
                       type: getReportTargetTypeForPost(post.category),
                       id: post.id,
                       title: `${CategoryLabels[post.category]} melden`,
+                      source: post.source,
                     }),
                 },
               ]}
@@ -447,7 +454,7 @@ export default function PostDetailScreen() {
                           label: hasReported('comment', comment.id) ? 'Bereits gemeldet' : 'Kommentar melden',
                           icon: 'flag.fill',
                           disabled: hasReported('comment', comment.id),
-                          onPress: () => setReportTarget({ type: 'comment', id: comment.id, title: 'Kommentar melden' }),
+                          onPress: () => setReportTarget({ type: 'comment', id: comment.id, title: 'Kommentar melden', source: comment.source }),
                         },
                       ]}
                     />
@@ -476,6 +483,7 @@ export default function PostDetailScreen() {
           title={reportTarget.title}
           targetType={reportTarget.type}
           targetId={reportTarget.id}
+          source={reportTarget.source}
         />
       ) : null}
     </SafeAreaView>

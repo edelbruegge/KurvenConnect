@@ -10,6 +10,7 @@ import { useMessages } from '@/context/messages-context';
 import { useModeration } from '@/context/moderation-context';
 import { useNotifications } from '@/context/notifications-context';
 import { useProfiles } from '@/context/profile-context';
+import { useReports } from '@/context/reports-context';
 import { getReportTargetTypeForPost } from '@/data/feed-posts';
 import { getOtherParticipantId } from '@/data/messages';
 import type { AppNotification, NotificationType } from '@/data/notifications';
@@ -66,9 +67,10 @@ export default function NotificationsScreen() {
   const { getPostById } = useFeedPosts();
   const { isUserSuspended } = useModeration();
   const { isModeratedAway } = useSafetySelectors();
+  const { isUserReported, hasReported } = useReports();
 
   const shouldHideNotification = (notification: AppNotification): boolean => {
-    if (notification.actorId && isUserSuspended(notification.actorId)) {
+    if (notification.actorId && (isUserSuspended(notification.actorId) || isUserReported(notification.actorId))) {
       return true;
     }
 
@@ -79,22 +81,25 @@ export default function NotificationsScreen() {
     }
 
     if (reference.type === 'profile') {
-      return isUserSuspended(reference.id);
+      return isUserSuspended(reference.id) || isUserReported(reference.id);
     }
 
     if (reference.type === 'conversation') {
       const conversation = getConversationById(reference.id);
       const otherUserId = conversation ? getOtherParticipantId(conversation, CURRENT_USER_ID) : undefined;
-      return otherUserId ? isUserSuspended(otherUserId) : false;
+      return otherUserId ? isUserSuspended(otherUserId) || isUserReported(otherUserId) : false;
     }
 
     if (reference.type === 'meetup') {
       const post = getPostById(reference.id);
-      return post ? isModeratedAway('meetup', post.id, post.userId) : false;
+      return post ? isModeratedAway('meetup', post.id, post.userId) || hasReported('meetup', post.id) : false;
     }
 
     const post = getPostById(reference.id);
-    return post ? isModeratedAway(getReportTargetTypeForPost(post.category), post.id, post.userId) : false;
+    return post
+      ? isModeratedAway(getReportTargetTypeForPost(post.category), post.id, post.userId) ||
+          hasReported(getReportTargetTypeForPost(post.category), post.id)
+      : false;
   };
 
   const visibleNotifications = notifications.filter((notification) => !shouldHideNotification(notification));
