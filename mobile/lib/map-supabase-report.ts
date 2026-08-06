@@ -48,17 +48,27 @@ function dbStatusToClient(status: string): ReportStatus {
   return status as ReportStatus;
 }
 
+// The reverse of dbStatusToClient — used by the moderation queue's status filter, which talks to
+// get_moderation_reports() in the database's vocabulary.
+export function clientReportStatusToDb(status: ReportStatus): string {
+  if (status === 'submitted') return 'pending';
+  if (status === 'action_taken') return 'actioned';
+  return status;
+}
+
 export function mapSupabaseReportRow(row: SupabaseReportRow): Report {
   return {
     id: row.id,
     reporterId: row.reporter_id,
     targetType: dbTargetTypeToClient(row.target_type),
     targetId: row.target_id,
+    targetOwnerId: row.target_owner_id ?? undefined,
     reason: row.reason as ReportReason,
     details: row.details ?? undefined,
     createdAt: formatRelativeGermanTime(row.created_at),
     status: dbStatusToClient(row.status),
     reviewedAt: row.reviewed_at ? formatRelativeGermanTime(row.reviewed_at) : undefined,
+    reviewedBy: row.reviewed_by ?? undefined,
     resolutionNote: row.resolution_note ?? undefined,
     source: 'supabase',
     createdAtIso: row.created_at,

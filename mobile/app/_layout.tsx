@@ -118,8 +118,16 @@ function RootNavigator() {
             options={{ title: 'Blockierte Nutzer', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
           />
           <Stack.Screen
-            name="moderation"
+            name="moderation/demo"
+            options={{ title: 'Moderation – lokale Demo', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
+          />
+          <Stack.Screen
+            name="moderation/index"
             options={{ title: 'Moderation', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
+          />
+          <Stack.Screen
+            name="moderation/[id]"
+            options={{ title: 'Meldung', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
           />
           <Stack.Screen
             name="edit-profile"

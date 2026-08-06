@@ -47,11 +47,17 @@ export type Report = {
   reporterId: string;
   targetType: ReportTargetType;
   targetId: string;
+  // Only ever set for source:'supabase' reports — the profile UUID owning the reported target
+  // (resolved server-side by create_report, never trusted from the client).
+  targetOwnerId?: string;
   reason: ReportReason;
   details?: string;
   createdAt: string;
   status: ReportStatus;
   reviewedAt?: string;
+  // Only ever set for source:'supabase' reports that have moved past 'pending' — the moderator's
+  // profile UUID, set server-side by review_report.
+  reviewedBy?: string;
   resolutionNote?: string;
   moderationAction?: ModerationActionType;
   // 'local' for seed/in-memory reports (and message/group reports, which have no Supabase
