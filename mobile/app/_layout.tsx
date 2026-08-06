@@ -15,6 +15,7 @@ import { MessagesProvider } from '@/context/messages-context';
 import { ModerationProvider } from '@/context/moderation-context';
 import { NotificationsProvider } from '@/context/notifications-context';
 import { ProfileProvider } from '@/context/profile-context';
+import { PushNotificationsProvider } from '@/context/push-notifications-context';
 import { ReportsProvider } from '@/context/reports-context';
 import { SavedProvider } from '@/context/saved-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -158,17 +159,19 @@ export default function RootLayout() {
           <FeedPostsProvider>
             <MessagesProvider>
               <NotificationsProvider>
-                <GroupsProvider>
-                  <SavedProvider>
-                    <ReportsProvider>
-                      <BlocksProvider>
-                        <ModerationProvider>
-                          <RootNavigator />
-                        </ModerationProvider>
-                      </BlocksProvider>
-                    </ReportsProvider>
-                  </SavedProvider>
-                </GroupsProvider>
+                <PushNotificationsProvider>
+                  <GroupsProvider>
+                    <SavedProvider>
+                      <ReportsProvider>
+                        <BlocksProvider>
+                          <ModerationProvider>
+                            <RootNavigator />
+                          </ModerationProvider>
+                        </BlocksProvider>
+                      </ReportsProvider>
+                    </SavedProvider>
+                  </GroupsProvider>
+                </PushNotificationsProvider>
               </NotificationsProvider>
             </MessagesProvider>
           </FeedPostsProvider>

@@ -70,7 +70,7 @@ export default function MessageConversationScreen() {
   } = useMessages();
   const { getUserById } = useProfiles();
   const { hasReported } = useReports();
-  const { isBlocked, blockUser, unblockUser } = useBlocks();
+  const { isBlocked, blockUser, unblockUser, blockRemoteUser, unblockRemoteUser } = useBlocks();
   const { isContentModerationHidden } = useModeration();
   const { canMessageUser } = useSafetySelectors();
   const [draftText, setDraftText] = useState('');
@@ -81,6 +81,7 @@ export default function MessageConversationScreen() {
   const [pendingReference, setPendingReference] = useState<ConversationReference>(() => referenceFromParams(params));
   const [isSendingRemoteMessage, setIsSendingRemoteMessage] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [isBlockActionPending, setIsBlockActionPending] = useState(false);
 
   const conversation = params.id ? conversations.find((entry) => entry.id === params.id) : undefined;
   const isRemoteConversation = conversation?.source === 'supabase';
@@ -185,6 +186,31 @@ export default function MessageConversationScreen() {
 
   const isSendValid = draftText.trim().length > 0 && !isSendingRemoteMessage;
 
+  const handleBlockTogglePress = async () => {
+    if (!otherUserId || isBlockActionPending) {
+      return;
+    }
+
+    const currentlyBlocked = isBlocked(otherUserId);
+
+    if (!isRemoteConversation) {
+      if (currentlyBlocked) {
+        unblockUser(otherUserId);
+      } else {
+        blockUser(otherUserId);
+      }
+      return;
+    }
+
+    setIsBlockActionPending(true);
+    const { error } = currentlyBlocked ? await unblockRemoteUser(otherUserId) : await blockRemoteUser(otherUserId);
+    setIsBlockActionPending(false);
+
+    if (error) {
+      setSendError(error);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
@@ -213,10 +239,15 @@ export default function MessageConversationScreen() {
                     },
                     {
                       key: 'block-user',
-                      label: isBlocked(otherUserId) ? 'Nutzer entsperren' : 'Nutzer blockieren',
+                      label: isBlockActionPending
+                        ? 'Wird bearbeitet …'
+                        : isBlocked(otherUserId)
+                          ? 'Nutzer entsperren'
+                          : 'Nutzer blockieren',
                       icon: 'nosign',
                       destructive: !isBlocked(otherUserId),
-                      onPress: () => (isBlocked(otherUserId) ? unblockUser(otherUserId) : blockUser(otherUserId)),
+                      disabled: isBlockActionPending,
+                      onPress: () => void handleBlockTogglePress(),
                     },
                   ]}
                 />

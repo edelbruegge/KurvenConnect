@@ -22,6 +22,7 @@ import { ReportModal } from '@/components/reports/report-modal';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { OverflowMenu } from '@/components/ui/overflow-menu';
 import { ClubColors, FeedColors, FontSizes, Radii, Spacing, StatusColors } from '@/constants/theme';
+import { useBlocks } from '@/context/blocks-context';
 import { useFeedPosts } from '@/context/feed-posts-context';
 import { useMessages } from '@/context/messages-context';
 import { useModeration } from '@/context/moderation-context';
@@ -72,6 +73,7 @@ export default function MeetupDetailScreen() {
     useFeedPosts();
   const { getOrCreateConversation, getOrCreateDirectConversation } = useMessages();
   const { isSaved, toggleSaved } = useSaved();
+  const { isInteractionBlocked } = useBlocks();
   const { getAuthorDisplay, getCommentAuthorDisplay, getUserById, isCurrentUserId, isContentOwnedByCurrentUser } = useProfiles();
   const { hasReported } = useReports();
   const { isUserSuspended } = useModeration();
@@ -367,6 +369,10 @@ export default function MeetupDetailScreen() {
                 ) : full ? (
                   <View style={[styles.statusPill, styles.statusPillError]}>
                     <Text style={[styles.statusPillText, styles.statusPillErrorText]}>Ausgebucht</Text>
+                  </View>
+                ) : post.source === 'supabase' && isInteractionBlocked(post.userId) ? (
+                  <View style={[styles.statusPill, styles.statusPillError]}>
+                    <Text style={[styles.statusPillText, styles.statusPillErrorText]}>Diese Aktion ist derzeit nicht möglich.</Text>
                   </View>
                 ) : (
                   <Pressable

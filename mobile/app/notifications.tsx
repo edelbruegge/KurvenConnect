@@ -16,6 +16,7 @@ import type { AppNotification, NotificationType } from '@/data/notifications';
 import { CURRENT_USER_ID } from '@/data/users';
 import { useSafetySelectors } from '@/hooks/use-safety-selectors';
 import { getNotificationDisplayContent } from '@/lib/map-supabase-notification';
+import { resolveNotificationRoute } from '@/lib/notification-navigation';
 
 const TRIP_REQUEST_NOTIFICATION_TYPES: NotificationType[] = ['trip_request_received', 'trip_request_accepted', 'trip_request_rejected'];
 
@@ -110,37 +111,15 @@ export default function NotificationsScreen() {
   const handleOpenNotification = (notification: AppNotification) => {
     markAsRead(notification.id);
 
-    const reference = notification.reference;
-
-    if (!reference) {
-      return;
+    if (notification.reference?.type === 'conversation') {
+      markConversationAsRead(notification.reference.id);
     }
 
-    if (reference.type === 'conversation') {
-      markConversationAsRead(reference.id);
-      router.push({ pathname: '/messages/[id]', params: { id: reference.id } });
-      return;
-    }
+    const route = resolveNotificationRoute(notification);
 
-    if (reference.type === 'profile') {
-      router.push({ pathname: '/profile/[id]', params: { id: reference.id } });
-      return;
+    if (route) {
+      router.push({ pathname: route.pathname, params: route.params });
     }
-
-    if (reference.type === 'meetup') {
-      router.push({ pathname: '/meetup/[id]', params: { id: reference.id } });
-      return;
-    }
-
-    // A trip's owner is directed to their request management screen rather than the generic
-    // trip detail — trip_request_accepted/rejected (the requester's perspective) fall through
-    // to the generic /post/[id] branch below instead, since they have no access to that screen.
-    if (reference.type === 'trip' && notification.type === 'trip_request_received') {
-      router.push({ pathname: '/trip/[id]/requests', params: { id: reference.id } });
-      return;
-    }
-
-    router.push({ pathname: '/post/[id]', params: { id: reference.id } });
   };
 
   const hasUnread = visibleNotifications.some((notification) => isUnread(notification));

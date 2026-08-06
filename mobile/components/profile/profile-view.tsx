@@ -8,6 +8,7 @@ import { MessagesButton } from '@/components/navigation/messages-button';
 import { NotificationsButton } from '@/components/navigation/notifications-button';
 import { AccountSection } from '@/components/profile/account-section';
 import { ProfileHeader } from '@/components/profile/profile-header';
+import { PushNotificationsSection } from '@/components/profile/push-notifications-section';
 import { ProfileStats, type ProfileStat } from '@/components/profile/profile-stats';
 import { TripCard } from '@/components/trips/trip-card';
 import { ReportModal } from '@/components/reports/report-modal';
@@ -36,12 +37,14 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
   const { getOrCreateConversation, getOrCreateDirectConversation } = useMessages();
   const { isFollowing, followUser, unfollowUser, getFollowerCount, getFollowingCount, isContentOwnedByCurrentUser } = useProfiles();
   const { hasReported } = useReports();
-  const { isBlocked, blockUser, unblockUser } = useBlocks();
+  const { isBlocked, blockUser, unblockUser, blockRemoteUser, unblockRemoteUser } = useBlocks();
   const { canMessageUser } = useSafetySelectors();
   const [activeTab, setActiveTab] = useState<'posts' | 'trips' | 'meetups'>('posts');
   const [reportModalVisible, setReportModalVisible] = useState(false);
   const [isStartingConversation, setIsStartingConversation] = useState(false);
   const [messageError, setMessageError] = useState<string | null>(null);
+  const [isBlockActionPending, setIsBlockActionPending] = useState(false);
+  const [blockActionError, setBlockActionError] = useState<string | null>(null);
 
   const ownPosts = useVisiblePosts(
     posts.filter((post) =>
@@ -130,6 +133,32 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
     });
   };
 
+  const handleBlockTogglePress = async () => {
+    if (isBlockActionPending) {
+      return;
+    }
+
+    const currentlyBlocked = isBlocked(profile.id);
+
+    if (profile.source !== 'supabase') {
+      if (currentlyBlocked) {
+        unblockUser(profile.id);
+      } else {
+        blockUser(profile.id);
+      }
+      return;
+    }
+
+    setIsBlockActionPending(true);
+    setBlockActionError(null);
+    const { error } = currentlyBlocked ? await unblockRemoteUser(profile.id) : await blockRemoteUser(profile.id);
+    setIsBlockActionPending(false);
+
+    if (error) {
+      setBlockActionError(error);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       {isOwnProfile ? (
@@ -186,6 +215,7 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
               <Text style={styles.editButtonText}>Moderation – lokale Demo</Text>
             </Pressable>
             <AccountSection />
+            <PushNotificationsSection />
           </>
         ) : (
           <View style={styles.actionRowWrapper}>
@@ -219,6 +249,7 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
               ) : null}
             </View>
             {messageError ? <Text style={styles.messageErrorText}>{messageError}</Text> : null}
+            {blockActionError ? <Text style={styles.messageErrorText}>{blockActionError}</Text> : null}
             <View style={styles.profileOverflowWrapper}>
               <OverflowMenu
                 accessibilityLabel="Weitere Aktionen zu diesem Nutzer"
@@ -232,10 +263,15 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
                   },
                   {
                     key: 'block-user',
-                    label: isBlocked(profile.id) ? 'Nutzer entsperren' : 'Nutzer blockieren',
+                    label: isBlockActionPending
+                      ? 'Wird bearbeitet …'
+                      : isBlocked(profile.id)
+                        ? 'Nutzer entsperren'
+                        : 'Nutzer blockieren',
                     icon: 'nosign',
                     destructive: !isBlocked(profile.id),
-                    onPress: () => (isBlocked(profile.id) ? unblockUser(profile.id) : blockUser(profile.id)),
+                    disabled: isBlockActionPending,
+                    onPress: () => void handleBlockTogglePress(),
                   },
                 ]}
               />

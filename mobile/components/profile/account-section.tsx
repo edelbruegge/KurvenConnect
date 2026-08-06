@@ -4,18 +4,23 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { ClubColors, FeedColors, FontSizes, Radii, Spacing, StatusColors } from '@/constants/theme';
 import { useAuth } from '@/context/auth-context';
+import { usePushNotifications } from '@/context/push-notifications-context';
 
 export function AccountSection() {
   const { user, signOut } = useAuth();
+  const { deactivatePushTokenBeforeSignOut } = usePushNotifications();
   const [confirmingSignOut, setConfirmingSignOut] = useState(false);
 
   if (!user) {
     return null;
   }
 
-  const handleConfirmSignOut = () => {
+  const handleConfirmSignOut = async () => {
     setConfirmingSignOut(false);
-    signOut();
+    // Must run before signOut(): deactivate_push_token relies on auth.uid() still resolving to
+    // this account server-side.
+    await deactivatePushTokenBeforeSignOut();
+    await signOut();
   };
 
   return (
@@ -31,7 +36,7 @@ export function AccountSection() {
           <Text style={styles.confirmText}>Möchtest du dich wirklich abmelden?</Text>
           <View style={styles.confirmActions}>
             <Pressable
-              onPress={handleConfirmSignOut}
+              onPress={() => void handleConfirmSignOut()}
               style={styles.destructiveButton}
               accessibilityRole="button"
               accessibilityLabel="Abmelden bestätigen"

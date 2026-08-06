@@ -10,6 +10,7 @@ import { ReportModal } from '@/components/reports/report-modal';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { OverflowMenu } from '@/components/ui/overflow-menu';
 import { CategoryLabels, ClubColors, FeedColors, FontSizes, Radii, Spacing, StatusColors } from '@/constants/theme';
+import { useBlocks } from '@/context/blocks-context';
 import { useFeedPosts } from '@/context/feed-posts-context';
 import { useMessages } from '@/context/messages-context';
 import { useProfiles } from '@/context/profile-context';
@@ -37,6 +38,7 @@ export default function PostDetailScreen() {
   } = useFeedPosts();
   const { getOrCreateConversation, getOrCreateDirectConversation } = useMessages();
   const { isSaved, toggleSaved } = useSaved();
+  const { isInteractionBlocked } = useBlocks();
   const { getAuthorDisplay, getCommentAuthorDisplay, isCurrentUserId, isContentOwnedByCurrentUser } = useProfiles();
   const { hasReported } = useReports();
   const { canViewContent, isModeratedAway, canMessageUser } = useSafetySelectors();
@@ -258,6 +260,8 @@ export default function PostDetailScreen() {
               </Text>
             </Pressable>
           </>
+        ) : isInteractionBlocked(post.userId) ? (
+          <Text style={styles.rideRequestStatusHint}>Diese Aktion ist derzeit nicht möglich.</Text>
         ) : (
           <>
             {status === 'rejected' ? <Text style={styles.rideRequestStatusHint}>Anfrage abgelehnt</Text> : null}

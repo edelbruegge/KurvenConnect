@@ -23,6 +23,10 @@ export function mapMeetupError(error: unknown): string {
     return NO_SESSION_MESSAGE;
   }
 
+  if (message.includes('blocked')) {
+    return 'Diese Aktion ist derzeit nicht möglich.';
+  }
+
   if (message.includes('meetup not found')) {
     return 'Dieser Treffpunkt existiert nicht mehr.';
   }

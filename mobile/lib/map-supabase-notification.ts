@@ -24,11 +24,14 @@ const KNOWN_NOTIFICATION_TYPES: NotificationType[] = [
   'meetup_left',
 ];
 
-function toNotificationType(type: string): NotificationType {
+// Exported so the push-notification payload parser (lib/push-notifications.ts) can validate a
+// push payload's type/reference fields with the exact same rules used for remote-loaded rows,
+// instead of duplicating this validation.
+export function toNotificationType(type: string): NotificationType {
   return (KNOWN_NOTIFICATION_TYPES as string[]).includes(type) ? (type as NotificationType) : 'system';
 }
 
-function toReference(referenceType: string | null, referenceId: string | null): NotificationReference {
+export function toReference(referenceType: string | null, referenceId: string | null): NotificationReference {
   if (!referenceType || !referenceId) {
     return null;
   }

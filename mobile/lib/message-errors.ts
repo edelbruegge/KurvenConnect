@@ -31,6 +31,10 @@ export function mapMessageError(error: unknown): string {
     return 'Du kannst dir nicht selbst eine Nachricht senden.';
   }
 
+  if (message.includes('blocked')) {
+    return 'Zwischen euch sind derzeit keine Nachrichten möglich.';
+  }
+
   if (message.includes('other profile not found') || message.includes('own profile not found')) {
     return 'Dieses Profil konnte nicht gefunden werden.';
   }
