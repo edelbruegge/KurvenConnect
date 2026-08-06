@@ -22,6 +22,10 @@ export function mapTripError(error: unknown): string {
     return NO_SESSION_MESSAGE;
   }
 
+  if (message.includes('blocked')) {
+    return 'Diese Aktion ist derzeit nicht möglich.';
+  }
+
   if (message.includes('trip request not found')) {
     return 'Die Anfrage konnte nicht mehr gefunden werden.';
   }
