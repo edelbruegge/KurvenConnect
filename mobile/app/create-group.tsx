@@ -5,6 +5,7 @@ import { Keyboard, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, Scro
 import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
 import { useGroups } from '@/context/groups-context';
 import type { GroupVisibility } from '@/data/groups';
+import { dismissKeyboardOnNative } from '@/lib/dismiss-keyboard';
 
 type CreateGroupFormState = {
   name: string;
@@ -68,7 +69,7 @@ export default function CreateGroupScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardView}>
-        <Pressable style={{ flex: 1 }} onPress={() => Keyboard.dismiss()}>
+        <Pressable style={{ flex: 1 }} onPress={dismissKeyboardOnNative}>
           <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
             <Text style={styles.title}>Neue Gruppe erstellen</Text>
             <Text style={styles.subtitle}>Erstelle eine lokale Gruppe rund um Arminia Bielefeld.</Text>
@@ -138,7 +139,7 @@ export default function CreateGroupScreen() {
             </Pressable>
 
             {keyboardVisible ? (
-              <Pressable onPress={() => Keyboard.dismiss()} style={styles.closeKeyboardButton} accessibilityRole="button" accessibilityLabel="Tastatur schließen">
+              <Pressable onPress={dismissKeyboardOnNative} style={styles.closeKeyboardButton} accessibilityRole="button" accessibilityLabel="Tastatur schließen">
                 <Text style={styles.closeKeyboardButtonText}>Fertig</Text>
               </Pressable>
             ) : null}

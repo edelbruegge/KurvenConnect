@@ -9,6 +9,7 @@ import { NotificationsButton } from '@/components/navigation/notifications-butto
 import { AccountSection } from '@/components/profile/account-section';
 import { ProfileHeader } from '@/components/profile/profile-header';
 import { PushNotificationsSection } from '@/components/profile/push-notifications-section';
+import { UserWarningsSection } from '@/components/profile/user-warnings-section';
 import { ProfileStats, type ProfileStat } from '@/components/profile/profile-stats';
 import { TripCard } from '@/components/trips/trip-card';
 import { ReportModal } from '@/components/reports/report-modal';
@@ -227,6 +228,7 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
                 <Text style={styles.editButtonText}>Moderation</Text>
               </Pressable>
             ) : null}
+            <UserWarningsSection />
             <AccountSection />
             <PushNotificationsSection />
           </>

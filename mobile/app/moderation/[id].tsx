@@ -1,41 +1,44 @@
 import { useEffect, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ActivityIndicator, Keyboard, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { NotFoundView } from '@/components/navigation/not-found-view';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { ClubColors, FeedColors, FontSizes, Radii, Spacing, StatusColors } from '@/constants/theme';
-import { useModeration } from '@/context/moderation-context';
-import { REPORT_REASONS, REPORT_TARGET_TYPE_LABELS, type Report } from '@/data/reports';
+import { useModeration, type ReportActionType } from '@/context/moderation-context';
+import { REPORT_TARGET_TYPE_LABELS } from '@/data/reports';
 import { useResolvedReportTarget } from '@/hooks/use-resolved-report-target';
-import { mapSupabaseProfileRow, type SupabaseProfileRow } from '@/lib/map-supabase-profile';
+import { dismissKeyboardOnNative } from '@/lib/dismiss-keyboard';
+import type { ContentRestriction } from '@/lib/map-supabase-content-restriction';
+import { MODERATION_ACTION_LABELS, mapSupabaseModerationActionRow, type ModerationActionLogEntry, type SupabaseModerationActionRow } from '@/lib/map-supabase-moderation';
+import { getAllowedModerationActions } from '@/lib/moderation-action-matrix';
 import { supabase } from '@/lib/supabase';
 
-const PROFILE_NAME_SELECT_COLUMNS = 'id, display_name, club, location, bio, avatar_url, created_at, updated_at';
 const NOTE_MAX_LENGTH = 2000;
+const WARNING_MESSAGE_MAX_LENGTH = 1000;
+const DEFAULT_WARNING_TITLE = 'Hinweis zu deinem Verhalten';
+const DEFAULT_WARNING_MESSAGE =
+  'Ein von dir veröffentlichter Inhalt verstößt möglicherweise gegen unsere Community-Regeln. Bitte beachte unsere Regeln bei zukünftigen Beiträgen.';
 
 const STATUS_LABELS: Record<string, string> = {
   submitted: 'Offen',
   reviewed: 'Geprüft',
   dismissed: 'Verworfen',
-  action_taken: 'Aktion durchgeführt',
+  action_taken: 'Bearbeitet',
 };
 
-// A stable, harmless placeholder so useResolvedReportTarget (which expects a Report, not
-// Report | undefined) can always be called unconditionally — Rules of Hooks. Its empty targetId
-// simply resolves to "not found" until the real report has loaded.
-const EMPTY_REPORT: Report = {
-  id: '',
-  reporterId: '',
-  targetType: 'post',
-  targetId: '',
-  reason: REPORT_REASONS[0],
-  createdAt: '',
-  status: 'submitted',
+const MODERATION_ACTION_CONFIRM_TEXT: Record<ReportActionType, string> = {
+  hide_content: 'Dieser Inhalt wird für alle normalen Nutzer ausgeblendet. Möchtest du fortfahren?',
+  warn_user: 'Der Nutzer erhält eine Verwarnung in seinem Konto. Möchtest du fortfahren?',
+  hide_and_warn: 'Der Inhalt wird ausgeblendet und der Nutzer erhält eine Verwarnung.',
 };
 
-type ResolvedUserTarget = { exists: boolean; displayName?: string; userId?: string };
+const MODERATION_ACTION_BUTTON_LABEL: Record<ReportActionType, string> = {
+  hide_content: 'Inhalt global ausblenden',
+  warn_user: 'Nutzer verwarnen',
+  hide_and_warn: 'Ausblenden und verwarnen',
+};
 
 export default function ModerationReportDetailScreen() {
   const router = useRouter();
@@ -44,15 +47,27 @@ export default function ModerationReportDetailScreen() {
     isModerator,
     isModeratorStatusLoading,
     getModerationReportById,
-    isModerationReportsLoading,
-    refreshModerationReports,
+    fetchModerationReportById,
     reviewReport,
     dismissReport,
+    isModerationActionSubmitting,
+    moderationActionError,
+    applyReportAction,
+    restoreRestrictedContent,
+    getRestrictionForReport,
+    getModerationTargetPreview,
   } = useModeration();
 
   const report = params.id ? getModerationReportById(params.id) : undefined;
-  const resolvedContentTarget = useResolvedReportTarget(report ?? EMPTY_REPORT);
-  const [resolvedUserTarget, setResolvedUserTarget] = useState<ResolvedUserTarget | null>(null);
+  // useResolvedReportTarget is only used for a best-effort in-app deep link ("Ziel aufrufen") —
+  // it depends on the target already being present in this client's own locally loaded
+  // FeedPostsContext state, which a moderator's account will not always have (e.g. content that
+  // was never in their own feed, or that is globally restricted). The actual preview shown below
+  // comes from the live, moderator-only getModerationTargetPreview() RPC instead, which works
+  // regardless of local cache state and regardless of restriction.
+  const resolvedContentTarget = useResolvedReportTarget(
+    report ?? { id: '', reporterId: '', targetType: 'post', targetId: '', reason: 'Sonstiges', createdAt: '', status: 'submitted' },
+  );
 
   const [profileNames, setProfileNames] = useState<Record<string, string>>({});
   const [note, setNote] = useState('');
@@ -60,15 +75,114 @@ export default function ModerationReportDetailScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
+  // --- Controlled moderation actions (hide/warn/hide+warn) ---
+  const [pendingModerationAction, setPendingModerationAction] = useState<ReportActionType | null>(null);
+  const [moderationActionNote, setModerationActionNote] = useState('');
+  const [warningMessage, setWarningMessage] = useState(DEFAULT_WARNING_MESSAGE);
+  const [confirmingModerationAction, setConfirmingModerationAction] = useState(false);
+
+  // --- Restriction status (only relevant once the report has actually been actioned) ---
+  const [restriction, setRestriction] = useState<ContentRestriction | null | undefined>(undefined);
+  const [confirmingRestore, setConfirmingRestore] = useState(false);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
+
+  // --- Live target preview (replaces the old FeedPostsContext/profiles-only lookup) ---
+  const [targetPreview, setTargetPreview] = useState<
+    { exists: boolean; previewText?: string; ownerId?: string; displayName?: string } | undefined
+  >(undefined);
+
+  // --- Audit history (moderation_actions for this report, chronological) ---
+  const [actionHistory, setActionHistory] = useState<ModerationActionLogEntry[]>([]);
+  const [isActionHistoryLoading, setIsActionHistoryLoading] = useState(false);
+
+  // --- Fallback: the report isn't (yet) in this context's cache — load it directly by id,
+  // independent of whatever filter/list was last fetched. This is what makes a direct/deep link
+  // to an already-reviewed/dismissed/actioned report work. ---
+  const [isFetchingReportById, setIsFetchingReportById] = useState(false);
+  const [reportFetchFailed, setReportFetchFailed] = useState(false);
+
   useEffect(() => {
-    if (!report && !isModerationReportsLoading) {
-      refreshModerationReports();
+    if (report || !params.id || reportFetchFailed || !isModerator) {
+      return;
     }
+
+    let isCurrent = true;
+    setIsFetchingReportById(true);
+
+    fetchModerationReportById(params.id).then((result) => {
+      if (!isCurrent) return;
+      setIsFetchingReportById(false);
+      if (!result) {
+        setReportFetchFailed(true);
+      }
+    });
+
+    return () => {
+      isCurrent = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.id, report?.id, isModerator]);
+
+  useEffect(() => {
+    if (!report) {
+      setTargetPreview(undefined);
+      return;
+    }
+
+    let isCurrent = true;
+
+    getModerationTargetPreview(report.targetType, report.targetId).then((result) => {
+      if (!isCurrent) return;
+      setTargetPreview(result);
+    });
+
+    return () => {
+      isCurrent = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [report?.targetType, report?.targetId]);
+
+  useEffect(() => {
+    if (!report) {
+      setActionHistory([]);
+      return;
+    }
+
+    let isCurrent = true;
+    setIsActionHistoryLoading(true);
+
+    supabase
+      .from('moderation_actions')
+      .select('id, report_id, moderator_id, action, note, created_at')
+      .eq('report_id', report.id)
+      .order('created_at', { ascending: true })
+      .then(({ data, error }) => {
+        if (!isCurrent) return;
+
+        if (error) {
+          setActionHistory([]);
+          setIsActionHistoryLoading(false);
+          return;
+        }
+
+        setActionHistory(((data ?? []) as SupabaseModerationActionRow[]).map(mapSupabaseModerationActionRow));
+        setIsActionHistoryLoading(false);
+      });
+
+    return () => {
+      isCurrent = false;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [report?.id]);
 
   const idsToResolveKey = report
-    ? Array.from(new Set([report.reporterId, report.targetOwnerId, report.reviewedBy].filter((id): id is string => Boolean(id) && !profileNames[id!])))
+    ? Array.from(
+        new Set(
+          [report.reporterId, report.targetOwnerId, report.reviewedBy, restriction?.createdBy, ...actionHistory.map((entry) => entry.moderatorId)].filter(
+            (id): id is string => Boolean(id) && !profileNames[id!],
+          ),
+        ),
+      )
         .sort()
         .join(',')
     : '';
@@ -101,38 +215,26 @@ export default function ModerationReportDetailScreen() {
     };
   }, [idsToResolveKey]);
 
+  // Only content reports (never 'user') can ever have a restriction row, and only once a
+  // moderation action was actually taken — no point querying otherwise.
   useEffect(() => {
-    if (!report || report.targetType !== 'user') {
-      setResolvedUserTarget(null);
+    if (!report || report.status !== 'action_taken' || report.targetType === 'user') {
+      setRestriction(undefined);
       return;
     }
 
     let isCurrent = true;
 
-    supabase
-      .from('profiles')
-      .select(PROFILE_NAME_SELECT_COLUMNS)
-      .eq('id', report.targetId)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (!isCurrent) return;
-
-        if (!data) {
-          setResolvedUserTarget({ exists: false });
-          return;
-        }
-
-        const mapped = mapSupabaseProfileRow(data as SupabaseProfileRow);
-        setResolvedUserTarget({ exists: true, displayName: mapped.displayName, userId: mapped.id });
-      });
+    getRestrictionForReport(report.id).then((result) => {
+      if (!isCurrent) return;
+      setRestriction(result);
+    });
 
     return () => {
       isCurrent = false;
     };
-    // Deliberately narrow: only the target identity should re-trigger this fetch, not every
-    // field change on `report` (e.g. status/resolutionNote updating after a review decision).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [report?.targetType, report?.targetId]);
+  }, [report?.id, report?.status, report?.targetType]);
 
   if (isModeratorStatusLoading) {
     return (
@@ -149,7 +251,7 @@ export default function ModerationReportDetailScreen() {
   }
 
   if (!report) {
-    if (isModerationReportsLoading) {
+    if (isFetchingReportById) {
       return (
         <SafeAreaView style={styles.loadingSafeArea}>
           <View style={styles.loadingContent}>
@@ -168,21 +270,16 @@ export default function ModerationReportDetailScreen() {
   const reviewedByName = report.reviewedBy ? (profileNames[report.reviewedBy] ?? 'Unbekanntes Mitglied') : null;
 
   const previewText =
-    report.targetType === 'user'
-      ? resolvedUserTarget
-        ? resolvedUserTarget.exists
-          ? resolvedUserTarget.displayName
-          : null
-        : undefined
-      : resolvedContentTarget.exists
-        ? resolvedContentTarget.previewText || '—'
-        : null;
+    targetPreview === undefined ? undefined : targetPreview.exists ? targetPreview.previewText || targetPreview.displayName || '—' : null;
 
+  // Best-effort in-app route: only available when the moderator's own client already happens to
+  // have this content loaded locally. Always falls back gracefully (button simply doesn't show)
+  // when it doesn't — the preview text above is authoritative either way.
   const targetRoute = report.targetType === 'user' ? undefined : resolvedContentTarget.route;
 
   const handleOpenTarget = () => {
-    if (report.targetType === 'user' && resolvedUserTarget?.exists && resolvedUserTarget.userId) {
-      router.push({ pathname: '/profile/[id]', params: { id: resolvedUserTarget.userId } });
+    if (report.targetType === 'user' && targetPreview?.exists) {
+      router.push({ pathname: '/profile/[id]', params: { id: report.targetId } });
       return;
     }
 
@@ -209,11 +306,66 @@ export default function ModerationReportDetailScreen() {
     }
   };
 
-  const canOpenTarget = report.targetType === 'user' ? Boolean(resolvedUserTarget?.exists) : Boolean(targetRoute);
+  const canOpenTarget = report.targetType === 'user' ? Boolean(targetPreview?.exists) : Boolean(targetRoute);
+
+  const canStillAct = report.status === 'submitted' || report.status === 'reviewed';
+  const allowedActions = getAllowedModerationActions(report.targetType);
+
+  const handleOpenModerationAction = (action: ReportActionType) => {
+    setConfirmingAction(null);
+    setPendingModerationAction(action);
+    setConfirmingModerationAction(false);
+    setModerationActionNote('');
+    setWarningMessage(DEFAULT_WARNING_MESSAGE);
+  };
+
+  const handleCancelModerationAction = () => {
+    setPendingModerationAction(null);
+    setConfirmingModerationAction(false);
+  };
+
+  const handleConfirmModerationAction = async () => {
+    if (!pendingModerationAction || isModerationActionSubmitting) {
+      return;
+    }
+
+    const trimmedNote = moderationActionNote.trim().slice(0, NOTE_MAX_LENGTH);
+    const trimmedWarningMessage = warningMessage.trim().slice(0, WARNING_MESSAGE_MAX_LENGTH);
+
+    const { error } = await applyReportAction(report.id, pendingModerationAction, {
+      note: trimmedNote,
+      warningMessage: trimmedWarningMessage,
+    });
+
+    if (!error) {
+      setPendingModerationAction(null);
+      setConfirmingModerationAction(false);
+    } else {
+      setConfirmingModerationAction(false);
+    }
+  };
+
+  const handleConfirmRestore = async () => {
+    if (!restriction || isModerationActionSubmitting) {
+      return;
+    }
+
+    setRestoreError(null);
+    const { error } = await restoreRestrictedContent(restriction.id);
+    setConfirmingRestore(false);
+
+    if (error) {
+      setRestoreError(error);
+      return;
+    }
+
+    const refreshed = await getRestrictionForReport(report.id);
+    setRestriction(refreshed);
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <Pressable style={styles.flexOne} onPress={() => Keyboard.dismiss()}>
+      <Pressable style={styles.flexOne} onPress={dismissKeyboardOnNative}>
         <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
           <View style={styles.badgeRow}>
             <View style={styles.typeBadge}>
@@ -334,6 +486,208 @@ export default function ModerationReportDetailScreen() {
               )}
             </View>
           )}
+
+          {canStillAct && allowedActions.length > 0 ? (
+            <View style={styles.moderationActionsBlock}>
+              <Text style={styles.sectionLabel}>Moderationsmaßnahme</Text>
+
+              {moderationActionError ? <Text style={styles.actionErrorText}>{moderationActionError}</Text> : null}
+
+              {pendingModerationAction ? (
+                <View style={styles.confirmBlock}>
+                  {pendingModerationAction === 'hide_content' ? (
+                    <>
+                      <Text style={styles.sectionLabel}>Grund (optional, nur für Moderatoren)</Text>
+                      <TextInput
+                        value={moderationActionNote}
+                        onChangeText={setModerationActionNote}
+                        placeholder="Nur für Moderatoren sichtbar"
+                        placeholderTextColor={FeedColors.textSecondary}
+                        style={styles.noteInput}
+                        multiline
+                        maxLength={NOTE_MAX_LENGTH}
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <Text style={styles.sectionLabel}>Titel</Text>
+                      <Text style={styles.sectionValue}>{DEFAULT_WARNING_TITLE}</Text>
+
+                      <Text style={styles.sectionLabel}>Nachricht an den Nutzer</Text>
+                      <TextInput
+                        value={warningMessage}
+                        onChangeText={setWarningMessage}
+                        placeholder="Nachricht an den Nutzer"
+                        placeholderTextColor={FeedColors.textSecondary}
+                        style={styles.noteInput}
+                        multiline
+                        maxLength={WARNING_MESSAGE_MAX_LENGTH}
+                      />
+
+                      <Text style={styles.sectionLabel}>Interne Notiz (optional, nur für Moderatoren)</Text>
+                      <TextInput
+                        value={moderationActionNote}
+                        onChangeText={setModerationActionNote}
+                        placeholder="Nur für Moderatoren sichtbar"
+                        placeholderTextColor={FeedColors.textSecondary}
+                        style={styles.noteInput}
+                        multiline
+                        maxLength={NOTE_MAX_LENGTH}
+                      />
+
+                      <Text style={styles.sectionLabel}>Vorschau für den Nutzer</Text>
+                      <View style={styles.previewCard}>
+                        <Text style={styles.previewTitle}>{DEFAULT_WARNING_TITLE}</Text>
+                        <Text style={styles.previewMessage}>{warningMessage.trim() || DEFAULT_WARNING_MESSAGE}</Text>
+                      </View>
+                    </>
+                  )}
+
+                  {confirmingModerationAction ? (
+                    <>
+                      <Text style={styles.confirmText}>{MODERATION_ACTION_CONFIRM_TEXT[pendingModerationAction]}</Text>
+                      <View style={styles.confirmActions}>
+                        <Pressable
+                          onPress={() => void handleConfirmModerationAction()}
+                          disabled={isModerationActionSubmitting}
+                          style={[styles.confirmButton, isModerationActionSubmitting && styles.actionButtonDisabled]}
+                          accessibilityRole="button"
+                          accessibilityLabel="Bestätigen"
+                        >
+                          <Text style={styles.confirmButtonText}>{isModerationActionSubmitting ? 'Wird gespeichert …' : 'Bestätigen'}</Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={() => setConfirmingModerationAction(false)}
+                          disabled={isModerationActionSubmitting}
+                          style={[styles.cancelButton, isModerationActionSubmitting && styles.actionButtonDisabled]}
+                          accessibilityRole="button"
+                          accessibilityLabel="Abbrechen"
+                        >
+                          <Text style={styles.cancelButtonText}>Abbrechen</Text>
+                        </Pressable>
+                      </View>
+                    </>
+                  ) : (
+                    <View style={styles.confirmActions}>
+                      <Pressable
+                        onPress={() => setConfirmingModerationAction(true)}
+                        style={styles.confirmButton}
+                        accessibilityRole="button"
+                        accessibilityLabel="Weiter"
+                      >
+                        <Text style={styles.confirmButtonText}>Weiter</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={handleCancelModerationAction}
+                        style={styles.cancelButton}
+                        accessibilityRole="button"
+                        accessibilityLabel="Abbrechen"
+                      >
+                        <Text style={styles.cancelButtonText}>Abbrechen</Text>
+                      </Pressable>
+                    </View>
+                  )}
+                </View>
+              ) : (
+                <View style={styles.decisionActions}>
+                  {allowedActions.map((action) => (
+                    <Pressable
+                      key={action}
+                      onPress={() => handleOpenModerationAction(action)}
+                      style={styles.moderationActionButton}
+                      accessibilityRole="button"
+                      accessibilityLabel={MODERATION_ACTION_BUTTON_LABEL[action]}
+                    >
+                      <Text style={styles.moderationActionButtonText}>{MODERATION_ACTION_BUTTON_LABEL[action]}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+            </View>
+          ) : null}
+
+          {report.status === 'action_taken' && report.targetType !== 'user' ? (
+            <View style={styles.restrictionBlock}>
+              <Text style={styles.sectionLabel}>Inhaltsstatus</Text>
+              {restriction === undefined ? (
+                <Text style={styles.sectionValue}>Wird geladen …</Text>
+              ) : restriction === null ? (
+                <Text style={styles.sectionValue}>Für diese Meldung wurde keine Ausblendung vorgenommen.</Text>
+              ) : restriction.isActive ? (
+                <>
+                  <Text style={styles.sectionValue}>Global ausgeblendet</Text>
+                  <Text style={styles.sectionLabel}>Ausgeblendet am</Text>
+                  <Text style={styles.sectionValue}>{restriction.createdAt}</Text>
+                  <Text style={styles.sectionLabel}>Ausgeblendet von</Text>
+                  <Text style={styles.sectionValue}>{profileNames[restriction.createdBy] ?? 'Unbekanntes Mitglied'}</Text>
+
+                  {restoreError ? <Text style={styles.actionErrorText}>{restoreError}</Text> : null}
+
+                  {confirmingRestore ? (
+                    <View style={styles.confirmBlock}>
+                      <Text style={styles.confirmText}>Möchtest du diesen Inhalt wiederherstellen?</Text>
+                      <View style={styles.confirmActions}>
+                        <Pressable
+                          onPress={() => void handleConfirmRestore()}
+                          disabled={isModerationActionSubmitting}
+                          style={[styles.confirmButton, isModerationActionSubmitting && styles.actionButtonDisabled]}
+                          accessibilityRole="button"
+                          accessibilityLabel="Bestätigen"
+                        >
+                          <Text style={styles.confirmButtonText}>
+                            {isModerationActionSubmitting ? 'Wird gespeichert …' : 'Bestätigen'}
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={() => setConfirmingRestore(false)}
+                          disabled={isModerationActionSubmitting}
+                          style={[styles.cancelButton, isModerationActionSubmitting && styles.actionButtonDisabled]}
+                          accessibilityRole="button"
+                          accessibilityLabel="Abbrechen"
+                        >
+                          <Text style={styles.cancelButtonText}>Abbrechen</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  ) : (
+                    <Pressable
+                      onPress={() => setConfirmingRestore(true)}
+                      style={styles.actionButton}
+                      accessibilityRole="button"
+                      accessibilityLabel="Inhalt wiederherstellen"
+                    >
+                      <Text style={styles.actionButtonText}>Inhalt wiederherstellen</Text>
+                    </Pressable>
+                  )}
+                </>
+              ) : (
+                <>
+                  <Text style={styles.sectionValue}>Wiederhergestellt</Text>
+                  <Text style={styles.sectionLabel}>Wiederhergestellt am</Text>
+                  <Text style={styles.sectionValue}>{restriction.liftedAt ?? '—'}</Text>
+                </>
+              )}
+            </View>
+          ) : null}
+
+          {actionHistory.length > 0 || isActionHistoryLoading ? (
+            <View style={styles.historyBlock}>
+              <Text style={styles.sectionLabel}>Verlauf</Text>
+              {isActionHistoryLoading && actionHistory.length === 0 ? (
+                <Text style={styles.sectionValue}>Wird geladen …</Text>
+              ) : (
+                actionHistory.map((entry) => (
+                  <View key={entry.id} style={styles.historyEntry}>
+                    <Text style={styles.historyAction}>{MODERATION_ACTION_LABELS[entry.action] ?? entry.action}</Text>
+                    <Text style={styles.historyMeta}>
+                      {entry.createdAt} · {profileNames[entry.moderatorId] ?? 'Unbekannter Moderator'}
+                    </Text>
+                    {entry.note ? <Text style={styles.historyNote}>{entry.note}</Text> : null}
+                  </View>
+                ))
+              )}
+            </View>
+          ) : null}
         </ScrollView>
       </Pressable>
     </SafeAreaView>
@@ -514,5 +868,78 @@ const styles = StyleSheet.create({
     color: ClubColors.text,
     fontSize: FontSizes.meta,
     fontWeight: '600',
+  },
+  moderationActionsBlock: {
+    marginTop: Spacing.md,
+    paddingTop: Spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: FeedColors.cardBorder,
+  },
+  moderationActionButton: {
+    minHeight: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: Radii.round,
+    borderWidth: 1,
+    borderColor: ClubColors.border,
+    backgroundColor: ClubColors.surface,
+  },
+  moderationActionButtonText: {
+    color: ClubColors.text,
+    fontSize: FontSizes.body,
+    fontWeight: '600',
+  },
+  previewCard: {
+    borderWidth: 1,
+    borderColor: FeedColors.cardBorder,
+    borderRadius: Radii.md,
+    padding: Spacing.sm,
+    marginTop: Spacing.xs,
+    marginBottom: Spacing.sm,
+    backgroundColor: FeedColors.cardBackground,
+  },
+  previewTitle: {
+    color: FeedColors.textPrimary,
+    fontSize: FontSizes.body,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  previewMessage: {
+    color: FeedColors.textPrimary,
+    fontSize: FontSizes.meta,
+    lineHeight: 18,
+  },
+  restrictionBlock: {
+    marginTop: Spacing.md,
+    paddingTop: Spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: FeedColors.cardBorder,
+  },
+  historyBlock: {
+    marginTop: Spacing.md,
+    paddingTop: Spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: FeedColors.cardBorder,
+  },
+  historyEntry: {
+    marginTop: Spacing.sm,
+    paddingBottom: Spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: FeedColors.cardBorder,
+  },
+  historyAction: {
+    color: FeedColors.textPrimary,
+    fontSize: FontSizes.body,
+    fontWeight: '600',
+  },
+  historyMeta: {
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.badge,
+    marginTop: 2,
+  },
+  historyNote: {
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.meta,
+    marginTop: Spacing.xs,
   },
 });

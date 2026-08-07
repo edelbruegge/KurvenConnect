@@ -18,6 +18,7 @@ import { ProfileProvider } from '@/context/profile-context';
 import { PushNotificationsProvider } from '@/context/push-notifications-context';
 import { ReportsProvider } from '@/context/reports-context';
 import { SavedProvider } from '@/context/saved-context';
+import { UserWarningsProvider } from '@/context/user-warnings-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { isSupabaseConfigured, SUPABASE_NOT_CONFIGURED_MESSAGE } from '@/lib/supabase';
 
@@ -173,7 +174,9 @@ export default function RootLayout() {
                       <ReportsProvider>
                         <BlocksProvider>
                           <ModerationProvider>
-                            <RootNavigator />
+                            <UserWarningsProvider>
+                              <RootNavigator />
+                            </UserWarningsProvider>
                           </ModerationProvider>
                         </BlocksProvider>
                       </ReportsProvider>

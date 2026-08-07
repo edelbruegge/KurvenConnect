@@ -4,6 +4,7 @@ import { Keyboard, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, Scro
 import { FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
 import { useProfiles } from '@/context/profile-context';
 import { useSafeBack } from '@/hooks/use-safe-back';
+import { dismissKeyboardOnNative } from '@/lib/dismiss-keyboard';
 
 const BIO_MAX_LENGTH = 160;
 
@@ -76,7 +77,7 @@ export default function EditProfileScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardView}>
-        <Pressable style={{ flex: 1 }} onPress={() => Keyboard.dismiss()}>
+        <Pressable style={{ flex: 1 }} onPress={dismissKeyboardOnNative}>
           <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
             <Text style={styles.title}>Profil bearbeiten</Text>
             <Text style={styles.subtitle}>Passe deinen Anzeigenamen, Wohnort und deine Bio an.</Text>
@@ -147,7 +148,7 @@ export default function EditProfileScreen() {
             </Pressable>
 
             {keyboardVisible ? (
-              <Pressable onPress={() => Keyboard.dismiss()} style={styles.closeKeyboardButton} accessibilityRole="button" accessibilityLabel="Tastatur schließen">
+              <Pressable onPress={dismissKeyboardOnNative} style={styles.closeKeyboardButton} accessibilityRole="button" accessibilityLabel="Tastatur schließen">
                 <Text style={styles.closeKeyboardButtonText}>Fertig</Text>
               </Pressable>
             ) : null}

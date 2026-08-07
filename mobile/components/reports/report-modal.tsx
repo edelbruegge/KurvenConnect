@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { ClubColors, FeedColors, FontSizes, Radii, Spacing, StatusColors } from '@/constants/theme';
 import { useReports } from '@/context/reports-context';
 import { REPORT_REASONS, type ReportReason, type ReportTargetType } from '@/data/reports';
+import { dismissKeyboardOnNative } from '@/lib/dismiss-keyboard';
 
 type ReportModalProps = {
   visible: boolean;
@@ -58,7 +59,7 @@ export function ReportModal({ visible, onClose, title, targetType, targetId, sou
     <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.backdropWrapper}>
         <Pressable style={styles.backdrop} onPress={handleClose}>
-          <Pressable style={styles.card} onPress={() => Keyboard.dismiss()}>
+          <Pressable style={styles.card} onPress={dismissKeyboardOnNative}>
             {submitted ? (
               <View style={styles.confirmation}>
                 <IconSymbol size={32} name="checkmark.circle.fill" color={ClubColors.text} />

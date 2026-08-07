@@ -20,6 +20,7 @@ import { getReportTargetTypeForPost } from '@/data/feed-posts';
 import { getConversationReferenceForPost } from '@/data/messages';
 import type { ReportTargetType } from '@/data/reports';
 import { useSafetySelectors } from '@/hooks/use-safety-selectors';
+import { dismissKeyboardOnNative } from '@/lib/dismiss-keyboard';
 
 export default function PostDetailScreen() {
   const router = useRouter();
@@ -292,7 +293,7 @@ export default function PostDetailScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-        <Pressable style={{ flex: 1 }} onPress={() => Keyboard.dismiss()}>
+        <Pressable style={{ flex: 1 }} onPress={dismissKeyboardOnNative}>
           <ScrollView ref={scrollRef} contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
         <View style={styles.header}>
           <Pressable
@@ -470,7 +471,7 @@ export default function PostDetailScreen() {
         </View>
           </ScrollView>
           {keyboardVisible ? (
-            <Pressable onPress={() => Keyboard.dismiss()} style={styles.closeKeyboardButton} accessibilityRole="button" accessibilityLabel="Tastatur schließen">
+            <Pressable onPress={dismissKeyboardOnNative} style={styles.closeKeyboardButton} accessibilityRole="button" accessibilityLabel="Tastatur schließen">
               <Text style={styles.closeKeyboardButtonText}>Fertig</Text>
             </Pressable>
           ) : null}

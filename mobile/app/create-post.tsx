@@ -6,6 +6,7 @@ import { CategoryLabels, ClubColors, FeedColors, FontSizes, Radii, Spacing } fro
 import { useFeedPosts } from '@/context/feed-posts-context';
 import type { FeedPostCategory } from '@/data/feed-posts';
 import { seedGames } from '@/data/games';
+import { dismissKeyboardOnNative } from '@/lib/dismiss-keyboard';
 import { parseGermanDateAndTimeToIso } from '@/lib/map-supabase-meetup';
 
 const categoryOptions: FeedPostCategory[] = ['Beitrag', 'Fahrt', 'Gesuch', 'Treffpunkt'];
@@ -257,7 +258,7 @@ export default function CreatePostScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardView}>
-        <Pressable style={{ flex: 1 }} onPress={() => Keyboard.dismiss()}>
+        <Pressable style={{ flex: 1 }} onPress={dismissKeyboardOnNative}>
           <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
           <Text style={styles.title}>Neuen Beitrag erstellen</Text>
           <Text style={styles.subtitle}>Erstelle einen lokalen Beispielbeitrag für den aktuellen Feed.</Text>
@@ -356,7 +357,7 @@ export default function CreatePostScreen() {
             <Text style={styles.submitButtonText}>{isSubmitting ? 'Wird veröffentlicht …' : 'Beitrag veröffentlichen'}</Text>
           </Pressable>
           {keyboardVisible ? (
-            <Pressable onPress={() => Keyboard.dismiss()} style={styles.closeKeyboardButton} accessibilityRole="button" accessibilityLabel="Tastatur schließen">
+            <Pressable onPress={dismissKeyboardOnNative} style={styles.closeKeyboardButton} accessibilityRole="button" accessibilityLabel="Tastatur schließen">
               <Text style={styles.closeKeyboardButtonText}>Fertig</Text>
             </Pressable>
           ) : null}

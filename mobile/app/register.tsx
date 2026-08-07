@@ -5,6 +5,7 @@ import { Keyboard, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, Scro
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
 import { useAuth } from '@/context/auth-context';
+import { dismissKeyboardOnNative } from '@/lib/dismiss-keyboard';
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_PASSWORD_LENGTH = 8;
@@ -106,7 +107,7 @@ export default function RegisterScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardView}>
-        <Pressable style={{ flex: 1 }} onPress={() => Keyboard.dismiss()}>
+        <Pressable style={{ flex: 1 }} onPress={dismissKeyboardOnNative}>
           <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
             <Text style={styles.title}>Konto erstellen</Text>
             <Text style={styles.subtitle}>Registriere dich für Kurvenconnect.</Text>
@@ -191,7 +192,7 @@ export default function RegisterScreen() {
             </Pressable>
 
             {keyboardVisible ? (
-              <Pressable onPress={() => Keyboard.dismiss()} style={styles.closeKeyboardButton} accessibilityRole="button" accessibilityLabel="Tastatur schließen">
+              <Pressable onPress={dismissKeyboardOnNative} style={styles.closeKeyboardButton} accessibilityRole="button" accessibilityLabel="Tastatur schließen">
                 <Text style={styles.closeKeyboardButtonText}>Fertig</Text>
               </Pressable>
             ) : null}

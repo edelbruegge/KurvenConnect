@@ -33,6 +33,7 @@ import { useSafetySelectors } from '@/hooks/use-safety-selectors';
 import { getMeetupAttendeeCount, isMeetupFull } from '@/data/feed-posts';
 import { getConversationReferenceForPost } from '@/data/messages';
 import type { ReportTargetType } from '@/data/reports';
+import { dismissKeyboardOnNative } from '@/lib/dismiss-keyboard';
 import { getInitialsFromName, mapSupabaseProfileRow, type SupabaseProfileRow } from '@/lib/map-supabase-profile';
 import { supabase } from '@/lib/supabase';
 
@@ -275,7 +276,7 @@ export default function MeetupDetailScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-        <Pressable style={{ flex: 1 }} onPress={() => Keyboard.dismiss()}>
+        <Pressable style={{ flex: 1 }} onPress={dismissKeyboardOnNative}>
           <ScrollView ref={scrollRef} contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
             <View style={styles.header}>
               <Pressable
@@ -520,7 +521,7 @@ export default function MeetupDetailScreen() {
             </View>
           </ScrollView>
           {keyboardVisible ? (
-            <Pressable onPress={() => Keyboard.dismiss()} style={styles.closeKeyboardButton} accessibilityRole="button" accessibilityLabel="Tastatur schließen">
+            <Pressable onPress={dismissKeyboardOnNative} style={styles.closeKeyboardButton} accessibilityRole="button" accessibilityLabel="Tastatur schließen">
               <Text style={styles.closeKeyboardButtonText}>Fertig</Text>
             </Pressable>
           ) : null}

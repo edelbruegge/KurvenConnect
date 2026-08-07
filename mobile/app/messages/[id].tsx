@@ -29,6 +29,7 @@ import { getOtherParticipantId, type ConversationReference } from '@/data/messag
 import type { ReportTargetType } from '@/data/reports';
 import { CURRENT_USER_ID } from '@/data/users';
 import { useSafetySelectors } from '@/hooks/use-safety-selectors';
+import { dismissKeyboardOnNative } from '@/lib/dismiss-keyboard';
 
 function referenceFromParams(params: { referenceType?: string; referenceId?: string; referenceTitle?: string }): ConversationReference {
   if (!params.referenceType || !params.referenceId || !params.referenceTitle) {
@@ -216,7 +217,7 @@ export default function MessageConversationScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-        <Pressable style={{ flex: 1 }} onPress={() => Keyboard.dismiss()}>
+        <Pressable style={{ flex: 1 }} onPress={dismissKeyboardOnNative}>
           <View style={styles.header}>
             <View style={styles.headerTopRow}>
               <Pressable
@@ -375,7 +376,7 @@ export default function MessageConversationScreen() {
           )}
 
           {keyboardVisible ? (
-            <Pressable onPress={() => Keyboard.dismiss()} style={styles.closeKeyboardButton} accessibilityRole="button" accessibilityLabel="Tastatur schließen">
+            <Pressable onPress={dismissKeyboardOnNative} style={styles.closeKeyboardButton} accessibilityRole="button" accessibilityLabel="Tastatur schließen">
               <Text style={styles.closeKeyboardButtonText}>Fertig</Text>
             </Pressable>
           ) : null}
