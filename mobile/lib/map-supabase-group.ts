@@ -74,6 +74,7 @@ export function mapSupabaseGroupMembershipRow(row: SupabaseGroupMembershipRow): 
     source: 'supabase',
     memberCount: row.member_count,
     myRole: row.my_role as Group['myRole'],
+    createdAtIso: row.created_at,
     lastMessagePreview: row.last_message_body ?? undefined,
     lastMessageAt: row.last_message_at ? formatRelativeGermanTime(row.last_message_at) : undefined,
     lastMessageAtIso: row.last_message_at ?? undefined,
@@ -121,6 +122,7 @@ export function mapSupabaseGroupDetailResponse(response: SupabaseGroupDetailResp
     source: 'supabase',
     memberCount: response.member_count,
     myRole: response.my_role as Group['myRole'],
+    createdAtIso: response.created_at,
   };
 }
 

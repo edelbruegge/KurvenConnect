@@ -24,15 +24,61 @@ export type Group = {
   // Only ever set for source:'supabase' groups.
   memberCount?: number;
   myRole?: GroupRole;
-  // Chat preview fields for "Nachrichten -> Gruppen" — only ever set for source:'supabase' groups
-  // (populated by get_my_groups()). Local seed groups derive their preview from
-  // seedGroupMessages/getLocalGroupMessages directly, not from these fields.
+  // Raw ISO timestamp for `createdAt` — set for both local seed groups (fixed literals, see
+  // seedGroups below) and remote groups (from public.groups.created_at). Used as the fallback for
+  // sortGroupsByRecentActivity below when a group has no messages yet; never derived from
+  // Date.now(), always a stable value from real data.
+  createdAtIso?: string;
+  // Chat preview fields for "Nachrichten -> Gruppen" — populated for BOTH remote groups
+  // (get_my_groups()/realtime) and local seed groups (derived from seedGroupMessages/
+  // sendLocalGroupMessage, see GroupsContext) so sortGroupsByRecentActivity below can treat both
+  // uniformly without source-specific branching.
   lastMessagePreview?: string;
   lastMessageAt?: string;
   lastMessageAtIso?: string;
   lastMessageSenderId?: string;
   unreadCount?: number;
 };
+
+// "Letzte Aktivität" = Zeitpunkt der neuesten Gruppennachricht, sonst created_at der Gruppe als
+// Fallback (nie Date.now()) — deliberately reads only lastMessageAtIso/createdAtIso so it treats
+// local and remote groups identically. A missing/invalid timestamp sinks to the very bottom
+// (epoch, 0) instead of crashing or defaulting to "now".
+function getGroupActivityTimestamp(group: Group): number {
+  const iso = group.lastMessageAtIso ?? group.createdAtIso;
+
+  if (!iso) {
+    return 0;
+  }
+
+  const ms = new Date(iso).getTime();
+  return Number.isNaN(ms) ? 0 : ms;
+}
+
+function getGroupCreatedTimestamp(group: Group): number {
+  if (!group.createdAtIso) {
+    return 0;
+  }
+
+  const ms = new Date(group.createdAtIso).getTime();
+  return Number.isNaN(ms) ? 0 : ms;
+}
+
+// The single, central sort for "Nachrichten -> Gruppen" — applied once to the merged local+remote
+// list (never re-implemented per-component). Newest activity first; ties broken by created_at
+// descending (a stable, deterministic order — JS's Array.sort is a stable sort, so groups with no
+// timestamp at all keep their original relative order instead of jumping around).
+export function sortGroupsByRecentActivity(groups: Group[]): Group[] {
+  return [...groups].sort((a, b) => {
+    const activityDiff = getGroupActivityTimestamp(b) - getGroupActivityTimestamp(a);
+
+    if (activityDiff !== 0) {
+      return activityDiff;
+    }
+
+    return getGroupCreatedTimestamp(b) - getGroupCreatedTimestamp(a);
+  });
+}
 
 // A single group chat message — local (seed groups, in-memory) or remote (public.group_messages).
 // Deliberately separate from Message (data/messages.ts, direct 1:1 chats) — group chat and direct
@@ -46,8 +92,8 @@ export type GroupMessage = {
   // 'local' for seed/in-memory group messages, 'supabase' for rows loaded from
   // public.group_messages. Defaults to 'local' when absent, same convention as Message.source.
   source?: 'local' | 'supabase';
-  // Raw ISO timestamp, set only for source:'supabase' messages — used for chronological
-  // merge/dedup safety, same convention as Message.createdAtIso.
+  // Raw ISO timestamp — used for chronological merge/dedup safety (remote) and as the input to
+  // sortGroupsByRecentActivity's "last activity" computation (both local and remote).
   createdAtIso?: string;
   // Set only for source:'supabase' messages sent with a client-generated idempotency token.
   clientMessageId?: string;
@@ -129,6 +175,7 @@ export const seedGroups: Group[] = [
     ownerId: 'user-david-s',
     memberIds: ['user-david-s', CURRENT_USER_ID, 'user-sina-p'],
     createdAt: 'vor 2 Monaten',
+    createdAtIso: '2026-06-09T10:00:00.000Z',
     visibility: 'public',
   },
   {
@@ -140,6 +187,7 @@ export const seedGroups: Group[] = [
     ownerId: 'user-sina-p',
     memberIds: ['user-sina-p', 'user-mina-k', CURRENT_USER_ID],
     createdAt: 'vor 5 Monaten',
+    createdAtIso: '2026-03-09T10:00:00.000Z',
     visibility: 'public',
   },
   {
@@ -151,6 +199,7 @@ export const seedGroups: Group[] = [
     ownerId: 'user-mina-k',
     memberIds: ['user-mina-k', 'user-luca-r'],
     createdAt: 'vor 1 Jahr',
+    createdAtIso: '2025-08-09T10:00:00.000Z',
     visibility: 'public',
   },
   {
@@ -162,6 +211,7 @@ export const seedGroups: Group[] = [
     ownerId: 'user-luca-r',
     memberIds: ['user-luca-r', 'user-david-s'],
     createdAt: 'vor 3 Monaten',
+    createdAtIso: '2026-05-09T10:00:00.000Z',
     visibility: 'private',
   },
   {
@@ -173,6 +223,7 @@ export const seedGroups: Group[] = [
     ownerId: CURRENT_USER_ID,
     memberIds: [CURRENT_USER_ID],
     createdAt: 'vor 1 Monat',
+    createdAtIso: '2026-07-09T10:00:00.000Z',
     visibility: 'private',
   },
 ];
@@ -197,6 +248,7 @@ export const seedGroupMessages: GroupMessage[] = [
     senderId: 'user-david-s',
     text: 'Wer ist am Samstag beim Auswärtsspiel dabei?',
     createdAt: 'vor 3 Std.',
+    createdAtIso: '2026-08-09T07:00:00.000Z',
   },
   {
     id: 'group-message-1-2',
@@ -204,6 +256,7 @@ export const seedGroupMessages: GroupMessage[] = [
     senderId: CURRENT_USER_ID,
     text: 'Ich bin dabei, Abfahrt wie immer am Hauptbahnhof?',
     createdAt: 'vor 2 Std.',
+    createdAtIso: '2026-08-09T08:00:00.000Z',
   },
   {
     id: 'group-message-1-3',
@@ -211,6 +264,7 @@ export const seedGroupMessages: GroupMessage[] = [
     senderId: 'user-sina-p',
     text: 'Genau, 9 Uhr am Hauptbahnhof.',
     createdAt: 'vor 1 Std.',
+    createdAtIso: '2026-08-09T09:00:00.000Z',
   },
   {
     id: 'group-message-5-1',
@@ -218,5 +272,6 @@ export const seedGroupMessages: GroupMessage[] = [
     senderId: CURRENT_USER_ID,
     text: 'Willkommen in der Blockrunde!',
     createdAt: 'vor 3 Wochen',
+    createdAtIso: '2026-07-19T10:00:00.000Z',
   },
 ];

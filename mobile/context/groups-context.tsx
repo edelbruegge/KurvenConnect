@@ -8,6 +8,7 @@ import {
   seedGroupJoinRequests,
   seedGroupMessages,
   seedGroups,
+  sortGroupsByRecentActivity,
   type Group,
   type GroupJoinRequest,
   type GroupJoinRequestRecord,
@@ -52,6 +53,30 @@ type CreateGroupInput = {
   description: string;
   visibility: GroupVisibility;
 };
+
+// Seeds each local group's lastMessagePreview/lastMessageAt/lastMessageAtIso from
+// seedGroupMessages once at startup, so sortGroupsByRecentActivity has real data to work with
+// immediately — not just after the first local message is sent. ISO strings compare correctly
+// with plain string comparison (lexicographic order matches chronological order for ISO 8601).
+function deriveInitialLocalGroups(): Group[] {
+  return seedGroups.map((group) => {
+    const groupMessages = seedGroupMessages.filter((message) => message.groupId === group.id);
+
+    if (groupMessages.length === 0) {
+      return group;
+    }
+
+    const lastMessage = [...groupMessages].sort((a, b) => (b.createdAtIso ?? '').localeCompare(a.createdAtIso ?? ''))[0];
+
+    return {
+      ...group,
+      lastMessagePreview: lastMessage.text,
+      lastMessageAt: lastMessage.createdAt,
+      lastMessageAtIso: lastMessage.createdAtIso,
+      lastMessageSenderId: lastMessage.senderId,
+    };
+  });
+}
 
 type ActionResult = { error: string | null };
 
@@ -147,8 +172,9 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const authUserId = user?.id ?? null;
 
-  // --- Local, in-memory seed groups — unchanged. ---
-  const [localGroups, setLocalGroups] = useState<Group[]>(seedGroups);
+  // --- Local, in-memory seed groups — membership/join-request logic unchanged; initial
+  // lastMessage* fields are derived once from seedGroupMessages (see deriveInitialLocalGroups). ---
+  const [localGroups, setLocalGroups] = useState<Group[]>(() => deriveInitialLocalGroups());
   const [joinRequests, setJoinRequests] = useState<GroupJoinRequest[]>(seedGroupJoinRequests);
 
   const getLocalGroupById = (id: string) => localGroups.find((group) => group.id === id);
@@ -246,15 +272,38 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    // The actual moment of sending — real data, not a "missing timestamp" fallback, so stamping
+    // the current time here is correct (unlike getGroupActivityTimestamp's 0-fallback for groups
+    // that have no real timestamp at all).
+    const sentAtIso = new Date().toISOString();
+
     const newMessage: GroupMessage = {
       id: `group-message-temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       groupId,
       senderId: CURRENT_USER_ID,
       text: trimmed,
       createdAt: 'gerade eben',
+      createdAtIso: sentAtIso,
     };
 
     setLocalGroupMessages((current) => [...current, newMessage]);
+
+    // Keep the local group's own lastMessage* fields in sync, exactly like sendGroupMessage does
+    // for remoteGroups — this is what lets sortGroupsByRecentActivity treat local and remote
+    // groups uniformly without any source-specific branching.
+    setLocalGroups((current) =>
+      current.map((group) =>
+        group.id === groupId
+          ? {
+              ...group,
+              lastMessagePreview: newMessage.text,
+              lastMessageAt: newMessage.createdAt,
+              lastMessageAtIso: newMessage.createdAtIso,
+              lastMessageSenderId: newMessage.senderId,
+            }
+          : group,
+      ),
+    );
   };
 
   // --- Remote groups (get_my_groups). ---
@@ -1189,7 +1238,13 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
 
   const isMember = (groupId: string) => isLocalMember(groupId) || remoteGroups.some((group) => group.id === groupId);
 
-  const getMyGroups = (): Group[] => [...localGroups.filter((group) => group.memberIds.includes(CURRENT_USER_ID)), ...remoteGroups];
+  // The single, central sort point for "Nachrichten -> Gruppen" — sortGroupsByRecentActivity is
+  // applied once here to the merged local+remote list, never re-implemented in the UI layer.
+  const getMyGroups = (): Group[] =>
+    sortGroupsByRecentActivity([
+      ...localGroups.filter((group) => group.memberIds.includes(CURRENT_USER_ID)),
+      ...remoteGroups,
+    ]);
 
   const value = useMemo(
     () => ({
