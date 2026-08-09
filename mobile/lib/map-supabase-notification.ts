@@ -22,6 +22,31 @@ const KNOWN_NOTIFICATION_TYPES: NotificationType[] = [
   'trip_request_rejected',
   'meetup_joined',
   'meetup_left',
+  'group_message',
+  'group_join_request',
+  'group_join_accepted',
+  'group_join_rejected',
+  'group_admin_promoted',
+  'group_admin_demoted',
+  'group_member_removed',
+  'group_ownership_transferred',
+];
+
+// Notification types whose title/body are fully resolved server-side at creation time (the group
+// name and/or actor name are baked into the stored row) rather than reconstructed client-side —
+// unlike the trip-request types below, several of these (group_member_removed,
+// group_join_rejected) describe a state the recipient may no longer have any read access to by the
+// time they open the notification, so re-resolving a group/actor name client-side would not always
+// be possible. getNotificationDisplayContent surfaces the stored title for exactly these types.
+const GROUP_NOTIFICATION_TYPES: NotificationType[] = [
+  'group_message',
+  'group_join_request',
+  'group_join_accepted',
+  'group_join_rejected',
+  'group_admin_promoted',
+  'group_admin_demoted',
+  'group_member_removed',
+  'group_ownership_transferred',
 ];
 
 // Exported so the push-notification payload parser (lib/push-notifications.ts) can validate a
@@ -36,7 +61,13 @@ export function toReference(referenceType: string | null, referenceId: string | 
     return null;
   }
 
-  if (referenceType === 'conversation' || referenceType === 'trip' || referenceType === 'meetup' || referenceType === 'profile') {
+  if (
+    referenceType === 'conversation' ||
+    referenceType === 'trip' ||
+    referenceType === 'meetup' ||
+    referenceType === 'profile' ||
+    referenceType === 'group'
+  ) {
     return { type: referenceType, id: referenceId };
   }
 
@@ -50,6 +81,7 @@ export function mapSupabaseNotificationToNotification(row: SupabaseNotificationR
     actorId: row.actor_id ?? undefined,
     type: toNotificationType(row.type),
     text: row.body,
+    title: row.title,
     reference: toReference(row.reference_type, row.reference_id),
     createdAt: formatRelativeGermanTime(row.created_at),
     read: row.read_at !== null,
@@ -103,6 +135,14 @@ export function getNotificationDisplayContent(
 
   if (notification.type === 'trip_request_rejected') {
     return { title: 'Fahrtanfrage abgelehnt', body: `Deine Anfrage für die Fahrt${routeSuffix} wurde abgelehnt.` };
+  }
+
+  // Group notifications: title/body were already fully resolved (group name, actor name) at
+  // creation time server-side — see the notify_on_*/manage_group_join_request/promote_group_
+  // member/etc. functions in 20260813120000_add_group_notifications.sql — so this simply surfaces
+  // the stored values instead of reconstructing anything client-side.
+  if (GROUP_NOTIFICATION_TYPES.includes(notification.type)) {
+    return { title: notification.title ?? null, body: notification.text };
   }
 
   return { title: null, body: notification.text };

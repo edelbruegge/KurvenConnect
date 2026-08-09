@@ -1,6 +1,7 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -18,6 +19,7 @@ import { ClubColors, FeedColors, FontSizes, Radii, Spacing, StatusColors } from 
 import { useAuth } from '@/context/auth-context';
 import { useGroups } from '@/context/groups-context';
 import { useProfiles } from '@/context/profile-context';
+import { isPlausibleRemoteGroupId } from '@/data/groups';
 import { CURRENT_USER_ID } from '@/data/users';
 import { dismissKeyboardOnNative } from '@/lib/dismiss-keyboard';
 import { supabase } from '@/lib/supabase';
@@ -43,6 +45,7 @@ export default function GroupChatScreen() {
     refreshGroupMembers,
     groupMessagesRealtimeStatus,
     retryGroupMessagesRealtime,
+    fetchGroupDetail,
   } = useGroups();
   const { getUserById } = useProfiles();
   const [draftText, setDraftText] = useState('');
@@ -52,11 +55,41 @@ export default function GroupChatScreen() {
   const [isSending, setIsSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [unresolvedNames, setUnresolvedNames] = useState<Record<string, string>>({});
+  const [isCheckingGroupDetail, setIsCheckingGroupDetail] = useState(false);
+  const [groupDetailError, setGroupDetailError] = useState<string | null>(null);
 
   const group = params.id ? getGroupById(params.id) : undefined;
   const isRemoteGroup = group?.source === 'supabase';
   const member = group ? isMember(group.id) : false;
   const myId = isRemoteGroup ? authUserId : CURRENT_USER_ID;
+
+  // Same "not found" vs. "not a member" distinction as app/group/[id].tsx — a member removed
+  // while this chat is open must see "Du bist kein Mitglied dieser Gruppe.", not a generic
+  // not-found message. Never runs for a local seed id.
+  useEffect(() => {
+    if (group || !params.id || !isPlausibleRemoteGroupId(params.id)) {
+      return;
+    }
+
+    let isCurrent = true;
+    setIsCheckingGroupDetail(true);
+    setGroupDetailError(null);
+
+    fetchGroupDetail(params.id).then(({ error }) => {
+      if (!isCurrent) return;
+
+      setIsCheckingGroupDetail(false);
+
+      if (error) {
+        setGroupDetailError(error);
+      }
+    });
+
+    return () => {
+      isCurrent = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.id, group?.id]);
 
   useEffect(() => {
     const show = Keyboard.addListener('keyboardDidShow', () => setKeyboardVisible(true));
@@ -142,7 +175,24 @@ export default function GroupChatScreen() {
   }, [unresolvedSenderIdsKey]);
 
   if (!group) {
-    return <NotFoundView title="Gruppe nicht gefunden" message="Die angeforderte Gruppe konnte nicht gefunden werden." />;
+    if (isCheckingGroupDetail) {
+      return (
+        <SafeAreaView style={styles.safeArea}>
+          <View style={styles.loadingContent}>
+            <ActivityIndicator size="large" color={FeedColors.textPrimary} />
+          </View>
+        </SafeAreaView>
+      );
+    }
+
+    const isMembershipError = groupDetailError === 'Du bist kein Mitglied dieser Gruppe.';
+
+    return (
+      <NotFoundView
+        title={isMembershipError ? 'Kein Zugriff' : 'Gruppe nicht gefunden'}
+        message={groupDetailError ?? 'Die angeforderte Gruppe konnte nicht gefunden werden.'}
+      />
+    );
   }
 
   if (!member) {
@@ -286,6 +336,11 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: FeedColors.background,
+  },
+  loadingContent: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   header: {
     paddingHorizontal: Spacing.md,

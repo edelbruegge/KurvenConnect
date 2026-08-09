@@ -45,7 +45,20 @@ function getNotificationIcon(type: NotificationType): IconSymbolName {
       return 'text.magnifyingglass';
     case 'new_message':
     case 'message_received':
+    case 'group_message':
       return 'message';
+    case 'group_join_request':
+      return 'person.badge.plus';
+    case 'group_join_accepted':
+      return 'checkmark.circle.fill';
+    case 'group_join_rejected':
+      return 'xmark.circle.fill';
+    case 'group_admin_promoted':
+    case 'group_admin_demoted':
+    case 'group_ownership_transferred':
+      return 'shield.fill';
+    case 'group_member_removed':
+      return 'nosign';
     case 'system':
       return 'bell.fill';
   }
@@ -93,6 +106,14 @@ export default function NotificationsScreen() {
     if (reference.type === 'meetup') {
       const post = getPostById(reference.id);
       return post ? isModeratedAway('meetup', post.id, post.userId) || hasReported('meetup', post.id) : false;
+    }
+
+    if (reference.type === 'group') {
+      // Group content moderation is a separate system not wired up here — never hide a group
+      // notification through the post-moderation path below (getPostById would never resolve a
+      // group id to a post anyway, but this makes the intent explicit rather than relying on that
+      // fallthrough).
+      return false;
     }
 
     const post = getPostById(reference.id);

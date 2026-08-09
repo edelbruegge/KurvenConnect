@@ -9,6 +9,7 @@ import { ReportModal } from '@/components/reports/report-modal';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { OverflowMenu } from '@/components/ui/overflow-menu';
 import { ClubColors, FeedColors, FontSizes, Radii, Spacing, StatusColors } from '@/constants/theme';
+import { useAuth } from '@/context/auth-context';
 import { useGroups } from '@/context/groups-context';
 import { useModeration } from '@/context/moderation-context';
 import { useProfiles } from '@/context/profile-context';
@@ -20,6 +21,8 @@ import { supabase } from '@/lib/supabase';
 export default function GroupDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string }>();
+  const { user } = useAuth();
+  const authUserId = user?.id ?? null;
   const {
     getGroupById,
     isMember,
@@ -144,8 +147,14 @@ export default function GroupDetailScreen() {
     return <NotFoundView title="Inhalt nicht verfügbar" message="Dieser Inhalt wurde moderativ ausgeblendet." />;
   }
 
-  const isOwner = group.ownerId === currentUser.id;
+  // group.ownerId is a real Supabase UUID for remote groups — currentUser.id deliberately always
+  // stays CURRENT_USER_ID (see profile-context.tsx), so it can never match a remote owner_id.
+  // Local groups keep comparing against currentUser.id (unchanged, correct there); remote groups
+  // must compare against the actual signed-in auth user id instead.
+  const isOwner = group.source === 'supabase' ? authUserId !== null && group.ownerId === authUserId : group.ownerId === currentUser.id;
   const member = isMember(group.id);
+  const canManageGroup = group.source === 'supabase' && group.myRole === 'admin';
+  const isRemoteOwner = group.source === 'supabase' && isOwner;
   const requestStatus = getJoinRequestStatus(group.id);
   const isPending = requestStatus === 'pending';
   const pendingRequests = (isOwner ? getPendingRequestsForGroup(group.id) : []).filter(
@@ -158,6 +167,14 @@ export default function GroupDetailScreen() {
 
   const handleOpenChat = () => {
     router.push({ pathname: '/group/[id]/chat', params: { id: group.id } });
+  };
+
+  const handleOpenEdit = () => {
+    router.push({ pathname: '/group/[id]/edit', params: { id: group.id } });
+  };
+
+  const handleOpenTransferOwnership = () => {
+    router.push({ pathname: '/group/[id]/transfer-ownership', params: { id: group.id } });
   };
 
   const handleJoinAction = () => {
@@ -281,6 +298,36 @@ export default function GroupDetailScreen() {
             ) : null
           ) : null}
         </View>
+
+        {canManageGroup ? (
+          <View style={styles.requestsCard}>
+            <Text style={styles.requestsTitle}>Gruppenverwaltung</Text>
+            <Pressable onPress={handleOpenEdit} style={styles.managementRow} accessibilityRole="button" accessibilityLabel="Gruppe bearbeiten">
+              <IconSymbol size={16} name="square.and.pencil" color={FeedColors.textSecondary} />
+              <Text style={styles.managementRowText}>Gruppe bearbeiten</Text>
+              <IconSymbol size={16} name="chevron.right" color={FeedColors.textSecondary} />
+            </Pressable>
+            {isRemoteOwner ? (
+              <>
+                <Pressable onPress={handleOpenMembers} style={styles.managementRow} accessibilityRole="button" accessibilityLabel="Admins verwalten">
+                  <IconSymbol size={16} name="person.3.fill" color={FeedColors.textSecondary} />
+                  <Text style={styles.managementRowText}>Admins verwalten</Text>
+                  <IconSymbol size={16} name="chevron.right" color={FeedColors.textSecondary} />
+                </Pressable>
+                <Pressable
+                  onPress={handleOpenTransferOwnership}
+                  style={styles.managementRow}
+                  accessibilityRole="button"
+                  accessibilityLabel="Gruppeninhaberschaft übertragen"
+                >
+                  <IconSymbol size={16} name="shield.fill" color={FeedColors.textSecondary} />
+                  <Text style={styles.managementRowText}>Gruppeninhaberschaft übertragen</Text>
+                  <IconSymbol size={16} name="chevron.right" color={FeedColors.textSecondary} />
+                </Pressable>
+              </>
+            ) : null}
+          </View>
+        ) : null}
 
         {group.source === 'supabase' && isRemoteAdmin ? (
           <View style={styles.requestsCard}>
@@ -507,6 +554,18 @@ const styles = StyleSheet.create({
     fontSize: FontSizes.body,
     fontWeight: '700',
     marginBottom: Spacing.sm,
+  },
+  managementRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: Spacing.sm,
+  },
+  managementRowText: {
+    flex: 1,
+    color: FeedColors.textPrimary,
+    fontSize: FontSizes.body,
+    fontWeight: '600',
   },
   requestRow: {
     flexDirection: 'row',

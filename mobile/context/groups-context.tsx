@@ -128,6 +128,15 @@ type GroupsContextValue = {
   requestPrivateGroupJoin: (groupId: string) => Promise<ActionResult>;
   cancelJoinRequest: (requestId: string) => Promise<ActionResult>;
 
+  // Group administration — owner/admin-only, all authorized server-side (see the RPCs themselves,
+  // never trust client role checks alone). Local seed groups never accept these; every function
+  // fails closed via isPlausibleRemoteGroupId.
+  updateGroup: (groupId: string, input: { name: string; description: string; visibility: GroupVisibility }) => Promise<ActionResult>;
+  removeGroupMember: (groupId: string, userId: string) => Promise<ActionResult>;
+  promoteGroupMember: (groupId: string, userId: string) => Promise<ActionResult>;
+  demoteGroupAdmin: (groupId: string, userId: string) => Promise<ActionResult>;
+  transferGroupOwnership: (groupId: string, newOwnerId: string) => Promise<ActionResult>;
+
   // Member list for a single remote group, loaded on demand (never eagerly for every group).
   groupMembers: Record<string, GroupMemberRecord[]>;
   isGroupMembersLoading: boolean;
@@ -1095,6 +1104,212 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  // --- Group administration (update/remove/promote/demote/transfer) — all authorized server-side
+  // by the RPCs themselves; the client-side checks driving button visibility are UI convenience
+  // only, never the actual security boundary. Reuses the same isGroupActionSubmitting/
+  // groupActionError/inFlightGroupActionIds trio as join/leave/accept/reject above rather than a
+  // parallel second state group — conceptually the same "one group action in flight" idea. ---
+
+  const updateGroup = async (
+    groupId: string,
+    input: { name: string; description: string; visibility: GroupVisibility },
+  ): Promise<ActionResult> => {
+    if (!isPlausibleRemoteGroupId(groupId)) {
+      return { error: 'Diese Gruppe ist nicht mehr verfügbar.' };
+    }
+
+    if (inFlightGroupActionIds.current.has(groupId)) {
+      return { error: null };
+    }
+
+    inFlightGroupActionIds.current.add(groupId);
+    setIsGroupActionSubmitting(true);
+    setGroupActionError(null);
+
+    try {
+      const { data, error } = await supabase.rpc('update_group', {
+        p_group_id: groupId,
+        p_name: input.name,
+        p_description: input.description.trim() || null,
+        p_visibility: input.visibility,
+      });
+
+      if (error) {
+        const mapped = mapGroupError(error, 'update');
+        setGroupActionError(mapped);
+        return { error: mapped };
+      }
+
+      const row = data as { name: string; description: string | null; visibility: string };
+      setRemoteGroups((current) =>
+        current.map((group) =>
+          group.id === groupId
+            ? { ...group, name: row.name, description: row.description ?? '', visibility: row.visibility as GroupVisibility }
+            : group,
+        ),
+      );
+
+      return { error: null };
+    } finally {
+      inFlightGroupActionIds.current.delete(groupId);
+      setIsGroupActionSubmitting(false);
+    }
+  };
+
+  // removeGroupMember/promoteGroupMember/demoteGroupAdmin: keyed by group+target (not just group)
+  // so an admin confirming actions on two different members of the same group in quick succession
+  // isn't incorrectly blocked by the other's in-flight flag. After success, just re-fetch the
+  // affected group's member list (if already loaded) and the acting user's own group list — same
+  // "re-fetch rather than patch" reasoning as the realtime handlers below; group sizes here are
+  // small, a full re-fetch is simple and safe.
+  const removeGroupMember = async (groupId: string, userId: string): Promise<ActionResult> => {
+    if (!isPlausibleRemoteGroupId(groupId)) {
+      return { error: 'Diese Gruppe ist nicht mehr verfügbar.' };
+    }
+
+    const actionKey = `remove:${groupId}:${userId}`;
+
+    if (inFlightGroupActionIds.current.has(actionKey)) {
+      return { error: null };
+    }
+
+    inFlightGroupActionIds.current.add(actionKey);
+    setIsGroupActionSubmitting(true);
+    setGroupActionError(null);
+
+    try {
+      const { error } = await supabase.rpc('remove_group_member', { p_group_id: groupId, p_user_id: userId });
+
+      if (error) {
+        const mapped = mapGroupError(error, 'removeMember');
+        setGroupActionError(mapped);
+        return { error: mapped };
+      }
+
+      if (groupId in groupMembers) {
+        refreshGroupMembers(groupId);
+      }
+      refreshMyGroups();
+
+      return { error: null };
+    } finally {
+      inFlightGroupActionIds.current.delete(actionKey);
+      setIsGroupActionSubmitting(false);
+    }
+  };
+
+  const promoteGroupMember = async (groupId: string, userId: string): Promise<ActionResult> => {
+    if (!isPlausibleRemoteGroupId(groupId)) {
+      return { error: 'Diese Gruppe ist nicht mehr verfügbar.' };
+    }
+
+    const actionKey = `promote:${groupId}:${userId}`;
+
+    if (inFlightGroupActionIds.current.has(actionKey)) {
+      return { error: null };
+    }
+
+    inFlightGroupActionIds.current.add(actionKey);
+    setIsGroupActionSubmitting(true);
+    setGroupActionError(null);
+
+    try {
+      const { error } = await supabase.rpc('promote_group_member', { p_group_id: groupId, p_user_id: userId });
+
+      if (error) {
+        const mapped = mapGroupError(error, 'promote');
+        setGroupActionError(mapped);
+        return { error: mapped };
+      }
+
+      if (groupId in groupMembers) {
+        refreshGroupMembers(groupId);
+      }
+      refreshMyGroups();
+
+      return { error: null };
+    } finally {
+      inFlightGroupActionIds.current.delete(actionKey);
+      setIsGroupActionSubmitting(false);
+    }
+  };
+
+  const demoteGroupAdmin = async (groupId: string, userId: string): Promise<ActionResult> => {
+    if (!isPlausibleRemoteGroupId(groupId)) {
+      return { error: 'Diese Gruppe ist nicht mehr verfügbar.' };
+    }
+
+    const actionKey = `demote:${groupId}:${userId}`;
+
+    if (inFlightGroupActionIds.current.has(actionKey)) {
+      return { error: null };
+    }
+
+    inFlightGroupActionIds.current.add(actionKey);
+    setIsGroupActionSubmitting(true);
+    setGroupActionError(null);
+
+    try {
+      const { error } = await supabase.rpc('demote_group_admin', { p_group_id: groupId, p_user_id: userId });
+
+      if (error) {
+        const mapped = mapGroupError(error, 'demote');
+        setGroupActionError(mapped);
+        return { error: mapped };
+      }
+
+      if (groupId in groupMembers) {
+        refreshGroupMembers(groupId);
+      }
+      refreshMyGroups();
+
+      return { error: null };
+    } finally {
+      inFlightGroupActionIds.current.delete(actionKey);
+      setIsGroupActionSubmitting(false);
+    }
+  };
+
+  const transferGroupOwnership = async (groupId: string, newOwnerId: string): Promise<ActionResult> => {
+    if (!isPlausibleRemoteGroupId(groupId)) {
+      return { error: 'Diese Gruppe ist nicht mehr verfügbar.' };
+    }
+
+    if (inFlightGroupActionIds.current.has(groupId)) {
+      return { error: null };
+    }
+
+    inFlightGroupActionIds.current.add(groupId);
+    setIsGroupActionSubmitting(true);
+    setGroupActionError(null);
+
+    try {
+      const { data, error } = await supabase.rpc('transfer_group_ownership', {
+        p_group_id: groupId,
+        p_new_owner_id: newOwnerId,
+      });
+
+      if (error) {
+        const mapped = mapGroupError(error, 'transferOwnership');
+        setGroupActionError(mapped);
+        return { error: mapped };
+      }
+
+      const row = data as { owner_id: string };
+      setRemoteGroups((current) => current.map((group) => (group.id === groupId ? { ...group, ownerId: row.owner_id } : group)));
+
+      if (groupId in groupMembers) {
+        refreshGroupMembers(groupId);
+      }
+      refreshMyGroups();
+
+      return { error: null };
+    } finally {
+      inFlightGroupActionIds.current.delete(groupId);
+      setIsGroupActionSubmitting(false);
+    }
+  };
+
   // --- Realtime: group_members + group_join_requests, one channel per signed-in user. RLS on
   // both tables already scopes delivery to "my own groups' membership"/"my own
   // requests"/"requests for groups I admin" — no policy change was needed to add this. On any
@@ -1112,6 +1327,29 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
   const handleGroupMembersChange = (payload: GroupsRealtimeChangePayload) => {
     const row = payload.new && Object.keys(payload.new).length > 0 ? payload.new : payload.old;
     const groupId = row.group_id;
+
+    if (typeof groupId !== 'string') {
+      return;
+    }
+
+    if (remoteGroups.some((group) => group.id === groupId)) {
+      refreshMyGroups();
+    }
+
+    if (groupId in groupMembers) {
+      refreshGroupMembers(groupId);
+    }
+  };
+
+  // Handles name/description/visibility/owner_id changes (update_group, transfer_group_ownership).
+  // Role changes (promote/demote/remove) touch group_members instead, already covered by
+  // handleGroupMembersChange above — no overlap. Always re-fetches rather than patching in place:
+  // a raw groups-table row doesn't carry my_role/member_count/last_message_*/unread_count (those
+  // are only computed by get_my_groups()), and after an ownership transfer my_role itself may have
+  // changed too, so a full refreshMyGroups() is the only way to stay correct.
+  const handleGroupsRowChange = (payload: GroupsRealtimeChangePayload) => {
+    const row = payload.new && Object.keys(payload.new).length > 0 ? payload.new : payload.old;
+    const groupId = row.id;
 
     if (typeof groupId !== 'string') {
       return;
@@ -1156,6 +1394,8 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
   handleGroupMembersChangeRef.current = handleGroupMembersChange;
   const handleGroupJoinRequestChangeRef = useRef(handleGroupJoinRequestChange);
   handleGroupJoinRequestChangeRef.current = handleGroupJoinRequestChange;
+  const handleGroupsRowChangeRef = useRef(handleGroupsRowChange);
+  handleGroupsRowChangeRef.current = handleGroupsRowChange;
 
   useEffect(() => {
     if (!authUserId) {
@@ -1175,6 +1415,10 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'group_join_requests' }, (payload) => {
         if (!isCurrent) return;
         handleGroupJoinRequestChangeRef.current(payload as unknown as GroupsRealtimeChangePayload);
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'groups' }, (payload) => {
+        if (!isCurrent) return;
+        handleGroupsRowChangeRef.current(payload as unknown as GroupsRealtimeChangePayload);
       })
       .subscribe((status) => {
         if (!isCurrent) return;
@@ -1278,6 +1522,11 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
       joinPublicGroup,
       requestPrivateGroupJoin,
       cancelJoinRequest,
+      updateGroup,
+      removeGroupMember,
+      promoteGroupMember,
+      demoteGroupAdmin,
+      transferGroupOwnership,
       groupMembers,
       isGroupMembersLoading,
       groupMembersError,

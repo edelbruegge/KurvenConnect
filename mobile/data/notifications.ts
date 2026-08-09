@@ -17,13 +17,24 @@ export type NotificationType =
   | 'trip_request_accepted'
   | 'trip_request_rejected'
   | 'meetup_joined'
-  | 'meetup_left';
+  | 'meetup_left'
+  // Group event types — see supabase/migrations/20260813120000_add_group_notifications.sql.
+  // Only ever created for source==='supabase' groups; local seed groups never generate these.
+  | 'group_message'
+  | 'group_join_request'
+  | 'group_join_accepted'
+  | 'group_join_rejected'
+  | 'group_admin_promoted'
+  | 'group_admin_demoted'
+  | 'group_member_removed'
+  | 'group_ownership_transferred';
 
 export type NotificationReference =
   | { type: 'post' | 'trip' | 'request'; id: string }
   | { type: 'meetup'; id: string }
   | { type: 'profile'; id: string }
   | { type: 'conversation'; id: string }
+  | { type: 'group'; id: string }
   | null;
 
 export type AppNotification = {
@@ -32,6 +43,9 @@ export type AppNotification = {
   actorId?: string;
   type: NotificationType;
   text: string;
+  // Set only for source:'supabase' notifications with a stored title (currently the group event
+  // types) — never overwrites the existing body-only display used by other types.
+  title?: string;
   reference: NotificationReference;
   createdAt: string;
   read: boolean;

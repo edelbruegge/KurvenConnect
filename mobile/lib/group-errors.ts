@@ -7,11 +7,15 @@ const BLOCKED_MESSAGE = 'Diese Aktion ist derzeit nicht möglich.';
 /**
  * Translates Postgrest/Supabase errors from the group RPCs (create_group, join_public_group,
  * request_private_group_join, manage_group_join_request, cancel_group_join_request, leave_group,
- * get_my_groups, get_group_suggestions, get_group_detail) into short, user-facing German text.
- * `context` picks the right generic fallback wording. Never surfaces the raw technical message in
- * the UI.
+ * get_my_groups, get_group_suggestions, get_group_detail, update_group, remove_group_member,
+ * promote_group_member, demote_group_admin, transfer_group_ownership) into short, user-facing
+ * German text. `context` picks the right generic fallback wording. Never surfaces the raw
+ * technical message in the UI.
  */
-export function mapGroupError(error: unknown, context: 'load' | 'create' | 'join' | 'request' | 'manage' | 'cancel' | 'leave'): string {
+export function mapGroupError(
+  error: unknown,
+  context: 'load' | 'create' | 'join' | 'request' | 'manage' | 'cancel' | 'leave' | 'update' | 'removeMember' | 'promote' | 'demote' | 'transferOwnership',
+): string {
   const rawMessage = error instanceof Error ? error.message : String((error as { message?: string })?.message ?? error ?? '');
   const message = rawMessage.toLowerCase();
 
@@ -32,7 +36,15 @@ export function mapGroupError(error: unknown, context: 'load' | 'create' | 'join
               ? 'Die Anfrage konnte nicht bearbeitet werden.'
               : context === 'cancel'
                 ? 'Die Anfrage konnte nicht zurückgezogen werden.'
-                : 'Die Gruppe konnte nicht verlassen werden.';
+                : context === 'leave'
+                  ? 'Die Gruppe konnte nicht verlassen werden.'
+                  : context === 'update'
+                    ? 'Die Gruppe konnte nicht aktualisiert werden.'
+                    : context === 'removeMember'
+                      ? 'Das Mitglied konnte nicht entfernt werden.'
+                      : context === 'promote' || context === 'demote'
+                        ? 'Die Adminrechte konnten nicht geändert werden.'
+                        : 'Die Gruppeninhaberschaft konnte nicht übertragen werden.';
 
   if (!message) {
     return genericMessage;
@@ -86,12 +98,42 @@ export function mapGroupError(error: unknown, context: 'load' | 'create' | 'join
     return 'Diese Anfrage wurde bereits bearbeitet.';
   }
 
-  if (message.includes('not a group admin') || message.includes('row-level security') || message.includes('permission denied')) {
+  if (
+    message.includes('not a group admin') ||
+    message.includes('not the group owner') ||
+    message.includes('not authorized') ||
+    message.includes('row-level security') ||
+    message.includes('permission denied')
+  ) {
     return NOT_AUTHORIZED_MESSAGE;
   }
 
   if (message.includes('owner cannot leave the group')) {
     return 'Als Gruppenadmin kannst du die Gruppe derzeit nicht verlassen.';
+  }
+
+  if (message.includes('cannot remove owner')) {
+    return 'Der Gruppeninhaber kann nicht entfernt werden.';
+  }
+
+  if (message.includes('cannot demote owner') || message.includes('target is owner')) {
+    return 'Der Gruppeninhaber kann nicht verändert werden.';
+  }
+
+  if (message.includes('use leave_group instead') || message.includes('cannot transfer to yourself')) {
+    return 'Diese Aktion ist für dich selbst nicht möglich.';
+  }
+
+  if (message.includes('target already admin')) {
+    return 'Dieses Mitglied ist bereits Admin.';
+  }
+
+  if (message.includes('target not admin')) {
+    return 'Dieses Mitglied ist kein Admin.';
+  }
+
+  if (message.includes('target not a member')) {
+    return 'Dieses Mitglied ist nicht mehr Teil der Gruppe.';
   }
 
   if (message.includes('not a member')) {
