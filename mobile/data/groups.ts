@@ -24,6 +24,33 @@ export type Group = {
   // Only ever set for source:'supabase' groups.
   memberCount?: number;
   myRole?: GroupRole;
+  // Chat preview fields for "Nachrichten -> Gruppen" — only ever set for source:'supabase' groups
+  // (populated by get_my_groups()). Local seed groups derive their preview from
+  // seedGroupMessages/getLocalGroupMessages directly, not from these fields.
+  lastMessagePreview?: string;
+  lastMessageAt?: string;
+  lastMessageAtIso?: string;
+  lastMessageSenderId?: string;
+  unreadCount?: number;
+};
+
+// A single group chat message — local (seed groups, in-memory) or remote (public.group_messages).
+// Deliberately separate from Message (data/messages.ts, direct 1:1 chats) — group chat and direct
+// chat never share a data model or storage.
+export type GroupMessage = {
+  id: string;
+  groupId: string;
+  senderId: string;
+  text: string;
+  createdAt: string;
+  // 'local' for seed/in-memory group messages, 'supabase' for rows loaded from
+  // public.group_messages. Defaults to 'local' when absent, same convention as Message.source.
+  source?: 'local' | 'supabase';
+  // Raw ISO timestamp, set only for source:'supabase' messages — used for chronological
+  // merge/dedup safety, same convention as Message.createdAtIso.
+  createdAtIso?: string;
+  // Set only for source:'supabase' messages sent with a client-generated idempotency token.
+  clientMessageId?: string;
 };
 
 // The number of members to display for a group card/detail header — local groups derive this
@@ -157,5 +184,39 @@ export const seedGroupJoinRequests: GroupJoinRequest[] = [
     userId: 'user-luca-r',
     status: 'pending',
     createdAt: 'vor 2 Std.',
+  },
+];
+
+// A minimal local group chat for two of the five seed groups — kept intentionally small (this is
+// demo/local-only content, not a feature to build out further here). Local group chats never touch
+// Supabase and are never migrated into public.group_messages.
+export const seedGroupMessages: GroupMessage[] = [
+  {
+    id: 'group-message-1-1',
+    groupId: 'group-1',
+    senderId: 'user-david-s',
+    text: 'Wer ist am Samstag beim Auswärtsspiel dabei?',
+    createdAt: 'vor 3 Std.',
+  },
+  {
+    id: 'group-message-1-2',
+    groupId: 'group-1',
+    senderId: CURRENT_USER_ID,
+    text: 'Ich bin dabei, Abfahrt wie immer am Hauptbahnhof?',
+    createdAt: 'vor 2 Std.',
+  },
+  {
+    id: 'group-message-1-3',
+    groupId: 'group-1',
+    senderId: 'user-sina-p',
+    text: 'Genau, 9 Uhr am Hauptbahnhof.',
+    createdAt: 'vor 1 Std.',
+  },
+  {
+    id: 'group-message-5-1',
+    groupId: 'group-5',
+    senderId: CURRENT_USER_ID,
+    text: 'Willkommen in der Blockrunde!',
+    createdAt: 'vor 3 Wochen',
   },
 ];

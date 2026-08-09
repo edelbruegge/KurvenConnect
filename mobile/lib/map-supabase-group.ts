@@ -12,6 +12,10 @@ export type SupabaseGroupMembershipRow = {
   updated_at: string;
   my_role: string;
   member_count: number;
+  last_message_body: string | null;
+  last_message_at: string | null;
+  last_message_sender_id: string | null;
+  unread_count: number;
 };
 
 // A row from get_group_suggestions() — deliberately narrower, no owner_id.
@@ -70,6 +74,11 @@ export function mapSupabaseGroupMembershipRow(row: SupabaseGroupMembershipRow): 
     source: 'supabase',
     memberCount: row.member_count,
     myRole: row.my_role as Group['myRole'],
+    lastMessagePreview: row.last_message_body ?? undefined,
+    lastMessageAt: row.last_message_at ? formatRelativeGermanTime(row.last_message_at) : undefined,
+    lastMessageAtIso: row.last_message_at ?? undefined,
+    lastMessageSenderId: row.last_message_sender_id ?? undefined,
+    unreadCount: row.unread_count,
   };
 }
 

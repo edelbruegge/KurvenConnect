@@ -10,7 +10,7 @@ import { CURRENT_USER_ID } from '@/data/users';
 
 export function GroupsOverview() {
   const router = useRouter();
-  const { getMyGroups, getMyPendingJoinRequests, myJoinRequests, cancelJoinRequest, isGroupActionSubmitting } = useGroups();
+  const { getMyGroups, getMyPendingJoinRequests, myJoinRequests, cancelJoinRequest, isGroupActionSubmitting, getLocalGroupMessages } = useGroups();
   const [cancellingId, setCancellingId] = useState<string | null>(null);
 
   const myGroups = getMyGroups();
@@ -53,6 +53,12 @@ export function GroupsOverview() {
         ) : (
           myGroups.map((group: Group) => {
             const isOwner = group.ownerId === CURRENT_USER_ID;
+            const isRemoteGroup = group.source === 'supabase';
+            const localMessages = isRemoteGroup ? [] : getLocalGroupMessages(group.id);
+            const lastLocalMessage = localMessages[localMessages.length - 1];
+            const lastMessagePreview = isRemoteGroup ? group.lastMessagePreview : lastLocalMessage?.text;
+            const lastMessageAt = isRemoteGroup ? group.lastMessageAt : lastLocalMessage?.createdAt;
+            const unreadCount = isRemoteGroup ? (group.unreadCount ?? 0) : 0;
 
             return (
               <Pressable key={group.id} onPress={() => handleOpenGroup(group.id)} style={styles.card}>
@@ -69,6 +75,19 @@ export function GroupsOverview() {
                 <Text style={styles.cardDescription} numberOfLines={2}>
                   {group.description}
                 </Text>
+                {lastMessagePreview ? (
+                  <View style={styles.cardChatPreviewRow}>
+                    <Text style={styles.cardChatPreviewText} numberOfLines={1}>
+                      {lastMessagePreview}
+                      {lastMessageAt ? ` · ${lastMessageAt}` : ''}
+                    </Text>
+                    {unreadCount > 0 ? (
+                      <View style={styles.unreadBadge}>
+                        <Text style={styles.unreadBadgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                ) : null}
                 <View style={styles.cardFooter}>
                   <IconSymbol size={14} name="person.3.fill" color={FeedColors.textSecondary} />
                   <Text style={styles.cardFooterText}>{getGroupMemberCount(group)} Mitglieder</Text>
@@ -200,6 +219,31 @@ const styles = StyleSheet.create({
   cardFooterText: {
     color: FeedColors.textSecondary,
     fontSize: FontSizes.meta,
+  },
+  cardChatPreviewRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    marginTop: Spacing.xs,
+  },
+  cardChatPreviewText: {
+    flex: 1,
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.meta,
+  },
+  unreadBadge: {
+    minWidth: 20,
+    height: 20,
+    paddingHorizontal: 6,
+    borderRadius: Radii.round,
+    backgroundColor: ClubColors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  unreadBadgeText: {
+    color: ClubColors.secondary,
+    fontSize: 11,
+    fontWeight: '700',
   },
   memberBadge: {
     backgroundColor: ClubColors.surface,

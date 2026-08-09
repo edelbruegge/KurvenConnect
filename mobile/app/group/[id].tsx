@@ -156,6 +156,10 @@ export default function GroupDetailScreen() {
     router.push({ pathname: '/group/[id]/members', params: { id: group.id } });
   };
 
+  const handleOpenChat = () => {
+    router.push({ pathname: '/group/[id]/chat', params: { id: group.id } });
+  };
+
   const handleJoinAction = () => {
     if (group.visibility === 'public') {
       joinGroup(group.id);
@@ -238,6 +242,13 @@ export default function GroupDetailScreen() {
             <Text style={styles.membersRowText}>{getGroupMemberCount(group)} Mitglieder anzeigen</Text>
             <IconSymbol size={16} name="chevron.right" color={FeedColors.textSecondary} />
           </Pressable>
+
+          {member ? (
+            <Pressable onPress={handleOpenChat} style={styles.chatButton} accessibilityRole="button" accessibilityLabel="Gruppenchat öffnen">
+              <IconSymbol size={18} name="message" color={ClubColors.secondary} />
+              <Text style={styles.chatButtonText}>Chat öffnen</Text>
+            </Pressable>
+          ) : null}
 
           {leaveError ? <Text style={styles.errorText}>{leaveError}</Text> : null}
 
@@ -439,6 +450,21 @@ const styles = StyleSheet.create({
     color: FeedColors.textSecondary,
     fontSize: FontSizes.body,
     fontWeight: '600',
+  },
+  chatButton: {
+    marginTop: Spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.xs,
+    backgroundColor: ClubColors.primary,
+    borderRadius: Radii.round,
+    paddingVertical: Spacing.sm,
+  },
+  chatButtonText: {
+    color: ClubColors.secondary,
+    fontSize: FontSizes.body,
+    fontWeight: '700',
   },
   actionButton: {
     marginTop: Spacing.md,
