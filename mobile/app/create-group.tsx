@@ -11,14 +11,12 @@ type CreateGroupFormState = {
   name: string;
   description: string;
   visibility: GroupVisibility;
-  city: string;
 };
 
 const initialFormState: CreateGroupFormState = {
   name: '',
   description: '',
   visibility: 'public',
-  city: '',
 };
 
 export default function CreateGroupScreen() {
@@ -26,6 +24,7 @@ export default function CreateGroupScreen() {
   const { createGroup } = useGroups();
   const [form, setForm] = useState<CreateGroupFormState>(initialFormState);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
 
   useEffect(() => {
@@ -44,7 +43,11 @@ export default function CreateGroupScreen() {
 
   const isFormValid = () => form.name.trim().length >= 3 && form.description.trim().length >= 5;
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
+    if (isSubmitting) {
+      return;
+    }
+
     if (form.name.trim().length < 3) {
       setErrorMessage('Der Gruppenname muss mindestens 3 Zeichen lang sein.');
       return;
@@ -55,15 +58,23 @@ export default function CreateGroupScreen() {
       return;
     }
 
-    const newGroupId = createGroup({
+    setIsSubmitting(true);
+    setErrorMessage(null);
+
+    const { id, error } = await createGroup({
       name: form.name,
       description: form.description,
       visibility: form.visibility,
-      city: form.city,
     });
 
-    setErrorMessage(null);
-    router.replace({ pathname: '/group/[id]', params: { id: newGroupId } });
+    setIsSubmitting(false);
+
+    if (error || !id) {
+      setErrorMessage(error ?? 'Die Gruppe konnte nicht erstellt werden.');
+      return;
+    }
+
+    router.replace({ pathname: '/group/[id]', params: { id } });
   };
 
   return (
@@ -72,7 +83,7 @@ export default function CreateGroupScreen() {
         <Pressable style={{ flex: 1 }} onPress={dismissKeyboardOnNative}>
           <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
             <Text style={styles.title}>Neue Gruppe erstellen</Text>
-            <Text style={styles.subtitle}>Erstelle eine lokale Gruppe rund um Arminia Bielefeld.</Text>
+            <Text style={styles.subtitle}>Erstelle eine Gruppe rund um Arminia Bielefeld.</Text>
 
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Name</Text>
@@ -84,6 +95,7 @@ export default function CreateGroupScreen() {
                 style={styles.textInput}
                 returnKeyType="done"
                 onSubmitEditing={() => Keyboard.dismiss()}
+                maxLength={100}
               />
             </View>
 
@@ -98,6 +110,7 @@ export default function CreateGroupScreen() {
                 placeholderTextColor={FeedColors.textSecondary}
                 style={styles.textInput}
                 textAlignVertical="top"
+                maxLength={2000}
               />
             </View>
 
@@ -119,23 +132,14 @@ export default function CreateGroupScreen() {
               </View>
             </View>
 
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Ort (optional)</Text>
-              <TextInput
-                value={form.city}
-                onChangeText={(value) => updateField('city', value)}
-                placeholder="z. B. Bielefeld"
-                placeholderTextColor={FeedColors.textSecondary}
-                style={styles.textInput}
-                returnKeyType="done"
-                onSubmitEditing={() => Keyboard.dismiss()}
-              />
-            </View>
-
             {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
 
-            <Pressable onPress={handleSubmit} disabled={!isFormValid()} style={[styles.submitButton, !isFormValid() && styles.submitButtonDisabled]}>
-              <Text style={styles.submitButtonText}>Gruppe erstellen</Text>
+            <Pressable
+              onPress={() => void handleSubmit()}
+              disabled={!isFormValid() || isSubmitting}
+              style={[styles.submitButton, (!isFormValid() || isSubmitting) && styles.submitButtonDisabled]}
+            >
+              <Text style={styles.submitButtonText}>{isSubmitting ? 'Wird erstellt …' : 'Gruppe erstellen'}</Text>
             </Pressable>
 
             {keyboardVisible ? (

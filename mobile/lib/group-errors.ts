@@ -5,12 +5,13 @@ const NOT_AUTHORIZED_MESSAGE = 'Du bist nicht berechtigt, diese Aktion auszufüh
 const BLOCKED_MESSAGE = 'Diese Aktion ist derzeit nicht möglich.';
 
 /**
- * Translates Postgrest/Supabase errors from the group RPCs (join_public_group,
+ * Translates Postgrest/Supabase errors from the group RPCs (create_group, join_public_group,
  * request_private_group_join, manage_group_join_request, cancel_group_join_request, leave_group,
- * get_my_groups, get_group_suggestions) into short, user-facing German text. `context` picks the
- * right generic fallback wording. Never surfaces the raw technical message in the UI.
+ * get_my_groups, get_group_suggestions, get_group_detail) into short, user-facing German text.
+ * `context` picks the right generic fallback wording. Never surfaces the raw technical message in
+ * the UI.
  */
-export function mapGroupError(error: unknown, context: 'load' | 'join' | 'request' | 'manage' | 'cancel' | 'leave'): string {
+export function mapGroupError(error: unknown, context: 'load' | 'create' | 'join' | 'request' | 'manage' | 'cancel' | 'leave'): string {
   const rawMessage = error instanceof Error ? error.message : String((error as { message?: string })?.message ?? error ?? '');
   const message = rawMessage.toLowerCase();
 
@@ -21,15 +22,17 @@ export function mapGroupError(error: unknown, context: 'load' | 'join' | 'reques
   const genericMessage =
     context === 'load'
       ? 'Die Gruppen konnten nicht geladen werden.'
-      : context === 'join'
-        ? 'Der Beitritt konnte nicht gespeichert werden.'
-        : context === 'request'
-          ? 'Die Beitrittsanfrage konnte nicht gesendet werden.'
-          : context === 'manage'
-            ? 'Die Anfrage konnte nicht bearbeitet werden.'
-            : context === 'cancel'
-              ? 'Die Anfrage konnte nicht zurückgezogen werden.'
-              : 'Die Gruppe konnte nicht verlassen werden.';
+      : context === 'create'
+        ? 'Die Gruppe konnte nicht erstellt werden.'
+        : context === 'join'
+          ? 'Der Beitritt konnte nicht gespeichert werden.'
+          : context === 'request'
+            ? 'Die Beitrittsanfrage konnte nicht gesendet werden.'
+            : context === 'manage'
+              ? 'Die Anfrage konnte nicht bearbeitet werden.'
+              : context === 'cancel'
+                ? 'Die Anfrage konnte nicht zurückgezogen werden.'
+                : 'Die Gruppe konnte nicht verlassen werden.';
 
   if (!message) {
     return genericMessage;
@@ -41,6 +44,18 @@ export function mapGroupError(error: unknown, context: 'load' | 'join' | 'reques
 
   if (message.includes('blocked:')) {
     return BLOCKED_MESSAGE;
+  }
+
+  if (message.includes('invalid name') || message.includes('name too long')) {
+    return 'Bitte gib einen gültigen Gruppennamen ein.';
+  }
+
+  if (message.includes('description too long')) {
+    return 'Die Beschreibung ist zu lang.';
+  }
+
+  if (message.includes('invalid visibility')) {
+    return 'Bitte wähle eine gültige Sichtbarkeit.';
   }
 
   if (message.includes('group not found')) {

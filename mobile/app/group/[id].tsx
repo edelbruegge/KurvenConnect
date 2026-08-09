@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Avatar } from '@/components/feed/avatar';
@@ -13,7 +13,7 @@ import { useGroups } from '@/context/groups-context';
 import { useModeration } from '@/context/moderation-context';
 import { useProfiles } from '@/context/profile-context';
 import { useReports } from '@/context/reports-context';
-import { getGroupMemberCount } from '@/data/groups';
+import { getGroupMemberCount, isPlausibleRemoteGroupId } from '@/data/groups';
 import { useSafetySelectors } from '@/hooks/use-safety-selectors';
 import { supabase } from '@/lib/supabase';
 
@@ -33,6 +33,7 @@ export default function GroupDetailScreen() {
     incomingJoinRequests,
     refreshIncomingRequestsForGroup,
     isGroupActionSubmitting,
+    fetchGroupDetail,
   } = useGroups();
   const { currentUser, getUserById } = useProfiles();
   const { hasReported } = useReports();
@@ -44,9 +45,40 @@ export default function GroupDetailScreen() {
   const [requestActionError, setRequestActionError] = useState<string | null>(null);
   const [processingRequestId, setProcessingRequestId] = useState<string | null>(null);
   const [remoteMemberNames, setRemoteMemberNames] = useState<Record<string, string>>({});
+  const [isCheckingGroupDetail, setIsCheckingGroupDetail] = useState(false);
+  const [groupDetailError, setGroupDetailError] = useState<string | null>(null);
 
   const group = params.id ? getGroupById(params.id) : undefined;
   const isRemoteAdmin = group?.source === 'supabase' && group.myRole === 'admin';
+
+  // A remote group not already resolvable locally (i.e. not among the ones the account is a
+  // member of, per get_my_groups()) gets one targeted get_group_detail() lookup — this is what
+  // distinguishes "this group doesn't exist" from "you are not a member of it" precisely, without
+  // granting a general existence-check for arbitrary ids. Never runs for a local seed id.
+  useEffect(() => {
+    if (group || !params.id || !isPlausibleRemoteGroupId(params.id)) {
+      return;
+    }
+
+    let isCurrent = true;
+    setIsCheckingGroupDetail(true);
+    setGroupDetailError(null);
+
+    fetchGroupDetail(params.id).then(({ error }) => {
+      if (!isCurrent) return;
+
+      setIsCheckingGroupDetail(false);
+
+      if (error) {
+        setGroupDetailError(error);
+      }
+    });
+
+    return () => {
+      isCurrent = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.id, group?.id]);
 
   useEffect(() => {
     if (isRemoteAdmin && group) {
@@ -88,7 +120,24 @@ export default function GroupDetailScreen() {
   }, [unresolvedRequesterIdsKey]);
 
   if (!group) {
-    return <NotFoundView title="Gruppe nicht gefunden" message="Die angeforderte Gruppe konnte nicht gefunden werden." />;
+    if (isCheckingGroupDetail) {
+      return (
+        <SafeAreaView style={styles.loadingSafeArea}>
+          <View style={styles.loadingContent}>
+            <ActivityIndicator size="large" color={FeedColors.textPrimary} />
+          </View>
+        </SafeAreaView>
+      );
+    }
+
+    const isMembershipError = groupDetailError === 'Du bist kein Mitglied dieser Gruppe.';
+
+    return (
+      <NotFoundView
+        title={isMembershipError ? 'Kein Zugriff' : 'Gruppe nicht gefunden'}
+        message={groupDetailError ?? 'Die angeforderte Gruppe konnte nicht gefunden werden.'}
+      />
+    );
   }
 
   if (isModeratedAway('group', group.id, group.ownerId)) {
@@ -308,6 +357,15 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: FeedColors.background,
+  },
+  loadingSafeArea: {
+    flex: 1,
+    backgroundColor: FeedColors.background,
+  },
+  loadingContent: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   scroll: {
     flex: 1,

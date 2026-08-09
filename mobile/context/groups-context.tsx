@@ -1,24 +1,31 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 
 import { useAuth } from '@/context/auth-context';
 import {
   getGroupMemberCount,
+  isPlausibleRemoteGroupId,
   seedGroupJoinRequests,
   seedGroups,
   type Group,
   type GroupJoinRequest,
   type GroupJoinRequestRecord,
   type GroupJoinRequestStatus,
+  type GroupMemberRecord,
   type GroupSuggestion,
   type GroupVisibility,
 } from '@/data/groups';
 import { CURRENT_USER_ID } from '@/data/users';
 import { mapGroupError } from '@/lib/group-errors';
 import {
+  mapSupabaseGroupDetailResponse,
   mapSupabaseGroupJoinRequestRow,
+  mapSupabaseGroupMemberRow,
   mapSupabaseGroupMembershipRow,
   mapSupabaseGroupSuggestionRow,
+  type SupabaseGroupDetailResponse,
   type SupabaseGroupJoinRequestRow,
+  type SupabaseGroupMemberRow,
   type SupabaseGroupMembershipRow,
   type SupabaseGroupSuggestionRow,
 } from '@/lib/map-supabase-group';
@@ -28,10 +35,18 @@ type CreateGroupInput = {
   name: string;
   description: string;
   visibility: GroupVisibility;
-  city?: string;
 };
 
 type ActionResult = { error: string | null };
+
+type RealtimeStatus = 'idle' | 'connecting' | 'subscribed' | 'reconnecting' | 'error' | 'closed';
+
+// A minimal structural view of the postgres_changes payload — only the fields the handlers below
+// actually read, same approach as ModerationContext/FeedPostsContext.
+type GroupsRealtimeChangePayload = {
+  new: Record<string, unknown>;
+  old: Record<string, unknown>;
+};
 
 type GroupsContextValue = {
   groups: Group[];
@@ -41,7 +56,7 @@ type GroupsContextValue = {
   isMember: (groupId: string) => boolean;
   joinGroup: (groupId: string) => void;
   leaveGroup: (groupId: string) => Promise<ActionResult>;
-  createGroup: (input: CreateGroupInput) => string;
+  createGroup: (input: CreateGroupInput) => Promise<{ id: string | null; error: string | null }>;
   requestToJoin: (groupId: string) => void;
   getJoinRequestStatus: (groupId: string) => GroupJoinRequestStatus | null;
   getPendingRequestsForGroup: (groupId: string) => GroupJoinRequest[];
@@ -66,6 +81,19 @@ type GroupsContextValue = {
   joinPublicGroup: (groupId: string) => Promise<ActionResult>;
   requestPrivateGroupJoin: (groupId: string) => Promise<ActionResult>;
   cancelJoinRequest: (requestId: string) => Promise<ActionResult>;
+
+  // Member list for a single remote group, loaded on demand (never eagerly for every group).
+  groupMembers: Record<string, GroupMemberRecord[]>;
+  isGroupMembersLoading: boolean;
+  groupMembersError: string | null;
+  refreshGroupMembers: (groupId: string) => void;
+
+  // Targeted single-group fetch (get_group_detail) — used by the route guard to distinguish "this
+  // group doesn't exist" from "you are not a member of it", and to refresh a single group's own
+  // data without reloading the whole get_my_groups() list.
+  fetchGroupDetail: (groupId: string) => Promise<{ group: Group | null; error: string | null }>;
+
+  groupsRealtimeStatus: RealtimeStatus;
 };
 
 const GroupsContext = createContext<GroupsContextValue | undefined>(undefined);
@@ -96,24 +124,6 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
           : group,
       ),
     );
-  };
-
-  const createGroup = (input: CreateGroupInput): string => {
-    const newGroup: Group = {
-      id: `group-temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      name: input.name.trim(),
-      description: input.description.trim(),
-      clubName: 'Arminia Bielefeld',
-      city: input.city?.trim() || undefined,
-      ownerId: CURRENT_USER_ID,
-      memberIds: [CURRENT_USER_ID],
-      createdAt: 'gerade eben',
-      visibility: input.visibility,
-    };
-
-    setLocalGroups((current) => [newGroup, ...current]);
-
-    return newGroup.id;
   };
 
   const getJoinRequestStatus = (groupId: string): GroupJoinRequestStatus | null => {
@@ -221,6 +231,52 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
     setRemoteGroupsReloadToken((token) => token + 1);
   };
 
+  const createGroup = async (input: CreateGroupInput): Promise<{ id: string | null; error: string | null }> => {
+    const { data, error } = await supabase.rpc('create_group', {
+      p_name: input.name,
+      p_description: input.description.trim() || null,
+      p_visibility: input.visibility,
+    });
+
+    if (error) {
+      return { id: null, error: mapGroupError(error, 'create') };
+    }
+
+    const mapped = mapSupabaseGroupMembershipRow({
+      ...(data as { id: string; owner_id: string; name: string; description: string | null; visibility: string; created_at: string; updated_at: string }),
+      my_role: 'admin',
+      member_count: 1,
+    });
+
+    setRemoteGroups((current) => [mapped, ...current]);
+
+    return { id: mapped.id, error: null };
+  };
+
+  // Targeted single-group fetch — used by the route guard (distinguishes "not found" from "not a
+  // member") and to refresh one group's own data without reloading the whole list. Never sends a
+  // local seed id to the RPC.
+  const fetchGroupDetail = async (groupId: string): Promise<{ group: Group | null; error: string | null }> => {
+    if (!isPlausibleRemoteGroupId(groupId)) {
+      return { group: null, error: 'Diese Gruppe ist nicht mehr verfügbar.' };
+    }
+
+    const { data, error } = await supabase.rpc('get_group_detail', { p_group_id: groupId });
+
+    if (error) {
+      return { group: null, error: mapGroupError(error, 'load') };
+    }
+
+    const mapped = mapSupabaseGroupDetailResponse(data as SupabaseGroupDetailResponse);
+
+    setRemoteGroups((current) => {
+      const exists = current.some((group) => group.id === mapped.id);
+      return exists ? current.map((group) => (group.id === mapped.id ? mapped : group)) : [mapped, ...current];
+    });
+
+    return { group: mapped, error: null };
+  };
+
   // --- Group suggestions (get_group_suggestions). ---
   const [groupSuggestions, setGroupSuggestions] = useState<GroupSuggestion[]>([]);
   const [isGroupSuggestionsLoading, setIsGroupSuggestionsLoading] = useState(false);
@@ -266,6 +322,7 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
 
   // --- My own pending join requests. ---
   const [myJoinRequests, setMyJoinRequests] = useState<GroupJoinRequestRecord[]>([]);
+  const [myJoinRequestsReloadToken, setMyJoinRequestsReloadToken] = useState(0);
 
   useEffect(() => {
     if (!authUserId) {
@@ -294,7 +351,11 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
     return () => {
       isCurrent = false;
     };
-  }, [authUserId]);
+  }, [authUserId, myJoinRequestsReloadToken]);
+
+  const refreshMyJoinRequests = () => {
+    setMyJoinRequestsReloadToken((token) => token + 1);
+  };
 
   // --- Incoming join requests for groups I administer — loaded on demand only, never eagerly for
   // every admin group. ---
@@ -320,10 +381,59 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
       });
   };
 
+  // --- Member list for a single group, loaded on demand only (never eagerly for every group). ---
+  const [groupMembers, setGroupMembers] = useState<Record<string, GroupMemberRecord[]>>({});
+  const [isGroupMembersLoading, setIsGroupMembersLoading] = useState(false);
+  const [groupMembersError, setGroupMembersError] = useState<string | null>(null);
+
+  const refreshGroupMembers = (groupId: string) => {
+    if (!authUserId) {
+      return;
+    }
+
+    setIsGroupMembersLoading(true);
+    setGroupMembersError(null);
+
+    supabase
+      .from('group_members')
+      .select('user_id, role, joined_at')
+      .eq('group_id', groupId)
+      .then(async ({ data, error }) => {
+        if (error) {
+          setGroupMembersError(mapGroupError(error, 'load'));
+          setIsGroupMembersLoading(false);
+          return;
+        }
+
+        const rows = (data ?? []) as SupabaseGroupMemberRow[];
+
+        if (rows.length === 0) {
+          setGroupMembers((current) => ({ ...current, [groupId]: [] }));
+          setIsGroupMembersLoading(false);
+          return;
+        }
+
+        const userIds = rows.map((row) => row.user_id);
+        const { data: profileRows } = await supabase.from('profiles').select('id, display_name').in('id', userIds);
+
+        const displayNameById: Record<string, string> = {};
+        ((profileRows ?? []) as { id: string; display_name: string | null }[]).forEach((row) => {
+          displayNameById[row.id] = row.display_name?.trim() || 'Neues Mitglied';
+        });
+
+        const mapped = rows.map((row) => mapSupabaseGroupMemberRow(row, displayNameById[row.user_id] ?? 'Unbekanntes Mitglied'));
+        setGroupMembers((current) => ({ ...current, [groupId]: mapped }));
+        setIsGroupMembersLoading(false);
+      });
+  };
+
   // --- Reset everything remote on logout/account switch. ---
   useEffect(() => {
     if (!authUserId) {
       setIncomingJoinRequests({});
+      setGroupMembers({});
+      setGroupMembersError(null);
+      setIsGroupMembersLoading(false);
     }
   }, [authUserId]);
 
@@ -537,6 +647,133 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  // --- Realtime: group_members + group_join_requests, one channel per signed-in user. RLS on
+  // both tables already scopes delivery to "my own groups' membership"/"my own
+  // requests"/"requests for groups I admin" — no policy change was needed to add this. On any
+  // relevant change this simply re-triggers the matching existing refresh function rather than
+  // patching state in place (group sizes in this app are small, a full re-fetch is simple and
+  // safe) — same reasoning as ModerationContext's reports/content_restrictions channel. ---
+  const [groupsRealtimeStatus, setGroupsRealtimeStatus] = useState<RealtimeStatus>('idle');
+  const [groupsRealtimeReconnectToken, setGroupsRealtimeReconnectToken] = useState(0);
+  const groupsRealtimeStatusRef = useRef<RealtimeStatus>('idle');
+
+  useEffect(() => {
+    groupsRealtimeStatusRef.current = groupsRealtimeStatus;
+  }, [groupsRealtimeStatus]);
+
+  const handleGroupMembersChange = (payload: GroupsRealtimeChangePayload) => {
+    const row = payload.new && Object.keys(payload.new).length > 0 ? payload.new : payload.old;
+    const groupId = row.group_id;
+
+    if (typeof groupId !== 'string') {
+      return;
+    }
+
+    if (remoteGroups.some((group) => group.id === groupId)) {
+      refreshMyGroups();
+    }
+
+    if (groupId in groupMembers) {
+      refreshGroupMembers(groupId);
+    }
+  };
+
+  const handleGroupJoinRequestChange = (payload: GroupsRealtimeChangePayload) => {
+    const row = payload.new && Object.keys(payload.new).length > 0 ? payload.new : payload.old;
+    const groupId = row.group_id;
+    const requesterId = row.requester_id;
+    const status = row.status;
+
+    if (typeof groupId !== 'string') {
+      return;
+    }
+
+    if (typeof requesterId === 'string' && requesterId === authUserId) {
+      refreshMyJoinRequests();
+
+      if (status === 'accepted') {
+        refreshMyGroups();
+      }
+    }
+
+    if (groupId in incomingJoinRequests) {
+      refreshIncomingRequestsForGroup(groupId);
+    }
+  };
+
+  // Ref indirection so the long-lived channel subscription always calls the latest closures
+  // without needing to reconnect the channel on every state change — same pattern already used in
+  // ModerationContext/FeedPostsContext.
+  const handleGroupMembersChangeRef = useRef(handleGroupMembersChange);
+  handleGroupMembersChangeRef.current = handleGroupMembersChange;
+  const handleGroupJoinRequestChangeRef = useRef(handleGroupJoinRequestChange);
+  handleGroupJoinRequestChangeRef.current = handleGroupJoinRequestChange;
+
+  useEffect(() => {
+    if (!authUserId) {
+      setGroupsRealtimeStatus('idle');
+      return;
+    }
+
+    let isCurrent = true;
+    setGroupsRealtimeStatus((current) => (current === 'error' || current === 'closed' ? 'reconnecting' : 'connecting'));
+
+    const channel = supabase
+      .channel(`groups:${authUserId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'group_members' }, (payload) => {
+        if (!isCurrent) return;
+        handleGroupMembersChangeRef.current(payload as unknown as GroupsRealtimeChangePayload);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'group_join_requests' }, (payload) => {
+        if (!isCurrent) return;
+        handleGroupJoinRequestChangeRef.current(payload as unknown as GroupsRealtimeChangePayload);
+      })
+      .subscribe((status) => {
+        if (!isCurrent) return;
+
+        if (status === 'SUBSCRIBED') {
+          setGroupsRealtimeStatus('subscribed');
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          setGroupsRealtimeStatus('error');
+        } else if (status === 'CLOSED') {
+          setGroupsRealtimeStatus((current) => (current === 'error' ? current : 'closed'));
+        }
+      });
+
+    return () => {
+      isCurrent = false;
+      void supabase.removeChannel(channel);
+    };
+  }, [authUserId, groupsRealtimeReconnectToken]);
+
+  // --- Foreground refresh: one AppState listener (react-native-web maps this to
+  // document.visibilitychange), no polling — mirrors FeedPostsContext/ModerationContext. ---
+  useEffect(() => {
+    const appStateRef = { current: AppState.currentState };
+
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      const cameToForeground = /inactive|background/.test(appStateRef.current) && nextState === 'active';
+      appStateRef.current = nextState;
+
+      if (!cameToForeground || !authUserId) {
+        return;
+      }
+
+      if (groupsRealtimeStatusRef.current !== 'subscribed') {
+        setGroupsRealtimeReconnectToken((token) => token + 1);
+      }
+
+      refreshMyGroups();
+      refreshGroupSuggestions();
+      refreshMyJoinRequests();
+    });
+
+    return () => {
+      subscription.remove();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authUserId]);
+
   // --- Merged view (local ∪ remote). Suggestions are deliberately never merged in — a
   // non-member must never be able to resolve a full Group for a suggested remote group. ---
   const groups = useMemo(() => [...localGroups, ...remoteGroups], [localGroups, remoteGroups]);
@@ -579,6 +816,12 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
       joinPublicGroup,
       requestPrivateGroupJoin,
       cancelJoinRequest,
+      groupMembers,
+      isGroupMembersLoading,
+      groupMembersError,
+      refreshGroupMembers,
+      fetchGroupDetail,
+      groupsRealtimeStatus,
     }),
     [
       localGroups,
@@ -593,6 +836,10 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
       groupSuggestionsError,
       isGroupActionSubmitting,
       groupActionError,
+      groupMembers,
+      isGroupMembersLoading,
+      groupMembersError,
+      groupsRealtimeStatus,
     ],
   );
 

@@ -1,4 +1,4 @@
-import type { Group, GroupJoinRequestRecord, GroupJoinRequestStatus, GroupSuggestion, GroupVisibility } from '@/data/groups';
+import type { Group, GroupJoinRequestRecord, GroupJoinRequestStatus, GroupMemberRecord, GroupSuggestion, GroupVisibility } from '@/data/groups';
 import { formatRelativeGermanTime } from '@/lib/map-supabase-post';
 
 // A row from get_my_groups().
@@ -34,6 +34,27 @@ export type SupabaseGroupJoinRequestRow = {
   reviewed_by: string | null;
   reviewed_at: string | null;
   groups?: { name: string; visibility: string } | null;
+};
+
+// The jsonb shape returned by get_group_detail().
+export type SupabaseGroupDetailResponse = {
+  id: string;
+  owner_id: string;
+  name: string;
+  description: string | null;
+  visibility: string;
+  created_at: string;
+  updated_at: string;
+  my_role: string;
+  member_count: number;
+};
+
+// A raw group_members row — display_name is resolved separately via a batch profiles fetch, same
+// pattern used everywhere else in this project.
+export type SupabaseGroupMemberRow = {
+  user_id: string;
+  role: string;
+  joined_at: string;
 };
 
 export function mapSupabaseGroupMembershipRow(row: SupabaseGroupMembershipRow): Group {
@@ -75,5 +96,30 @@ export function mapSupabaseGroupJoinRequestRow(row: SupabaseGroupJoinRequestRow)
     source: 'supabase',
     groupName: row.groups?.name,
     groupVisibility: row.groups?.visibility as GroupVisibility | undefined,
+  };
+}
+
+export function mapSupabaseGroupDetailResponse(response: SupabaseGroupDetailResponse): Group {
+  return {
+    id: response.id,
+    name: response.name,
+    description: response.description ?? '',
+    clubName: 'Arminia Bielefeld',
+    ownerId: response.owner_id,
+    memberIds: [],
+    createdAt: formatRelativeGermanTime(response.created_at),
+    visibility: response.visibility as GroupVisibility,
+    source: 'supabase',
+    memberCount: response.member_count,
+    myRole: response.my_role as Group['myRole'],
+  };
+}
+
+export function mapSupabaseGroupMemberRow(row: SupabaseGroupMemberRow, displayName: string): GroupMemberRecord {
+  return {
+    userId: row.user_id,
+    role: row.role as GroupMemberRecord['role'],
+    joinedAt: formatRelativeGermanTime(row.joined_at),
+    displayName,
   };
 }

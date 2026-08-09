@@ -4,14 +4,25 @@
 -- (data/groups.ts) are completely untouched and keep working exactly as before — this migration
 -- only adds a parallel, RLS-protected structure for real Supabase-backed groups.
 --
--- Deliberately out of scope for this step: there is no create_group() RPC — remote groups are
--- seeded manually via the SQL editor (same convention already used for assigning the 'moderator'
--- role in 20260807130000_add_moderation_roles_and_queue.sql). Group chat persistence, realtime,
--- invite links, and file attachments are all separate future steps.
+-- Group chat persistence, invite links, and file attachments are all separate future steps.
 --
--- Intended to be run once against a Supabase project (SQL editor or `supabase db push`).
--- Safe to re-run: table creation uses `if not exists`, and every policy/function/trigger is
--- dropped with `if exists` / `create or replace` immediately before being recreated.
+-- Intended to be run once against a Supabase project (SQL editor or `supabase db push`), as one
+-- single script from a clean starting state (none of public.groups/public.group_members/
+-- public.group_join_requests existing yet). Safe to re-run: table creation uses `if not exists`,
+-- every policy/function/trigger is dropped with `if exists` / `create or replace` immediately
+-- before being recreated, and the realtime publication additions at the very end are guarded by
+-- an existence check.
+--
+-- Ordering is deliberate and load-bearing, not cosmetic: public.groups/public.group_members/
+-- public.group_join_requests are created first (with their constraints and indexes), before
+-- anything — trigger, helper function, or RPC — that declares `returns public.groups` /
+-- `returns public.group_members` / `returns public.group_join_requests` or otherwise references
+-- these tables. A composite row type for a table (which is what `returns public.groups` resolves
+-- to) does not exist until `create table` for that table has actually run, and
+-- `check_function_bodies` (on by default) validates a function's declared return type and the
+-- objects its body references at CREATE FUNCTION time — defining such a function before its
+-- table exists fails with `ERROR: 42704: type "public.groups" does not exist`. Keep every new
+-- addition to this file below the three `create table` statements.
 
 create table if not exists public.groups (
   id uuid primary key default gen_random_uuid(),
@@ -189,6 +200,60 @@ create policy "Group admins can read join requests for their groups"
 revoke all on public.group_join_requests from anon;
 grant select on public.group_join_requests to authenticated;
 revoke insert, update, delete on public.group_join_requests from authenticated;
+
+-- ---------------------------------------------------------------------------------------------
+-- create_group — the owner is automatically inserted as an 'admin' member by the
+-- add_group_owner_as_admin AFTER INSERT trigger above, regardless of how the row is created, so
+-- no extra membership insert is needed here.
+-- ---------------------------------------------------------------------------------------------
+
+create or replace function public.create_group(p_name text, p_description text, p_visibility text)
+returns public.groups
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_self uuid := auth.uid();
+  v_name text;
+  v_description text;
+  v_group public.groups;
+begin
+  if v_self is null then
+    raise exception 'not authenticated';
+  end if;
+
+  v_name := nullif(trim(coalesce(p_name, '')), '');
+
+  if v_name is null then
+    raise exception 'invalid name';
+  end if;
+
+  if length(v_name) > 100 then
+    raise exception 'name too long';
+  end if;
+
+  v_description := nullif(trim(coalesce(p_description, '')), '');
+
+  if v_description is not null and length(v_description) > 2000 then
+    raise exception 'description too long';
+  end if;
+
+  if p_visibility not in ('public', 'private') then
+    raise exception 'invalid visibility';
+  end if;
+
+  insert into public.groups (owner_id, name, description, visibility)
+  values (v_self, v_name, v_description, p_visibility)
+  returning * into v_group;
+
+  return v_group;
+end;
+$$;
+
+revoke all on function public.create_group(text, text, text) from public;
+revoke all on function public.create_group(text, text, text) from anon;
+grant execute on function public.create_group(text, text, text) to authenticated;
 
 -- ---------------------------------------------------------------------------------------------
 -- join_public_group
@@ -517,3 +582,89 @@ $$;
 revoke all on function public.get_group_suggestions(integer) from public;
 revoke all on function public.get_group_suggestions(integer) from anon;
 grant execute on function public.get_group_suggestions(integer) to authenticated;
+
+-- ---------------------------------------------------------------------------------------------
+-- get_group_detail — a targeted, single-group fetch for a member; a non-member gets a
+-- distinguishable 'not a member' error (mapped client-side to "Du bist kein Mitglied dieser
+-- Gruppe.") rather than a generic not-found, without exposing any group data to them.
+-- ---------------------------------------------------------------------------------------------
+
+create or replace function public.get_group_detail(p_group_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_self uuid := auth.uid();
+  v_group public.groups;
+  v_my_role text;
+  v_member_count bigint;
+begin
+  if v_self is null then
+    raise exception 'not authenticated';
+  end if;
+
+  select * into v_group from public.groups where id = p_group_id;
+
+  if not found then
+    raise exception 'group not found';
+  end if;
+
+  select role into v_my_role from public.group_members where group_id = p_group_id and user_id = v_self;
+
+  if v_my_role is null then
+    raise exception 'not a member';
+  end if;
+
+  select count(*) into v_member_count from public.group_members where group_id = p_group_id;
+
+  return jsonb_build_object(
+    'id', v_group.id,
+    'owner_id', v_group.owner_id,
+    'name', v_group.name,
+    'description', v_group.description,
+    'visibility', v_group.visibility,
+    'created_at', v_group.created_at,
+    'updated_at', v_group.updated_at,
+    'my_role', v_my_role,
+    'member_count', v_member_count
+  );
+end;
+$$;
+
+revoke all on function public.get_group_detail(uuid) from public;
+revoke all on function public.get_group_detail(uuid) from anon;
+grant execute on function public.get_group_detail(uuid) to authenticated;
+
+-- ---------------------------------------------------------------------------------------------
+-- Realtime: group_members + group_join_requests. Placed last, after every table/function/policy
+-- above already exists. Both tables keep exactly the same RLS SELECT policies defined earlier in
+-- this file (scoped to "my own groups' membership"/"my own requests"/"requests for groups I
+-- admin") — Realtime authorizes postgres_changes delivery via those same policies, so adding
+-- these two tables to the publication is safe without any policy change (same reasoning already
+-- applied to content_restrictions/user_warnings in
+-- 20260807150000_fix_moderation_visibility_and_realtime.sql).
+-- ---------------------------------------------------------------------------------------------
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'group_members'
+  ) then
+    alter publication supabase_realtime add table public.group_members;
+  end if;
+end
+$$;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'group_join_requests'
+  ) then
+    alter publication supabase_realtime add table public.group_join_requests;
+  end if;
+end
+$$;

@@ -74,6 +74,24 @@ export type GroupJoinRequestRecord = {
   groupVisibility?: GroupVisibility;
 };
 
+// A single row of a remote group's member list (public.group_members + a batch-resolved display
+// name, same pattern used everywhere else in this project — never embedded in the RPC response).
+export type GroupMemberRecord = {
+  userId: string;
+  role: GroupRole;
+  joinedAt: string;
+  displayName: string;
+};
+
+// Local seed groups/requests always use the fixed 'group-...'/'request-...' id scheme (see
+// seedGroups/seedGroupJoinRequests below) — never a UUID. Used to fail closed before ever sending
+// an id to a remote group RPC that expects a real UUID.
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function isPlausibleRemoteGroupId(id: string): boolean {
+  return UUID_PATTERN.test(id);
+}
+
 export const seedGroups: Group[] = [
   {
     id: 'group-1',
