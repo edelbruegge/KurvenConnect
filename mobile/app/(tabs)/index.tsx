@@ -4,22 +4,37 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { FeedPostCard } from '@/components/feed/feed-post-card';
 import { GroupRecommendationCard } from '@/components/groups/group-recommendation-card';
+import { RemoteGroupSuggestionCard } from '@/components/groups/remote-group-suggestion-card';
 import { MessagesButton } from '@/components/navigation/messages-button';
 import { NotificationsButton } from '@/components/navigation/notifications-button';
 import { FeedColors, FontSizes, Spacing } from '@/constants/theme';
 import { useFeedPosts } from '@/context/feed-posts-context';
 import { useGroups } from '@/context/groups-context';
 import { getPostDetailPathname, type FeedPost } from '@/data/feed-posts';
+import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 import { useVisiblePosts } from '@/hooks/use-visible-posts';
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { posts, toggleLike, remotePostsError, refreshRemotePosts, remoteWantedEntriesError, refreshRemoteWantedEntries } =
-    useFeedPosts();
-  const { getRecommendedGroups } = useGroups();
+  const {
+    posts,
+    toggleLike,
+    remotePostsError,
+    refreshRemotePosts,
+    remoteWantedEntriesError,
+    refreshRemoteWantedEntries,
+    contentVisibilityRealtimeStatus,
+  } = useFeedPosts();
+  const { getRecommendedGroups, groupSuggestions } = useGroups();
 
   const recommendedGroups = getRecommendedGroups();
   const visiblePosts = useVisiblePosts(posts);
+
+  // Safety net only — while the shared content-visibility channel is healthy, Feed/Stadion/Suche/
+  // Profil/Aktivitäten/Gespeichert already stay live via realtime + the AppState foreground
+  // refresh in FeedPostsContext. This only kicks in if that channel silently dropped without the
+  // app ever backgrounding.
+  useRefreshOnFocus(refreshRemotePosts, contentVisibilityRealtimeStatus === 'subscribed');
 
   const handleOpenPost = (post: FeedPost) => {
     router.push({ pathname: getPostDetailPathname(post), params: { id: post.id } });
@@ -59,11 +74,14 @@ export default function HomeScreen() {
           </View>
         ) : null}
 
-        {recommendedGroups.length > 0 ? (
+        {recommendedGroups.length > 0 || groupSuggestions.length > 0 ? (
           <View style={styles.recommendationsSection}>
             <Text style={styles.recommendationsTitle}>Gruppen für dich</Text>
             {recommendedGroups.map((group) => (
               <GroupRecommendationCard key={group.id} group={group} />
+            ))}
+            {groupSuggestions.map((suggestion) => (
+              <RemoteGroupSuggestionCard key={suggestion.id} suggestion={suggestion} />
             ))}
           </View>
         ) : null}

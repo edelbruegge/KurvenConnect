@@ -10,6 +10,7 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
 import { useModeration } from '@/context/moderation-context';
 import { REPORT_TARGET_TYPE_LABELS, type ReportTargetType } from '@/data/reports';
+import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 import type { ModerationStatusFilter } from '@/lib/map-supabase-moderation';
 import { supabase } from '@/lib/supabase';
 
@@ -50,9 +51,15 @@ export default function ModerationQueueScreen() {
     refreshActiveRestrictions,
     restoreRestrictedContent,
     isModerationActionSubmitting,
+    moderationRealtimeStatus,
   } = useModeration();
 
   const [activeTab, setActiveTab] = useState<'reports' | 'hidden'>('reports');
+
+  // Safety net only — while the reports/content_restrictions channel is healthy, the queue and
+  // "Ausgeblendet" list already stay live via realtime + ModerationContext's own foreground
+  // refresh. Never calls the moderator-only RPC for a non-moderator account.
+  useRefreshOnFocus(refreshModerationReports, !isModerator || moderationRealtimeStatus === 'subscribed');
   const [profileNames, setProfileNames] = useState<Record<string, string>>({});
   const [restoringId, setRestoringId] = useState<string | null>(null);
   const [restoreListError, setRestoreListError] = useState<string | null>(null);

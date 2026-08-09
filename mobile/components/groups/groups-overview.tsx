@@ -1,15 +1,17 @@
 import { useRouter } from 'expo-router';
+import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
 import { useGroups } from '@/context/groups-context';
-import type { Group } from '@/data/groups';
+import { getGroupMemberCount, type Group } from '@/data/groups';
 import { CURRENT_USER_ID } from '@/data/users';
 
 export function GroupsOverview() {
   const router = useRouter();
-  const { getMyGroups, getMyPendingJoinRequests } = useGroups();
+  const { getMyGroups, getMyPendingJoinRequests, myJoinRequests, cancelJoinRequest, isGroupActionSubmitting } = useGroups();
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
 
   const myGroups = getMyGroups();
   const pendingGroups = getMyPendingJoinRequests();
@@ -20,6 +22,16 @@ export function GroupsOverview() {
 
   const handleCreateGroup = () => {
     router.push('/create-group');
+  };
+
+  const handleCancelRequest = async (requestId: string) => {
+    if (cancellingId) {
+      return;
+    }
+
+    setCancellingId(requestId);
+    await cancelJoinRequest(requestId);
+    setCancellingId(null);
   };
 
   return (
@@ -59,14 +71,14 @@ export function GroupsOverview() {
                 </Text>
                 <View style={styles.cardFooter}>
                   <IconSymbol size={14} name="person.3.fill" color={FeedColors.textSecondary} />
-                  <Text style={styles.cardFooterText}>{group.memberIds.length} Mitglieder</Text>
+                  <Text style={styles.cardFooterText}>{getGroupMemberCount(group)} Mitglieder</Text>
                 </View>
               </Pressable>
             );
           })
         )}
 
-        {pendingGroups.length > 0 ? (
+        {pendingGroups.length > 0 || myJoinRequests.length > 0 ? (
           <>
             <Text style={styles.sectionTitle}>Ausstehende Anfragen</Text>
             {pendingGroups.map((group) => (
@@ -82,6 +94,27 @@ export function GroupsOverview() {
                   {group.city ? ` · ${group.city}` : ''}
                 </Text>
               </Pressable>
+            ))}
+            {myJoinRequests.map((request) => (
+              <View key={request.id} style={styles.card}>
+                <View style={styles.cardHeader}>
+                  <Text style={styles.cardTitle}>{request.groupName ?? 'Unbekannte Gruppe'}</Text>
+                  <View style={styles.pendingBadge}>
+                    <Text style={styles.pendingBadgeText}>Anfrage ausstehend</Text>
+                  </View>
+                </View>
+                <Pressable
+                  onPress={() => void handleCancelRequest(request.id)}
+                  disabled={isGroupActionSubmitting && cancellingId === request.id}
+                  style={styles.cancelRequestButton}
+                  accessibilityRole="button"
+                  accessibilityLabel="Anfrage zurückziehen"
+                >
+                  <Text style={styles.cancelRequestButtonText}>
+                    {isGroupActionSubmitting && cancellingId === request.id ? 'Wird zurückgezogen …' : 'Anfrage zurückziehen'}
+                  </Text>
+                </Pressable>
+              </View>
             ))}
           </>
         ) : null}
@@ -189,6 +222,20 @@ const styles = StyleSheet.create({
     color: FeedColors.textSecondary,
     fontSize: FontSizes.meta,
     fontWeight: '700',
+  },
+  cancelRequestButton: {
+    marginTop: Spacing.sm,
+    minHeight: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: Radii.round,
+    borderWidth: 1,
+    borderColor: FeedColors.cardBorder,
+  },
+  cancelRequestButtonText: {
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.meta,
+    fontWeight: '600',
   },
   emptyState: {
     alignItems: 'center',

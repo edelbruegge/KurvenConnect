@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 
 import { useAuth } from '@/context/auth-context';
 import { useProfiles } from '@/context/profile-context';
@@ -37,6 +38,16 @@ import { mapWantedEntryError } from '@/lib/wanted-entry-errors';
 import { supabase } from '@/lib/supabase';
 
 type AuthorDisplay = { displayName: string; initials: string };
+
+type RealtimeStatus = 'idle' | 'connecting' | 'subscribed' | 'reconnecting' | 'error' | 'closed';
+
+// A minimal structural view of the postgres_changes INSERT payload for
+// public.content_visibility_events — only the fields this handler actually reads, same approach
+// as NotificationsContext's RealtimeNotificationInsertPayload/ModerationContext's
+// RealtimeChangePayload.
+type ContentVisibilityEventPayload = {
+  new: Record<string, unknown>;
+};
 
 type NewRemoteTripInput = {
   description: string;
@@ -120,6 +131,11 @@ type FeedPostsContextValue = {
   refreshRemoteWantedEntries: () => void;
   createRemoteWantedEntry: (input: NewRemoteWantedEntryInput) => Promise<{ error: string | null }>;
   toggleRemoteWantedLike: (wantedEntryId: string) => Promise<void>;
+
+  // Realtime status of the shared content-visibility channel (hidden/restored moderation
+  // events) — exposed so a screen can decide whether a focus-triggered refresh is actually
+  // needed (only when this is not 'subscribed').
+  contentVisibilityRealtimeStatus: RealtimeStatus;
 };
 
 const FeedPostsContext = createContext<FeedPostsContextValue | undefined>(undefined);
@@ -705,6 +721,142 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
   const refreshRemoteWantedEntries = () => {
     setWantedEntriesReloadToken((token) => token + 1);
   };
+
+  // --- Content visibility sync: a single, statically-named realtime channel shared by every
+  // signed-in user (not moderator-only — everyone needs to learn when something they can already
+  // see gets hidden/restored). content_restrictions itself stays moderator-only; this channel
+  // only ever carries {target_type, target_id, action}, written exclusively by
+  // apply_report_action/restore_restricted_content on actual success (see
+  // 20260809120000_fix_content_visibility_realtime_sync.sql). ---
+  const [contentVisibilityRealtimeStatus, setContentVisibilityRealtimeStatus] = useState<RealtimeStatus>('idle');
+  const [contentVisibilityReconnectToken, setContentVisibilityReconnectToken] = useState(0);
+  const contentVisibilityRealtimeStatusRef = useRef<RealtimeStatus>('idle');
+
+  useEffect(() => {
+    contentVisibilityRealtimeStatusRef.current = contentVisibilityRealtimeStatus;
+  }, [contentVisibilityRealtimeStatus]);
+
+  const handleContentVisibilityEvent = (payload: ContentVisibilityEventPayload) => {
+    const row = payload.new;
+    const isValidRow =
+      row && typeof row.target_type === 'string' && typeof row.target_id === 'string' && typeof row.action === 'string';
+
+    if (!isValidRow) {
+      return;
+    }
+
+    const targetType = row.target_type as string;
+    const targetId = row.target_id as string;
+    const action = row.action as string;
+
+    if (action === 'hidden') {
+      if (targetType === 'post') {
+        setRemotePosts((current) => current.filter((post) => post.id !== targetId));
+      } else if (targetType === 'trip') {
+        setRemoteTrips((current) => current.filter((trip) => trip.id !== targetId));
+      } else if (targetType === 'meetup') {
+        setRemoteMeetups((current) => current.filter((meetup) => meetup.id !== targetId));
+      } else if (targetType === 'wanted_entry') {
+        setRemoteWantedEntries((current) => current.filter((entry) => entry.id !== targetId));
+      } else if (targetType === 'comment') {
+        // Comments only ever persist on public.posts ("Beitrag") in the current data model — the
+        // post itself is untouched, only the hidden comment is removed from it.
+        setRemotePosts((current) =>
+          current.map((post) =>
+            post.comments.some((comment) => comment.id === targetId)
+              ? { ...post, comments: post.comments.filter((comment) => comment.id !== targetId) }
+              : post,
+          ),
+        );
+      }
+      return;
+    }
+
+    if (action === 'restored') {
+      if (targetType === 'post' || targetType === 'comment') {
+        refreshRemotePosts();
+      } else if (targetType === 'trip') {
+        refreshRemoteTrips();
+      } else if (targetType === 'meetup') {
+        refreshRemoteMeetups();
+      } else if (targetType === 'wanted_entry') {
+        refreshRemoteWantedEntries();
+      }
+    }
+  };
+
+  // Ref indirection so the long-lived channel subscription below always calls the latest
+  // closure without needing to reconnect the channel on every state change — same pattern
+  // already used in NotificationsContext/ModerationContext.
+  const handleContentVisibilityEventRef = useRef(handleContentVisibilityEvent);
+  handleContentVisibilityEventRef.current = handleContentVisibilityEvent;
+
+  useEffect(() => {
+    if (!authUserId) {
+      setContentVisibilityRealtimeStatus('idle');
+      return;
+    }
+
+    let isCurrent = true;
+    setContentVisibilityRealtimeStatus((current) => (current === 'error' || current === 'closed' ? 'reconnecting' : 'connecting'));
+
+    const channel = supabase
+      .channel('content-visibility')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'content_visibility_events' },
+        (payload) => {
+          if (!isCurrent) return;
+          handleContentVisibilityEventRef.current(payload as unknown as ContentVisibilityEventPayload);
+        },
+      )
+      .subscribe((status) => {
+        if (!isCurrent) return;
+
+        if (status === 'SUBSCRIBED') {
+          setContentVisibilityRealtimeStatus('subscribed');
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          setContentVisibilityRealtimeStatus('error');
+        } else if (status === 'CLOSED') {
+          setContentVisibilityRealtimeStatus((current) => (current === 'error' ? current : 'closed'));
+        }
+      });
+
+    return () => {
+      isCurrent = false;
+      void supabase.removeChannel(channel);
+    };
+  }, [authUserId, contentVisibilityReconnectToken]);
+
+  // --- Foreground refresh: one AppState listener (react-native-web maps this to
+  // document.visibilitychange), no polling. Also nudges a realtime reconnect if the channel isn't
+  // healthy, mirroring ModerationContext's established behavior. ---
+  useEffect(() => {
+    const appStateRef = { current: AppState.currentState };
+
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      const cameToForeground = /inactive|background/.test(appStateRef.current) && nextState === 'active';
+      appStateRef.current = nextState;
+
+      if (!cameToForeground || !authUserId) {
+        return;
+      }
+
+      if (contentVisibilityRealtimeStatusRef.current !== 'subscribed') {
+        setContentVisibilityReconnectToken((token) => token + 1);
+      }
+
+      refreshRemotePosts();
+      refreshRemoteTrips();
+      refreshRemoteMeetups();
+      refreshRemoteWantedEntries();
+    });
+
+    return () => {
+      subscription.remove();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authUserId]);
 
   const getOwnAuthorDisplay = (): AuthorDisplay => {
     if (authUserId && remoteAuthorProfiles[authUserId]) {
@@ -1514,6 +1666,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       refreshRemoteWantedEntries,
       createRemoteWantedEntry,
       toggleRemoteWantedLike,
+      contentVisibilityRealtimeStatus,
     }),
     [
       posts,
@@ -1533,6 +1686,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       remoteWantedEntriesError,
       currentUser,
       authUserId,
+      contentVisibilityRealtimeStatus,
     ],
   );
 

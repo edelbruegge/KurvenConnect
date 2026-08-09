@@ -85,6 +85,10 @@ type ModerationContextValue = {
   isActiveRestrictionsLoading: boolean;
   activeRestrictionsError: string | null;
   refreshActiveRestrictions: () => void;
+
+  // Realtime status of the reports/content_restrictions channel — exposed so a screen can decide
+  // whether a focus-triggered refresh is actually needed (only when this is not 'subscribed').
+  moderationRealtimeStatus: RealtimeStatus;
 };
 
 const ModerationContext = createContext<ModerationContextValue | undefined>(undefined);
@@ -648,6 +652,7 @@ export function ModerationProvider({ children }: { children: React.ReactNode }) 
       isActiveRestrictionsLoading,
       activeRestrictionsError,
       refreshActiveRestrictions,
+      moderationRealtimeStatus: realtimeStatus,
     }),
     [
       hiddenContentKeys,
@@ -664,6 +669,7 @@ export function ModerationProvider({ children }: { children: React.ReactNode }) 
       activeRestrictions,
       isActiveRestrictionsLoading,
       activeRestrictionsError,
+      realtimeStatus,
     ],
   );
 

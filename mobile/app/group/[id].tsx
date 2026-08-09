@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -8,12 +8,14 @@ import { NotFoundView } from '@/components/navigation/not-found-view';
 import { ReportModal } from '@/components/reports/report-modal';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { OverflowMenu } from '@/components/ui/overflow-menu';
-import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
+import { ClubColors, FeedColors, FontSizes, Radii, Spacing, StatusColors } from '@/constants/theme';
 import { useGroups } from '@/context/groups-context';
 import { useModeration } from '@/context/moderation-context';
 import { useProfiles } from '@/context/profile-context';
 import { useReports } from '@/context/reports-context';
+import { getGroupMemberCount } from '@/data/groups';
 import { useSafetySelectors } from '@/hooks/use-safety-selectors';
+import { supabase } from '@/lib/supabase';
 
 export default function GroupDetailScreen() {
   const router = useRouter();
@@ -28,14 +30,62 @@ export default function GroupDetailScreen() {
     getPendingRequestsForGroup,
     acceptJoinRequest,
     rejectJoinRequest,
+    incomingJoinRequests,
+    refreshIncomingRequestsForGroup,
+    isGroupActionSubmitting,
   } = useGroups();
   const { currentUser, getUserById } = useProfiles();
   const { hasReported } = useReports();
   const { isUserSuspended } = useModeration();
   const { isModeratedAway } = useSafetySelectors();
   const [reportModalVisible, setReportModalVisible] = useState(false);
+  const [leaveError, setLeaveError] = useState<string | null>(null);
+  const [isLeaving, setIsLeaving] = useState(false);
+  const [requestActionError, setRequestActionError] = useState<string | null>(null);
+  const [processingRequestId, setProcessingRequestId] = useState<string | null>(null);
+  const [remoteMemberNames, setRemoteMemberNames] = useState<Record<string, string>>({});
 
   const group = params.id ? getGroupById(params.id) : undefined;
+  const isRemoteAdmin = group?.source === 'supabase' && group.myRole === 'admin';
+
+  useEffect(() => {
+    if (isRemoteAdmin && group) {
+      refreshIncomingRequestsForGroup(group.id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRemoteAdmin, group?.id]);
+
+  const remoteIncoming = group && isRemoteAdmin ? (incomingJoinRequests[group.id] ?? []) : [];
+
+  const unresolvedRequesterIdsKey = remoteIncoming.map((request) => request.requesterId).filter((id) => !remoteMemberNames[id]).sort().join(',');
+
+  useEffect(() => {
+    const ids = unresolvedRequesterIdsKey ? unresolvedRequesterIdsKey.split(',') : [];
+
+    if (ids.length === 0) {
+      return;
+    }
+
+    let isCurrent = true;
+
+    supabase
+      .from('profiles')
+      .select('id, display_name')
+      .in('id', ids)
+      .then(({ data }) => {
+        if (!isCurrent) return;
+
+        const map: Record<string, string> = {};
+        ((data ?? []) as { id: string; display_name: string | null }[]).forEach((row) => {
+          map[row.id] = row.display_name?.trim() || 'Neues Mitglied';
+        });
+        setRemoteMemberNames((current) => ({ ...current, ...map }));
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [unresolvedRequesterIdsKey]);
 
   if (!group) {
     return <NotFoundView title="Gruppe nicht gefunden" message="Die angeforderte Gruppe konnte nicht gefunden werden." />;
@@ -62,6 +112,39 @@ export default function GroupDetailScreen() {
       joinGroup(group.id);
     } else {
       requestToJoin(group.id);
+    }
+  };
+
+  const handleLeaveGroup = async () => {
+    if (isLeaving) {
+      return;
+    }
+
+    setIsLeaving(true);
+    setLeaveError(null);
+    const { error } = await leaveGroup(group.id);
+    setIsLeaving(false);
+
+    if (error) {
+      setLeaveError(error);
+      return;
+    }
+
+    router.back();
+  };
+
+  const handleManageRemoteRequest = async (requestId: string, action: 'accept' | 'reject') => {
+    if (processingRequestId) {
+      return;
+    }
+
+    setProcessingRequestId(requestId);
+    setRequestActionError(null);
+    const { error } = action === 'accept' ? await acceptJoinRequest(requestId) : await rejectJoinRequest(requestId);
+    setProcessingRequestId(null);
+
+    if (error) {
+      setRequestActionError(error);
     }
   };
 
@@ -103,25 +186,30 @@ export default function GroupDetailScreen() {
 
           <Pressable onPress={handleOpenMembers} style={styles.membersRow} accessibilityRole="button" accessibilityLabel="Mitglieder anzeigen">
             <IconSymbol size={16} name="person.3.fill" color={FeedColors.textSecondary} />
-            <Text style={styles.membersRowText}>{group.memberIds.length} Mitglieder anzeigen</Text>
+            <Text style={styles.membersRowText}>{getGroupMemberCount(group)} Mitglieder anzeigen</Text>
             <IconSymbol size={16} name="chevron.right" color={FeedColors.textSecondary} />
           </Pressable>
+
+          {leaveError ? <Text style={styles.errorText}>{leaveError}</Text> : null}
 
           {!isOwner ? (
             member ? (
               <Pressable
-                onPress={() => leaveGroup(group.id)}
-                style={[styles.actionButton, styles.actionButtonActive]}
+                onPress={() => void handleLeaveGroup()}
+                disabled={isLeaving}
+                style={[styles.actionButton, styles.actionButtonActive, isLeaving && styles.actionButtonDisabled]}
                 accessibilityRole="button"
                 accessibilityLabel="Gruppe verlassen"
               >
-                <Text style={[styles.actionButtonText, styles.actionButtonTextActive]}>Gruppe verlassen</Text>
+                <Text style={[styles.actionButtonText, styles.actionButtonTextActive]}>
+                  {isLeaving ? 'Wird verlassen …' : 'Gruppe verlassen'}
+                </Text>
               </Pressable>
-            ) : isPending ? (
+            ) : group.source === 'local' && isPending ? (
               <View style={[styles.actionButton, styles.actionButtonActive]}>
                 <Text style={[styles.actionButtonText, styles.actionButtonTextActive]}>Anfrage ausstehend</Text>
               </View>
-            ) : (
+            ) : group.source === 'local' ? (
               <Pressable
                 onPress={handleJoinAction}
                 style={styles.actionButton}
@@ -130,9 +218,46 @@ export default function GroupDetailScreen() {
               >
                 <Text style={styles.actionButtonText}>{group.visibility === 'public' ? 'Beitreten' : 'Anfrage senden'}</Text>
               </Pressable>
-            )
+            ) : null
           ) : null}
         </View>
+
+        {group.source === 'supabase' && isRemoteAdmin ? (
+          <View style={styles.requestsCard}>
+            <Text style={styles.requestsTitle}>Beitrittsanfragen</Text>
+            {requestActionError ? <Text style={styles.errorText}>{requestActionError}</Text> : null}
+            {remoteIncoming.length === 0 ? (
+              <Text style={styles.meta}>Aktuell keine offenen Anfragen.</Text>
+            ) : (
+              remoteIncoming.map((request) => (
+                <View key={request.id} style={styles.requestRow}>
+                  <Avatar initials={(remoteMemberNames[request.requesterId] ?? '?').slice(0, 1)} />
+                  <Text style={styles.requestName}>{remoteMemberNames[request.requesterId] ?? 'Unbekanntes Mitglied'}</Text>
+                  <View style={styles.requestActions}>
+                    <Pressable
+                      onPress={() => void handleManageRemoteRequest(request.id, 'accept')}
+                      disabled={isGroupActionSubmitting && processingRequestId === request.id}
+                      style={styles.acceptButton}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Anfrage von ${remoteMemberNames[request.requesterId] ?? 'Nutzer'} annehmen`}
+                    >
+                      <Text style={styles.acceptButtonText}>Annehmen</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => void handleManageRemoteRequest(request.id, 'reject')}
+                      disabled={isGroupActionSubmitting && processingRequestId === request.id}
+                      style={styles.rejectButton}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Anfrage von ${remoteMemberNames[request.requesterId] ?? 'Nutzer'} ablehnen`}
+                    >
+                      <Text style={styles.rejectButtonText}>Ablehnen</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ))
+            )}
+          </View>
+        ) : null}
 
         {isOwner && pendingRequests.length > 0 ? (
           <View style={styles.requestsCard}>
@@ -276,6 +401,14 @@ const styles = StyleSheet.create({
   },
   actionButtonTextActive: {
     color: ClubColors.text,
+  },
+  actionButtonDisabled: {
+    opacity: 0.5,
+  },
+  errorText: {
+    color: StatusColors.error,
+    fontSize: FontSizes.meta,
+    marginTop: Spacing.sm,
   },
   requestsCard: {
     marginTop: Spacing.md,
