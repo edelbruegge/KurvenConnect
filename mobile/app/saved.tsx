@@ -1,77 +1,122 @@
 import { useRouter } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useMemo, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { ActivityRow } from '@/components/activity/activity-row';
+import { FeedPostCard } from '@/components/feed/feed-post-card';
+import { TripCard } from '@/components/trips/trip-card';
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import { FeedColors, FontSizes, Spacing } from '@/constants/theme';
+import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
 import { useFeedPosts } from '@/context/feed-posts-context';
 import { useSaved } from '@/context/saved-context';
 import { getPostDetailPathname, type FeedPost, type FeedPostCategory } from '@/data/feed-posts';
 import { useVisiblePosts } from '@/hooks/use-visible-posts';
 
-const SECTION_ORDER: { category: FeedPostCategory; label: string }[] = [
-  { category: 'Beitrag', label: 'Beiträge' },
-  { category: 'Fahrt', label: 'Fahrten' },
-  { category: 'Treffpunkt', label: 'Treffpunkte' },
-  { category: 'Gesuch', label: 'Gesuchte' },
+type SavedFilter = 'all' | FeedPostCategory;
+
+const FILTERS: { key: SavedFilter; label: string }[] = [
+  { key: 'all', label: 'Alle' },
+  { key: 'Beitrag', label: 'Beiträge' },
+  { key: 'Fahrt', label: 'Fahrten' },
+  { key: 'Treffpunkt', label: 'Treffen' },
+  { key: 'Gesuch', label: 'Gesucht' },
 ];
 
 export default function SavedScreen() {
   const router = useRouter();
   const { getPostById } = useFeedPosts();
-  const { savedItems, toggleSaved } = useSaved();
+  const { savedIdsMostRecentFirst, isSavedContentLoading, savedContentError, refreshSavedContent } = useSaved();
+  const [activeFilter, setActiveFilter] = useState<SavedFilter>('all');
 
-  const savedPosts = useVisiblePosts(
-    savedItems.map((item) => getPostById(item.id)).filter((post): post is FeedPost => post !== undefined),
+  // savedIdsMostRecentFirst is already sorted by save.created_at DESC (see
+  // context/saved-context.tsx) -- that order is preserved through every step below (map keeps
+  // order, filter keeps order, useVisiblePosts filters without reordering).
+  const savedPostsUnfiltered = savedIdsMostRecentFirst
+    .map((id) => getPostById(id))
+    .filter((post): post is FeedPost => post !== undefined);
+
+  // Respects blocking + the current user's own reports, exactly like the rest of the app (Feed,
+  // Profile, ...) -- moderative hiding is already handled one level down: a moderated-away post
+  // simply never resolves via getPostById in the first place, since posts/trips/meetups/
+  // wanted_entries' own SELECT policies already exclude it for normal users (see the migration's
+  // header comment).
+  const visibleSavedPosts = useVisiblePosts(savedPostsUnfiltered);
+
+  const filteredPosts = useMemo(
+    () => (activeFilter === 'all' ? visibleSavedPosts : visibleSavedPosts.filter((post) => post.category === activeFilter)),
+    [visibleSavedPosts, activeFilter],
   );
 
   const handleOpenPost = (post: FeedPost) => {
     router.push({ pathname: getPostDetailPathname(post), params: { id: post.id } });
   };
 
+  const showEmptyState = !isSavedContentLoading && !savedContentError && visibleSavedPosts.length === 0;
+  const showFilterBar = !isSavedContentLoading && !savedContentError && visibleSavedPosts.length > 0;
+
   return (
     <SafeAreaView style={styles.safeArea}>
-      {savedPosts.length === 0 ? (
+      <Text style={styles.title}>Gespeichert</Text>
+
+      {savedContentError ? (
+        <View style={styles.errorBanner}>
+          <Text style={styles.errorText}>{savedContentError}</Text>
+          <Pressable onPress={refreshSavedContent} accessibilityRole="button" accessibilityLabel="Erneut versuchen">
+            <Text style={styles.errorRetry}>Erneut versuchen</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {isSavedContentLoading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={FeedColors.textPrimary} />
+        </View>
+      ) : showEmptyState ? (
         <View style={styles.emptyState}>
           <IconSymbol size={40} name="bookmark.fill" color={FeedColors.textSecondary} />
-          <Text style={styles.emptyTitle}>Noch nichts gespeichert.</Text>
-          <Text style={styles.emptyText}>Speichere Beiträge, Fahrten, Treffpunkte oder Gesuche über das Lesezeichen-Symbol.</Text>
+          <Text style={styles.emptyTitle}>Noch nichts gespeichert</Text>
+          <Text style={styles.emptyText}>
+            Speichere Beiträge, Fahrten, Treffen oder Gesucht-Einträge, um sie später schnell wiederzufinden.
+          </Text>
         </View>
-      ) : (
-        <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
-          {SECTION_ORDER.map(({ category, label }) => {
-            const postsInSection = savedPosts.filter((post) => post.category === category);
+      ) : !savedContentError ? (
+        <>
+          {showFilterBar ? (
+            <View style={styles.filterRow}>
+              {FILTERS.map((filter) => (
+                <Pressable
+                  key={filter.key}
+                  onPress={() => setActiveFilter(filter.key)}
+                  style={[styles.filterButton, activeFilter === filter.key && styles.filterButtonActive]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${filter.label} anzeigen`}
+                >
+                  <Text style={[styles.filterButtonText, activeFilter === filter.key && styles.filterButtonTextActive]}>{filter.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
 
-            if (postsInSection.length === 0) {
-              return null;
-            }
-
-            return (
-              <View key={category} style={styles.section}>
-                <Text style={styles.sectionTitle}>{label}</Text>
-                {postsInSection.map((post) => (
-                  <ActivityRow
+          <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+            {filteredPosts.length === 0 ? (
+              <Text style={styles.emptyFilterText}>Keine gespeicherten Inhalte in dieser Kategorie.</Text>
+            ) : (
+              filteredPosts.map((post) =>
+                post.category === 'Fahrt' ? (
+                  <TripCard key={post.id} post={post} onPress={() => handleOpenPost(post)} />
+                ) : (
+                  <FeedPostCard
                     key={post.id}
                     post={post}
                     onPress={() => handleOpenPost(post)}
-                    trailing={
-                      <Pressable
-                        onPress={() => toggleSaved(post)}
-                        accessibilityRole="button"
-                        accessibilityLabel="Aus Gespeichert entfernen"
-                        hitSlop={8}
-                      >
-                        <IconSymbol size={20} name="bookmark.fill" color={FeedColors.textPrimary} />
-                      </Pressable>
-                    }
+                    onCommentPress={() => router.push({ pathname: getPostDetailPathname(post), params: { id: post.id, focusComments: 'true' } })}
                   />
-                ))}
-              </View>
-            );
-          })}
-        </ScrollView>
-      )}
+                ),
+              )
+            )}
+          </ScrollView>
+        </>
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -81,22 +126,75 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: FeedColors.background,
   },
+  title: {
+    color: FeedColors.textPrimary,
+    fontSize: FontSizes.title,
+    fontWeight: '700',
+    paddingHorizontal: Spacing.md,
+    paddingTop: Spacing.md,
+  },
   scroll: {
     flex: 1,
   },
   scrollContent: {
     paddingHorizontal: Spacing.md,
-    paddingTop: Spacing.md,
+    paddingTop: Spacing.sm,
     paddingBottom: Spacing.xl,
   },
-  section: {
-    marginBottom: Spacing.md,
+  loadingContainer: {
+    paddingVertical: Spacing.xl,
+    alignItems: 'center',
   },
-  sectionTitle: {
+  errorBanner: {
+    backgroundColor: FeedColors.cardBackground,
+    borderRadius: Spacing.sm,
+    borderWidth: 1,
+    borderColor: FeedColors.cardBorder,
+    padding: Spacing.sm,
+    marginHorizontal: Spacing.md,
+    marginTop: Spacing.md,
+  },
+  errorText: {
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.meta,
+    marginBottom: Spacing.xs,
+  },
+  errorRetry: {
     color: FeedColors.textPrimary,
-    fontSize: FontSizes.body,
+    fontSize: FontSizes.meta,
     fontWeight: '700',
-    marginBottom: Spacing.sm,
+  },
+  filterRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.xs,
+    paddingHorizontal: Spacing.md,
+    paddingTop: Spacing.sm,
+  },
+  filterButton: {
+    borderWidth: 1,
+    borderColor: FeedColors.cardBorder,
+    borderRadius: Radii.round,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.xs,
+  },
+  filterButtonActive: {
+    backgroundColor: ClubColors.surface,
+    borderColor: ClubColors.border,
+  },
+  filterButtonText: {
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.meta,
+  },
+  filterButtonTextActive: {
+    color: FeedColors.textPrimary,
+    fontWeight: '600',
+  },
+  emptyFilterText: {
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.body,
+    textAlign: 'center',
+    paddingVertical: Spacing.xl,
   },
   emptyState: {
     flex: 1,

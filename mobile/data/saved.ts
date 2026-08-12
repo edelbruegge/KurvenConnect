@@ -1,20 +1,6 @@
-export type SavedItemType = 'post' | 'trip' | 'meetup' | 'request' | 'group_post';
-
-export type SavedItemReference = {
-  type: SavedItemType;
-  id: string;
-  savedAt: string;
-};
-
-export const seedSavedItems: SavedItemReference[] = [
-  {
-    type: 'post',
-    id: '1',
-    savedAt: 'vor 2 Tagen',
-  },
-  {
-    type: 'trip',
-    id: '3',
-    savedAt: 'vor 1 Tag',
-  },
-];
+// Superseded by context/saved-context.tsx's Supabase-backed implementation (see
+// supabase/migrations/20260814130000_create_saved_content.sql and lib/map-supabase-save.ts, which
+// now hold the save-table/category mapping this file used to define locally). Kept as an empty,
+// deliberately unused module rather than deleted outright, in case anything still references the
+// module path; nothing in the app imports from it anymore.
+export {};

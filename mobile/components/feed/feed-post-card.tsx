@@ -8,6 +8,7 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 import { ClubColors, Colors, FontSizes, FeedColors, Radii, Spacing } from '@/constants/theme';
 import { useFeedPosts } from '@/context/feed-posts-context';
 import { useProfiles } from '@/context/profile-context';
+import { useSaved } from '@/context/saved-context';
 import { getMeetupAttendeeCount, type FeedPost } from '@/data/feed-posts';
 
 type FeedPostCardProps = {
@@ -18,6 +19,12 @@ type FeedPostCardProps = {
 };
 
 export function FeedPostCard({ post, onPress, onLikePress, onCommentPress }: FeedPostCardProps) {
+  // Self-contained, like getAuthorDisplay/getRemoteAuthorDisplay above -- the save action is the
+  // same toggleSaved(post) call regardless of which screen renders this card, unlike
+  // onLikePress/onCommentPress (which need screen-specific context, e.g. navigation for
+  // comments), so no extra prop/call-site wiring is needed anywhere this card is already used.
+  const { isSaved, toggleSaved } = useSaved();
+  const saved = isSaved(post.id);
   const router = useRouter();
   const { getAuthorDisplay, isCurrentUserId } = useProfiles();
   const { getRemoteAuthorDisplay } = useFeedPosts();
@@ -99,6 +106,19 @@ export function FeedPostCard({ post, onPress, onLikePress, onCommentPress }: Fee
         >
           <IconSymbol size={16} name="message" color={FeedColors.textSecondary} />
           <Text style={styles.meta}>{post.comments.length}</Text>
+        </Pressable>
+
+        <Pressable
+          onPress={(e: GestureResponderEvent) => {
+            e.stopPropagation();
+            toggleSaved(post);
+          }}
+          accessibilityRole="button"
+          accessibilityLabel={saved ? 'Nicht mehr gespeichert' : 'Speichern'}
+          style={[styles.metaItem, styles.saveButton, saved && styles.metaItemActive]}
+          hitSlop={8}
+        >
+          <IconSymbol size={16} name={saved ? 'bookmark.fill' : 'bookmark'} color={saved ? ClubColors.text : FeedColors.textSecondary} />
         </Pressable>
       </View>
     </Pressable>
@@ -185,7 +205,11 @@ const styles = StyleSheet.create({
   },
   footer: {
     flexDirection: 'row',
+    alignItems: 'center',
     gap: Spacing.lg,
+  },
+  saveButton: {
+    marginLeft: 'auto',
   },
   metaItem: {
     flexDirection: 'row',

@@ -6,6 +6,7 @@ import { PostMetadata } from '@/components/feed/post-metadata';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
 import { useProfiles } from '@/context/profile-context';
+import { useSaved } from '@/context/saved-context';
 import type { FeedPost } from '@/data/feed-posts';
 
 type TripCardProps = {
@@ -17,6 +18,8 @@ type TripCardProps = {
 export function TripCard({ post, onPress, onLikePress }: TripCardProps) {
   const router = useRouter();
   const { getAuthorDisplay } = useProfiles();
+  const { isSaved, toggleSaved } = useSaved();
+  const saved = isSaved(post.id);
   const tripDetails = post.tripDetails;
 
   if (!tripDetails) {
@@ -112,6 +115,19 @@ export function TripCard({ post, onPress, onLikePress }: TripCardProps) {
           <IconSymbol size={16} name="message" color={FeedColors.textSecondary} />
           <Text style={styles.footerText}>{post.comments.length}</Text>
         </View>
+
+        <Pressable
+          onPress={(e: GestureResponderEvent) => {
+            e.stopPropagation();
+            toggleSaved(post);
+          }}
+          accessibilityRole="button"
+          accessibilityLabel={saved ? 'Nicht mehr gespeichert' : 'Speichern'}
+          style={[styles.footerItem, styles.saveButton, saved && styles.footerItemActive]}
+          hitSlop={8}
+        >
+          <IconSymbol size={16} name={saved ? 'bookmark.fill' : 'bookmark'} color={saved ? ClubColors.text : FeedColors.textSecondary} />
+        </Pressable>
       </View>
     </Pressable>
   );
@@ -232,8 +248,12 @@ const styles = StyleSheet.create({
   },
   footer: {
     flexDirection: 'row',
+    alignItems: 'center',
     gap: Spacing.lg,
     marginTop: Spacing.sm,
+  },
+  saveButton: {
+    marginLeft: 'auto',
   },
   footerItem: {
     flexDirection: 'row',
