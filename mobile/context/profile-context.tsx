@@ -45,6 +45,10 @@ type ProfileContextValue = {
   followUser: (userId: string) => Promise<{ error: string | null }>;
   unfollowUser: (userId: string) => Promise<{ error: string | null }>;
   isFollowing: (userId: string) => boolean;
+  // The current account's own real follow set (real profile UUIDs, see followingIds above in the
+  // provider) -- exposed directly, not just via isFollowing(), for consumers that need to filter
+  // a list by membership (e.g. the "Folge ich" feed in app/(tabs)/index.tsx) or need the count.
+  followingIds: Set<string>;
   getFollowers: (userId: string) => UserProfile[];
   getFollowing: (userId: string) => UserProfile[];
   getFollowerCount: (userId: string) => number;
@@ -836,6 +840,7 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
       followUser,
       unfollowUser,
       isFollowing,
+      followingIds,
       getFollowers,
       getFollowing,
       getFollowerCount,

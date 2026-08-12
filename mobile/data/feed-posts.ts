@@ -2,6 +2,11 @@ import type { ReportTargetType } from './reports';
 
 export type FeedPostCategory = 'Beitrag' | 'Fahrt' | 'Gesuch' | 'Treffpunkt';
 
+// 'for-you' is the existing general feed (unchanged). 'following' shows only posts from users
+// the current account follows (see app/(tabs)/index.tsx). Kept open-ended so a future third mode
+// (e.g. a ranked/algorithmic feed) can be added without reshaping this type.
+export type FeedMode = 'for-you' | 'following';
+
 export type TripRequestStatus = 'pending' | 'accepted' | 'rejected' | 'cancelled';
 
 export type FeedComment = {
