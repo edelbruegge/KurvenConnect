@@ -18,6 +18,10 @@ export type NotificationType =
   | 'trip_request_rejected'
   | 'meetup_joined'
   | 'meetup_left'
+  // See supabase/migrations/20260815100000_create_user_follows.sql — only ever created for a
+  // genuine new follow of a real Supabase account (source==='supabase'), never for local seed
+  // follows or on unfollow.
+  | 'user_follow'
   // Group event types — see supabase/migrations/20260813120000_add_group_notifications.sql.
   // Only ever created for source==='supabase' groups; local seed groups never generate these.
   | 'group_message'

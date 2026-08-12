@@ -24,17 +24,21 @@ export default function HomeScreen() {
     remoteWantedEntriesError,
     refreshRemoteWantedEntries,
     contentVisibilityRealtimeStatus,
+    contentChangesRealtimeStatus,
   } = useFeedPosts();
   const { getRecommendedGroups, groupSuggestions } = useGroups();
 
   const recommendedGroups = getRecommendedGroups();
   const visiblePosts = useVisiblePosts(posts);
 
-  // Safety net only — while the shared content-visibility channel is healthy, Feed/Stadion/Suche/
-  // Profil/Aktivitäten/Gespeichert already stay live via realtime + the AppState foreground
-  // refresh in FeedPostsContext. This only kicks in if that channel silently dropped without the
-  // app ever backgrounding.
-  useRefreshOnFocus(refreshRemotePosts, contentVisibilityRealtimeStatus === 'subscribed');
+  // Safety net only — while the shared content-visibility AND content-changes channels are
+  // healthy, Feed/Stadion/Suche/Profil/Aktivitäten/Gespeichert already stay live via realtime +
+  // the AppState foreground refresh in FeedPostsContext. This only kicks in if either channel
+  // silently dropped without the app ever backgrounding.
+  useRefreshOnFocus(
+    refreshRemotePosts,
+    contentVisibilityRealtimeStatus === 'subscribed' && contentChangesRealtimeStatus === 'subscribed',
+  );
 
   const handleOpenPost = (post: FeedPost) => {
     router.push({ pathname: getPostDetailPathname(post), params: { id: post.id } });

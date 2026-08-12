@@ -28,6 +28,7 @@ function getNotificationIcon(type: NotificationType): IconSymbolName {
     case 'post_comment':
       return 'message';
     case 'new_follower':
+    case 'user_follow':
       return 'person.badge.plus';
     case 'trip_request':
     case 'trip_request_received':

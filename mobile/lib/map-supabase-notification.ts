@@ -22,6 +22,7 @@ const KNOWN_NOTIFICATION_TYPES: NotificationType[] = [
   'trip_request_rejected',
   'meetup_joined',
   'meetup_left',
+  'user_follow',
   'group_message',
   'group_join_request',
   'group_join_accepted',

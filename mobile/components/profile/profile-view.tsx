@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -24,6 +24,7 @@ import { useProfiles } from '@/context/profile-context';
 import { useReports } from '@/context/reports-context';
 import { getPostDetailPathname } from '@/data/feed-posts';
 import type { UserProfile } from '@/data/users';
+import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 import { useSafetySelectors } from '@/hooks/use-safety-selectors';
 import { useVisiblePosts } from '@/hooks/use-visible-posts';
 
@@ -37,7 +38,16 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
   const router = useRouter();
   const { posts, toggleLike } = useFeedPosts();
   const { getOrCreateConversation, getOrCreateDirectConversation } = useMessages();
-  const { isFollowing, followUser, unfollowUser, getFollowerCount, getFollowingCount, isContentOwnedByCurrentUser } = useProfiles();
+  const {
+    isFollowing,
+    followUser,
+    unfollowUser,
+    getFollowerCount,
+    getFollowingCount,
+    loadConnectionCounts,
+    isContentOwnedByCurrentUser,
+    connectionsRealtimeStatus,
+  } = useProfiles();
   const { hasReported } = useReports();
   const { isBlocked, blockUser, unblockUser, blockRemoteUser, unblockRemoteUser } = useBlocks();
   const { canMessageUser } = useSafetySelectors();
@@ -48,6 +58,20 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
   const [messageError, setMessageError] = useState<string | null>(null);
   const [isBlockActionPending, setIsBlockActionPending] = useState(false);
   const [blockActionError, setBlockActionError] = useState<string | null>(null);
+  const [isFollowActionPending, setIsFollowActionPending] = useState(false);
+  const [followActionError, setFollowActionError] = useState<string | null>(null);
+
+  // Real follower/following counts for this profile are loaded on demand when it is actually
+  // opened (a pure count query, see context/profile-context.tsx's loadConnectionCounts) --
+  // no-ops harmlessly for local seed profiles.
+  useEffect(() => {
+    loadConnectionCounts(profile.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile.id]);
+
+  // Safety net only -- while the user-follows channel is healthy, this count already stays live
+  // via the realtime handler's targeted loadConnectionCounts() re-fetch in profile-context.tsx.
+  useRefreshOnFocus(() => loadConnectionCounts(profile.id), connectionsRealtimeStatus === 'subscribed');
 
   const ownPosts = useVisiblePosts(
     posts.filter((post) =>
@@ -97,11 +121,18 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
 
   const following = isFollowing(profile.id);
 
-  const handleFollowToggle = () => {
-    if (following) {
-      unfollowUser(profile.id);
-    } else {
-      followUser(profile.id);
+  const handleFollowToggle = async () => {
+    if (isFollowActionPending) {
+      return;
+    }
+
+    setIsFollowActionPending(true);
+    setFollowActionError(null);
+    const { error } = following ? await unfollowUser(profile.id) : await followUser(profile.id);
+    setIsFollowActionPending(false);
+
+    if (error) {
+      setFollowActionError(error);
     }
   };
 
@@ -236,8 +267,14 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
           <View style={styles.actionRowWrapper}>
             <View style={styles.actionRow}>
               <Pressable
-                onPress={handleFollowToggle}
-                style={[styles.editButton, styles.actionRowButton, following && styles.followingButton]}
+                onPress={() => void handleFollowToggle()}
+                disabled={isFollowActionPending}
+                style={[
+                  styles.editButton,
+                  styles.actionRowButton,
+                  following && styles.followingButton,
+                  isFollowActionPending && styles.actionButtonDisabled,
+                ]}
                 accessibilityRole="button"
                 accessibilityLabel={following ? 'Entfolgen' : 'Folgen'}
               >
@@ -265,6 +302,7 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
             </View>
             {messageError ? <Text style={styles.messageErrorText}>{messageError}</Text> : null}
             {blockActionError ? <Text style={styles.messageErrorText}>{blockActionError}</Text> : null}
+            {followActionError ? <Text style={styles.messageErrorText}>{followActionError}</Text> : null}
             <View style={styles.profileOverflowWrapper}>
               <OverflowMenu
                 accessibilityLabel="Weitere Aktionen zu diesem Nutzer"

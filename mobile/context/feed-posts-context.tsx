@@ -49,6 +49,17 @@ type ContentVisibilityEventPayload = {
   new: Record<string, unknown>;
 };
 
+// A minimal structural view of a postgres_changes payload subscribed with event:'*' — covers
+// INSERT/UPDATE/DELETE on one binding instead of three, same fields Supabase Realtime actually
+// sends (`old` only ever carries the replica-identity columns, the primary key by default — see
+// 20260816100000_complete_realtime_publication.sql's own header comment on why REPLICA IDENTITY
+// FULL is deliberately not needed here).
+type RealtimeChangePayload = {
+  eventType: 'INSERT' | 'UPDATE' | 'DELETE';
+  new: Record<string, unknown>;
+  old: Record<string, unknown>;
+};
+
 type NewRemoteTripInput = {
   description: string;
   departure: string;
@@ -142,6 +153,10 @@ type FeedPostsContextValue = {
   // events) — exposed so a screen can decide whether a focus-triggered refresh is actually
   // needed (only when this is not 'subscribed').
   contentVisibilityRealtimeStatus: RealtimeStatus;
+  // Realtime status of the content-changes channel (new/updated/deleted posts, comments, likes,
+  // trips, meetups, attendees, wanted entries from other clients) — same purpose as above, for
+  // hooks/use-refresh-on-focus.ts's isRealtimeHealthy input.
+  contentChangesRealtimeStatus: RealtimeStatus;
 };
 
 const FeedPostsContext = createContext<FeedPostsContextValue | undefined>(undefined);
@@ -835,9 +850,397 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
     };
   }, [authUserId, contentVisibilityReconnectToken]);
 
+  // --- Content-changes sync: a single consolidated channel (not ten separate ones) for the
+  // tables added to supabase_realtime in 20260816100000_complete_realtime_publication.sql —
+  // posts/trips/meetups/wanted_entries plus their comments/likes/attendees. This is what makes
+  // another signed-in client's new post/like/comment/attendance show up here without a reload;
+  // own mutations already update local state immediately and never wait for this (see
+  // createRemotePost/toggleRemoteLike/addRemoteComment/joinRemoteMeetup etc. above) — every INSERT
+  // handler below is a no-op for a row that's already present (by id), and every *_likes handler
+  // skips rows whose user_id is this account's own (already applied optimistically), so an own
+  // mutation's realtime echo can never double-apply. Existing block/moderation filtering
+  // (useVisiblePosts, applied at render time in every screen) is untouched and keeps working
+  // exactly as before on this now-richer raw state — moderative hiding itself continues to run
+  // entirely through the separate content-visibility channel above, not through this one. ---
+  const [contentChangesRealtimeStatus, setContentChangesRealtimeStatus] = useState<RealtimeStatus>('idle');
+  const [contentChangesReconnectToken, setContentChangesReconnectToken] = useState(0);
+  const contentChangesRealtimeStatusRef = useRef<RealtimeStatus>('idle');
+
+  useEffect(() => {
+    contentChangesRealtimeStatusRef.current = contentChangesRealtimeStatus;
+  }, [contentChangesRealtimeStatus]);
+
+  // Fetches and caches a single profile's display info on demand — same shape as the bulk
+  // authorDisplayById lookups above, just for one id instead of a batch. FeedPostCard/PostDetail
+  // resolve a supabase post's author via getRemoteAuthorDisplay(post.userId) at render time (never
+  // trusting the name baked into the post object for source:'supabase' content), so updating this
+  // cache alone is enough for the correct name to appear as soon as it resolves — no need to touch
+  // the post/trip/meetup/wanted-entry row itself afterwards.
+  const ensureAuthorProfileCached = (userId: string | null | undefined) => {
+    if (!userId || remoteAuthorProfiles[userId]) {
+      return;
+    }
+
+    supabase
+      .from('profiles')
+      .select('id, display_name')
+      .eq('id', userId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!data) return;
+        const displayName = data.display_name?.trim() || 'Neues Mitglied';
+        setRemoteAuthorProfiles((current) =>
+          current[userId] ? current : { ...current, [userId]: { displayName, initials: getInitialsFromName(displayName) } },
+        );
+      });
+  };
+
+  const handlePostsChange = (payload: RealtimeChangePayload) => {
+    if (payload.eventType === 'INSERT') {
+      const row = payload.new as unknown as SupabasePostRow;
+      if (!row?.id) return;
+      ensureAuthorProfileCached(row.author_id);
+      setRemotePosts((current) =>
+        current.some((post) => post.id === row.id) ? current : [mapSupabasePostToFeedPost(row, [], 0, false, UNKNOWN_AUTHOR_DISPLAY), ...current],
+      );
+      return;
+    }
+
+    if (payload.eventType === 'UPDATE') {
+      const row = payload.new as unknown as SupabasePostRow;
+      if (!row?.id) return;
+      setRemotePosts((current) => current.map((post) => (post.id === row.id ? { ...post, description: row.content } : post)));
+      return;
+    }
+
+    if (payload.eventType === 'DELETE') {
+      const oldId = payload.old?.id as string | undefined;
+      if (!oldId) return;
+      setRemotePosts((current) => current.filter((post) => post.id !== oldId));
+    }
+  };
+
+  const handlePostCommentsChange = (payload: RealtimeChangePayload) => {
+    if (payload.eventType === 'INSERT') {
+      const row = payload.new as unknown as SupabaseCommentRow;
+      if (!row?.id || !row?.post_id) return;
+      ensureAuthorProfileCached(row.author_id);
+      setRemotePosts((current) =>
+        current.map((post) => {
+          if (post.id !== row.post_id || post.comments.some((comment) => comment.id === row.id)) return post;
+          const author = remoteAuthorProfiles[row.author_id] ?? UNKNOWN_AUTHOR_DISPLAY;
+          return { ...post, comments: [...post.comments, mapSupabaseCommentToFeedComment(row, author)] };
+        }),
+      );
+      return;
+    }
+
+    if (payload.eventType === 'DELETE') {
+      const oldId = payload.old?.id as string | undefined;
+      if (!oldId) return;
+      setRemotePosts((current) =>
+        current.map((post) =>
+          post.comments.some((comment) => comment.id === oldId)
+            ? { ...post, comments: post.comments.filter((comment) => comment.id !== oldId) }
+            : post,
+        ),
+      );
+    }
+  };
+
+  const handlePostLikesChange = (payload: RealtimeChangePayload) => {
+    if (payload.eventType === 'INSERT') {
+      const row = payload.new as unknown as SupabaseLikeRow;
+      if (!row?.post_id || !row?.user_id || row.user_id === authUserId) return;
+      setRemotePosts((current) => current.map((post) => (post.id === row.post_id ? { ...post, likes: post.likes + 1 } : post)));
+      return;
+    }
+
+    if (payload.eventType === 'DELETE') {
+      const row = payload.old as unknown as SupabaseLikeRow;
+      if (!row?.post_id || !row?.user_id || row.user_id === authUserId) return;
+      setRemotePosts((current) =>
+        current.map((post) => (post.id === row.post_id ? { ...post, likes: Math.max(0, post.likes - 1) } : post)),
+      );
+    }
+  };
+
+  const handleTripsChange = (payload: RealtimeChangePayload) => {
+    if (payload.eventType === 'INSERT') {
+      const row = payload.new as unknown as SupabaseTripRow;
+      if (!row?.id) return;
+      ensureAuthorProfileCached(row.owner_id);
+      setRemoteTrips((current) =>
+        current.some((trip) => trip.id === row.id) ? current : [mapSupabaseTripToFeedPost(row, 0, false, undefined, UNKNOWN_AUTHOR_DISPLAY), ...current],
+      );
+      return;
+    }
+
+    if (payload.eventType === 'UPDATE') {
+      const row = payload.new as unknown as SupabaseTripRow;
+      if (!row?.id) return;
+      setRemoteTrips((current) =>
+        current.map((trip) =>
+          trip.id === row.id
+            ? {
+                ...trip,
+                description: row.description,
+                tripDetails: trip.tripDetails
+                  ? {
+                      ...trip.tripDetails,
+                      departure: row.departure,
+                      destination: row.destination,
+                      departureTime: row.departure_time,
+                      freeSeats: row.seats_available,
+                      occasion: row.occasion ?? undefined,
+                    }
+                  : trip.tripDetails,
+              }
+            : trip,
+        ),
+      );
+      return;
+    }
+
+    if (payload.eventType === 'DELETE') {
+      const oldId = payload.old?.id as string | undefined;
+      if (!oldId) return;
+      setRemoteTrips((current) => current.filter((trip) => trip.id !== oldId));
+    }
+  };
+
+  const handleTripLikesChange = (payload: RealtimeChangePayload) => {
+    if (payload.eventType === 'INSERT') {
+      const row = payload.new as unknown as SupabaseTripLikeRow;
+      if (!row?.trip_id || !row?.user_id || row.user_id === authUserId) return;
+      setRemoteTrips((current) => current.map((trip) => (trip.id === row.trip_id ? { ...trip, likes: trip.likes + 1 } : trip)));
+      return;
+    }
+
+    if (payload.eventType === 'DELETE') {
+      const row = payload.old as unknown as SupabaseTripLikeRow;
+      if (!row?.trip_id || !row?.user_id || row.user_id === authUserId) return;
+      setRemoteTrips((current) =>
+        current.map((trip) => (trip.id === row.trip_id ? { ...trip, likes: Math.max(0, trip.likes - 1) } : trip)),
+      );
+    }
+  };
+
+  const handleMeetupsChange = (payload: RealtimeChangePayload) => {
+    if (payload.eventType === 'INSERT') {
+      const row = payload.new as unknown as SupabaseMeetupRow;
+      if (!row?.id) return;
+      ensureAuthorProfileCached(row.organizer_id);
+      setRemoteMeetups((current) =>
+        current.some((meetup) => meetup.id === row.id)
+          ? current
+          : [mapSupabaseMeetupToFeedPost(row, [], 0, false, UNKNOWN_AUTHOR_DISPLAY), ...current],
+      );
+      return;
+    }
+
+    if (payload.eventType === 'UPDATE') {
+      const row = payload.new as unknown as SupabaseMeetupRow;
+      if (!row?.id) return;
+      setRemoteMeetups((current) =>
+        current.map((meetup) =>
+          meetup.id === row.id
+            ? {
+                ...meetup,
+                description: row.description,
+                meetupDetails: meetup.meetupDetails
+                  ? { ...meetup.meetupDetails, title: row.title, location: row.location, maxAttendees: row.max_attendees ?? undefined }
+                  : meetup.meetupDetails,
+              }
+            : meetup,
+        ),
+      );
+      return;
+    }
+
+    if (payload.eventType === 'DELETE') {
+      const oldId = payload.old?.id as string | undefined;
+      if (!oldId) return;
+      setRemoteMeetups((current) => current.filter((meetup) => meetup.id !== oldId));
+    }
+  };
+
+  const handleMeetupLikesChange = (payload: RealtimeChangePayload) => {
+    if (payload.eventType === 'INSERT') {
+      const row = payload.new as unknown as SupabaseMeetupLikeRow;
+      if (!row?.meetup_id || !row?.user_id || row.user_id === authUserId) return;
+      setRemoteMeetups((current) => current.map((meetup) => (meetup.id === row.meetup_id ? { ...meetup, likes: meetup.likes + 1 } : meetup)));
+      return;
+    }
+
+    if (payload.eventType === 'DELETE') {
+      const row = payload.old as unknown as SupabaseMeetupLikeRow;
+      if (!row?.meetup_id || !row?.user_id || row.user_id === authUserId) return;
+      setRemoteMeetups((current) =>
+        current.map((meetup) => (meetup.id === row.meetup_id ? { ...meetup, likes: Math.max(0, meetup.likes - 1) } : meetup)),
+      );
+    }
+  };
+
+  const handleMeetupAttendeesChange = (payload: RealtimeChangePayload) => {
+    if (payload.eventType === 'INSERT') {
+      const row = payload.new as unknown as SupabaseMeetupAttendeeRow;
+      if (!row?.meetup_id || !row?.user_id) return;
+      setRemoteMeetups((current) =>
+        current.map((meetup) =>
+          meetup.id === row.meetup_id && meetup.meetupDetails && !meetup.meetupDetails.attendeeIds.includes(row.user_id)
+            ? { ...meetup, meetupDetails: { ...meetup.meetupDetails, attendeeIds: [...meetup.meetupDetails.attendeeIds, row.user_id] } }
+            : meetup,
+        ),
+      );
+      return;
+    }
+
+    if (payload.eventType === 'DELETE') {
+      const row = payload.old as unknown as SupabaseMeetupAttendeeRow;
+      if (!row?.meetup_id || !row?.user_id) return;
+      setRemoteMeetups((current) =>
+        current.map((meetup) =>
+          meetup.id === row.meetup_id && meetup.meetupDetails
+            ? { ...meetup, meetupDetails: { ...meetup.meetupDetails, attendeeIds: meetup.meetupDetails.attendeeIds.filter((id) => id !== row.user_id) } }
+            : meetup,
+        ),
+      );
+    }
+  };
+
+  const handleWantedEntriesChange = (payload: RealtimeChangePayload) => {
+    if (payload.eventType === 'INSERT') {
+      const row = payload.new as unknown as SupabaseWantedEntryRow;
+      if (!row?.id) return;
+      ensureAuthorProfileCached(row.owner_id);
+      setRemoteWantedEntries((current) =>
+        current.some((entry) => entry.id === row.id) ? current : [mapSupabaseWantedEntryToFeedPost(row, 0, false, UNKNOWN_AUTHOR_DISPLAY), ...current],
+      );
+      return;
+    }
+
+    if (payload.eventType === 'UPDATE') {
+      const row = payload.new as unknown as SupabaseWantedEntryRow;
+      if (!row?.id) return;
+      setRemoteWantedEntries((current) =>
+        current.map((entry) =>
+          entry.id === row.id
+            ? {
+                ...entry,
+                description: row.description,
+                requestDetails: entry.requestDetails ? { ...entry.requestDetails, requestedService: row.requested_service } : entry.requestDetails,
+              }
+            : entry,
+        ),
+      );
+      return;
+    }
+
+    if (payload.eventType === 'DELETE') {
+      const oldId = payload.old?.id as string | undefined;
+      if (!oldId) return;
+      setRemoteWantedEntries((current) => current.filter((entry) => entry.id !== oldId));
+    }
+  };
+
+  const handleWantedLikesChange = (payload: RealtimeChangePayload) => {
+    if (payload.eventType === 'INSERT') {
+      const row = payload.new as unknown as SupabaseWantedLikeRow;
+      if (!row?.wanted_entry_id || !row?.user_id || row.user_id === authUserId) return;
+      setRemoteWantedEntries((current) =>
+        current.map((entry) => (entry.id === row.wanted_entry_id ? { ...entry, likes: entry.likes + 1 } : entry)),
+      );
+      return;
+    }
+
+    if (payload.eventType === 'DELETE') {
+      const row = payload.old as unknown as SupabaseWantedLikeRow;
+      if (!row?.wanted_entry_id || !row?.user_id || row.user_id === authUserId) return;
+      setRemoteWantedEntries((current) =>
+        current.map((entry) => (entry.id === row.wanted_entry_id ? { ...entry, likes: Math.max(0, entry.likes - 1) } : entry)),
+      );
+    }
+  };
+
+  // Ref indirection so the long-lived channel subscription below always calls each latest closure
+  // (fresh authUserId/remoteAuthorProfiles) without needing to reconnect the channel every render
+  // — same pattern as handleContentVisibilityEventRef above.
+  const contentChangeHandlersRef = useRef({
+    posts: handlePostsChange,
+    comments: handlePostCommentsChange,
+    postLikes: handlePostLikesChange,
+    trips: handleTripsChange,
+    tripLikes: handleTripLikesChange,
+    meetups: handleMeetupsChange,
+    meetupLikes: handleMeetupLikesChange,
+    meetupAttendees: handleMeetupAttendeesChange,
+    wantedEntries: handleWantedEntriesChange,
+    wantedLikes: handleWantedLikesChange,
+  });
+  contentChangeHandlersRef.current = {
+    posts: handlePostsChange,
+    comments: handlePostCommentsChange,
+    postLikes: handlePostLikesChange,
+    trips: handleTripsChange,
+    tripLikes: handleTripLikesChange,
+    meetups: handleMeetupsChange,
+    meetupLikes: handleMeetupLikesChange,
+    meetupAttendees: handleMeetupAttendeesChange,
+    wantedEntries: handleWantedEntriesChange,
+    wantedLikes: handleWantedLikesChange,
+  };
+
+  useEffect(() => {
+    if (!authUserId) {
+      setContentChangesRealtimeStatus('idle');
+      return;
+    }
+
+    let isCurrent = true;
+    setContentChangesRealtimeStatus((current) => (current === 'error' || current === 'closed' ? 'reconnecting' : 'connecting'));
+
+    const guard = <T,>(fn: (payload: T) => void) => (payload: T) => {
+      if (!isCurrent) return;
+      fn(payload);
+    };
+
+    const channel = supabase
+      .channel(`content-changes:${authUserId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.posts(p)))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'post_comments' }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.comments(p)))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'post_likes' }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.postLikes(p)))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'trips' }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.trips(p)))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'trip_likes' }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.tripLikes(p)))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'meetups' }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.meetups(p)))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'meetup_likes' }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.meetupLikes(p)))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'meetup_attendees' }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.meetupAttendees(p)))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'wanted_entries' }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.wantedEntries(p)))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'wanted_likes' }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.wantedLikes(p)))
+      .subscribe((status) => {
+        if (!isCurrent) return;
+
+        if (status === 'SUBSCRIBED') {
+          setContentChangesRealtimeStatus('subscribed');
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          if (__DEV__) {
+            console.error('[feed-posts:realtime] content-changes channel error/timeout', status);
+          }
+          setContentChangesRealtimeStatus('error');
+        } else if (status === 'CLOSED') {
+          setContentChangesRealtimeStatus((current) => (current === 'error' ? current : 'closed'));
+        }
+      });
+
+    return () => {
+      isCurrent = false;
+      void supabase.removeChannel(channel);
+    };
+  }, [authUserId, contentChangesReconnectToken]);
+
   // --- Foreground refresh: one AppState listener (react-native-web maps this to
-  // document.visibilitychange), no polling. Also nudges a realtime reconnect if the channel isn't
-  // healthy, mirroring ModerationContext's established behavior. ---
+  // document.visibilitychange), no polling. Also nudges a realtime reconnect if either channel
+  // isn't healthy, mirroring ModerationContext's established behavior. ---
   useEffect(() => {
     const appStateRef = { current: AppState.currentState };
 
@@ -851,6 +1254,10 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
 
       if (contentVisibilityRealtimeStatusRef.current !== 'subscribed') {
         setContentVisibilityReconnectToken((token) => token + 1);
+      }
+
+      if (contentChangesRealtimeStatusRef.current !== 'subscribed') {
+        setContentChangesReconnectToken((token) => token + 1);
       }
 
       refreshRemotePosts();
@@ -1688,6 +2095,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       createRemoteWantedEntry,
       toggleRemoteWantedLike,
       contentVisibilityRealtimeStatus,
+      contentChangesRealtimeStatus,
     }),
     [
       posts,
@@ -1708,6 +2116,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       currentUser,
       authUserId,
       contentVisibilityRealtimeStatus,
+      contentChangesRealtimeStatus,
     ],
   );
 
