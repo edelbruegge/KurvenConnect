@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -8,18 +8,33 @@ import { NotificationsButton } from '@/components/navigation/notifications-butto
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
 import { STADION_MODULES, type StadionModule } from '@/constants/stadion-modules';
-import { seedGames } from '@/data/games';
+import { useGames } from '@/context/games-context';
 
 export default function StadionScreen() {
   const router = useRouter();
-  const [selectedGameId, setSelectedGameId] = useState<string | null>(seedGames[0]?.id ?? null);
+  const { games } = useGames();
+  const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
 
-  const selectedGame = seedGames.find((game) => game.id === selectedGameId);
+  // Default to the first loaded game once the (async) games list arrives -- mirrors the previous
+  // seedGames[0]-at-mount default, just no longer available synchronously at the first render.
+  useEffect(() => {
+    if (!selectedGameId && games.length > 0) {
+      setSelectedGameId(games[0].id);
+    }
+  }, [games, selectedGameId]);
+
+  const selectedGame = games.find((game) => game.id === selectedGameId);
+  const selectedGameLabel = selectedGame ? `${selectedGame.homeTeam} – ${selectedGame.awayTeam}` : '';
 
   const handleOpenModule = (module: StadionModule) => {
+    if (module === 'stadionkarte') {
+      router.push('/stadion/karte');
+      return;
+    }
+
     router.push({
       pathname: '/stadion/[module]',
-      params: { module, gameId: selectedGameId ?? '', gameLabel: selectedGame?.label ?? '' },
+      params: { module, gameId: selectedGameId ?? '', gameLabel: selectedGameLabel },
     });
   };
 
@@ -44,17 +59,20 @@ export default function StadionScreen() {
         contentContainerStyle={styles.filterRow}
         style={styles.filterScroll}
       >
-        {seedGames.map((game) => (
-          <Pressable
-            key={game.id}
-            onPress={() => setSelectedGameId(game.id)}
-            style={[styles.filterChip, selectedGameId === game.id && styles.filterChipActive]}
-            accessibilityRole="button"
-            accessibilityLabel={`Spiel auswählen: ${game.label}`}
-          >
-            <Text style={[styles.filterChipText, selectedGameId === game.id && styles.filterChipTextActive]}>{game.label}</Text>
-          </Pressable>
-        ))}
+        {games.map((game) => {
+          const gameLabel = `${game.homeTeam} – ${game.awayTeam}`;
+          return (
+            <Pressable
+              key={game.id}
+              onPress={() => setSelectedGameId(game.id)}
+              style={[styles.filterChip, selectedGameId === game.id && styles.filterChipActive]}
+              accessibilityRole="button"
+              accessibilityLabel={`Spiel auswählen: ${gameLabel}`}
+            >
+              <Text style={[styles.filterChipText, selectedGameId === game.id && styles.filterChipTextActive]}>{gameLabel}</Text>
+            </Pressable>
+          );
+        })}
       </ScrollView>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>

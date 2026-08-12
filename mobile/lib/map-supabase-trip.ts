@@ -14,6 +14,8 @@ export type SupabaseTripRow = {
   description: string;
   created_at: string;
   updated_at: string;
+  game_id: string | null;
+  game_label: string | null;
 };
 
 export type SupabaseTripLikeRow = {
@@ -58,6 +60,8 @@ export function mapSupabaseTripToFeedPost(
     rideRequestId: ownRequest?.id,
     source: 'supabase',
     createdAtIso: row.created_at,
+    gameId: row.game_id ?? undefined,
+    gameLabel: row.game_label ?? undefined,
     tripDetails: {
       departure: row.departure,
       destination: row.destination,

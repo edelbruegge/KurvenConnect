@@ -7,6 +7,8 @@ export type SupabasePostRow = {
   category: string;
   created_at: string;
   updated_at: string;
+  game_id: string | null;
+  game_label: string | null;
 };
 
 export type SupabaseCommentRow = {
@@ -89,5 +91,7 @@ export function mapSupabasePostToFeedPost(
     comments,
     source: 'supabase',
     createdAtIso: row.created_at,
+    gameId: row.game_id ?? undefined,
+    gameLabel: row.game_label ?? undefined,
   };
 }

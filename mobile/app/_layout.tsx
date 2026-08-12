@@ -2,6 +2,7 @@ import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import 'react-native-reanimated';
 
@@ -10,6 +11,7 @@ import { FeedColors, FontSizes, Spacing } from '@/constants/theme';
 import { AuthProvider, useAuth } from '@/context/auth-context';
 import { BlocksProvider } from '@/context/blocks-context';
 import { FeedPostsProvider } from '@/context/feed-posts-context';
+import { GamesProvider } from '@/context/games-context';
 import { GroupsProvider } from '@/context/groups-context';
 import { MessagesProvider } from '@/context/messages-context';
 import { ModerationProvider } from '@/context/moderation-context';
@@ -18,6 +20,7 @@ import { ProfileProvider } from '@/context/profile-context';
 import { PushNotificationsProvider } from '@/context/push-notifications-context';
 import { ReportsProvider } from '@/context/reports-context';
 import { SavedProvider } from '@/context/saved-context';
+import { StadiumHistoryProvider } from '@/context/stadium-history-context';
 import { UserWarningsProvider } from '@/context/user-warnings-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { isSupabaseConfigured, SUPABASE_NOT_CONFIGURED_MESSAGE } from '@/lib/supabase';
@@ -85,6 +88,18 @@ function RootNavigator() {
           <Stack.Screen
             name="stadion/[module]"
             options={{ title: 'Stadion', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
+          />
+          <Stack.Screen
+            name="stadion/karte"
+            options={{ title: 'Stadionkarte', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
+          />
+          <Stack.Screen
+            name="stadium/[id]"
+            options={{ title: 'Stadion', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
+          />
+          <Stack.Screen
+            name="matchday/[id]"
+            options={{ title: 'Spieltag', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
           />
           <Stack.Screen
             name="messages"
@@ -162,37 +177,46 @@ export default function RootLayout() {
   const colorScheme = useColorScheme();
 
   return (
+    <GestureHandlerRootView style={styles.gestureRoot}>
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <AuthProvider>
         <ProfileProvider>
           <FeedPostsProvider>
-            <MessagesProvider>
-              <NotificationsProvider>
-                <PushNotificationsProvider>
-                  <GroupsProvider>
-                    <SavedProvider>
-                      <ReportsProvider>
-                        <BlocksProvider>
-                          <ModerationProvider>
-                            <UserWarningsProvider>
-                              <RootNavigator />
-                            </UserWarningsProvider>
-                          </ModerationProvider>
-                        </BlocksProvider>
-                      </ReportsProvider>
-                    </SavedProvider>
-                  </GroupsProvider>
-                </PushNotificationsProvider>
-              </NotificationsProvider>
-            </MessagesProvider>
+            <GamesProvider>
+              <StadiumHistoryProvider>
+                <MessagesProvider>
+                  <NotificationsProvider>
+                    <PushNotificationsProvider>
+                      <GroupsProvider>
+                        <SavedProvider>
+                          <ReportsProvider>
+                            <BlocksProvider>
+                              <ModerationProvider>
+                                <UserWarningsProvider>
+                                  <RootNavigator />
+                                </UserWarningsProvider>
+                              </ModerationProvider>
+                            </BlocksProvider>
+                          </ReportsProvider>
+                        </SavedProvider>
+                      </GroupsProvider>
+                    </PushNotificationsProvider>
+                  </NotificationsProvider>
+                </MessagesProvider>
+              </StadiumHistoryProvider>
+            </GamesProvider>
           </FeedPostsProvider>
         </ProfileProvider>
       </AuthProvider>
     </ThemeProvider>
+    </GestureHandlerRootView>
   );
 }
 
 const styles = StyleSheet.create({
+  gestureRoot: {
+    flex: 1,
+  },
   loadingSafeArea: {
     flex: 1,
     backgroundColor: FeedColors.background,

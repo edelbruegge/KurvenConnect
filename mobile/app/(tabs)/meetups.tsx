@@ -8,12 +8,13 @@ import { MessagesButton } from '@/components/navigation/messages-button';
 import { NotificationsButton } from '@/components/navigation/notifications-button';
 import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
 import { useFeedPosts } from '@/context/feed-posts-context';
+import { useGames } from '@/context/games-context';
 import { getPostDetailPathname, type FeedPost } from '@/data/feed-posts';
-import { seedGames } from '@/data/games';
 import { useVisiblePosts } from '@/hooks/use-visible-posts';
 
 export default function MeetupsScreen() {
   const router = useRouter();
+  const { games } = useGames();
   const { posts, toggleLike, remoteMeetupsError, refreshRemoteMeetups } = useFeedPosts();
   const visiblePosts = useVisiblePosts(posts);
   const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
@@ -56,17 +57,18 @@ export default function MeetupsScreen() {
             Alle Spiele
           </Text>
         </Pressable>
-        {seedGames.map((game) => (
-          <Pressable
-            key={game.id}
-            onPress={() => setSelectedGameId(game.id)}
-            style={[styles.filterChip, selectedGameId === game.id && styles.filterChipActive]}
-          >
-            <Text style={[styles.filterChipText, selectedGameId === game.id && styles.filterChipTextActive]}>
-              {game.label}
-            </Text>
-          </Pressable>
-        ))}
+        {games.map((game) => {
+          const gameLabel = `${game.homeTeam} – ${game.awayTeam}`;
+          return (
+            <Pressable
+              key={game.id}
+              onPress={() => setSelectedGameId(game.id)}
+              style={[styles.filterChip, selectedGameId === game.id && styles.filterChipActive]}
+            >
+              <Text style={[styles.filterChipText, selectedGameId === game.id && styles.filterChipTextActive]}>{gameLabel}</Text>
+            </Pressable>
+          );
+        })}
       </ScrollView>
 
       {remoteMeetupsError ? (

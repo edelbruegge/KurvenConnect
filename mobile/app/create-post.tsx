@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Keyboard, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { GameSelector } from '@/components/stadion/game-selector';
 import { CategoryLabels, ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
 import { useFeedPosts } from '@/context/feed-posts-context';
+import { useStadiumHistory } from '@/context/stadium-history-context';
 import type { FeedPostCategory } from '@/data/feed-posts';
 import { seedGames } from '@/data/games';
 import { dismissKeyboardOnNative } from '@/lib/dismiss-keyboard';
@@ -21,6 +23,7 @@ type CreatePostFormState = {
   occasion: string;
   requestedService: string;
   gameId: string;
+  gameLabel: string;
   meetupTitle: string;
   location: string;
   date: string;
@@ -38,6 +41,7 @@ const initialFormState: CreatePostFormState = {
   occasion: '',
   requestedService: '',
   gameId: '',
+  gameLabel: '',
   meetupTitle: '',
   location: '',
   date: '',
@@ -47,8 +51,21 @@ const initialFormState: CreatePostFormState = {
 
 export default function CreatePostScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ gameId?: string; gameLabel?: string }>();
   const { createRemotePost, createRemoteTrip, createRemoteMeetup, createRemoteWantedEntry } = useFeedPosts();
-  const [form, setForm] = React.useState<CreatePostFormState>(initialFormState);
+  const { refreshStadiumHistory } = useStadiumHistory();
+  // An optional game preselection via route params — nothing in the app currently links here
+  // with these set (the Stadion area has no creation entry point anymore, see
+  // app/(tabs)/stadion.tsx), but a future deep link could still pass them, and the shared
+  // GameSelector below always lets the user see/change/remove whatever ends up selected, so
+  // creation never depends on this.
+  const presetGameId = params.gameId || '';
+  const presetGameLabel = params.gameLabel || '';
+  const [form, setForm] = React.useState<CreatePostFormState>(() => ({
+    ...initialFormState,
+    gameId: presetGameId,
+    gameLabel: presetGameId ? presetGameLabel : '',
+  }));
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
 
@@ -174,12 +191,20 @@ export default function CreatePostScreen() {
     if (form.category === 'Beitrag') {
       setIsSubmitting(true);
       setErrorMessage(null);
-      const { error } = await createRemotePost({ content: form.description });
+      const { error } = await createRemotePost({
+        content: form.description,
+        gameId: form.gameId || undefined,
+        gameLabel: form.gameId ? form.gameLabel || undefined : undefined,
+      });
       setIsSubmitting(false);
 
       if (error) {
         setErrorMessage(error);
         return;
+      }
+
+      if (form.gameId) {
+        refreshStadiumHistory();
       }
 
       router.replace('/');
@@ -196,6 +221,8 @@ export default function CreatePostScreen() {
         departureTime: form.departureTime,
         freeSeats: Number(form.freeSeats),
         occasion: form.occasion || undefined,
+        gameId: form.gameId || undefined,
+        gameLabel: form.gameId ? form.gameLabel || undefined : undefined,
       });
       setIsSubmitting(false);
 
@@ -244,6 +271,8 @@ export default function CreatePostScreen() {
     const { error } = await createRemoteWantedEntry({
       description: form.description,
       requestedService: form.requestedService,
+      gameId: form.gameId || undefined,
+      gameLabel: form.gameId ? form.gameLabel || undefined : undefined,
     });
     setIsSubmitting(false);
 
@@ -294,6 +323,11 @@ export default function CreatePostScreen() {
             />
           </View>
 
+          <GameSelector
+            selectedGameId={form.gameId || null}
+            onChange={(gameId, gameLabel) => setForm((current) => ({ ...current, gameId: gameId ?? '', gameLabel: gameLabel ?? '' }))}
+          />
+
           <View style={styles.section}>
             <Text style={styles.hintText}>
               {form.category === 'Beitrag'
@@ -327,20 +361,7 @@ export default function CreatePostScreen() {
           {form.category === 'Treffpunkt' ? (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Treffpunkt-Details</Text>
-              <View style={styles.optionRow}>
-                {seedGames.map((game) => {
-                  const isSelected = form.gameId === game.id;
-                  return (
-                    <Pressable
-                      key={game.id}
-                      onPress={() => updateField('gameId', game.id)}
-                      style={[styles.optionButton, isSelected && styles.optionButtonActive]}>
-                      <Text style={[styles.optionText, isSelected && styles.optionTextActive]}>{game.label}</Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-              <TextInput value={form.meetupTitle} onChangeText={(value) => updateField('meetupTitle', value)} placeholder="Titel des Treffpunkts" placeholderTextColor={FeedColors.textSecondary} style={[styles.textInput, styles.optionSpacing]} returnKeyType="done" onSubmitEditing={() => Keyboard.dismiss()} />
+              <TextInput value={form.meetupTitle} onChangeText={(value) => updateField('meetupTitle', value)} placeholder="Titel des Treffpunkts" placeholderTextColor={FeedColors.textSecondary} style={styles.textInput} returnKeyType="done" onSubmitEditing={() => Keyboard.dismiss()} />
               <TextInput value={form.location} onChangeText={(value) => updateField('location', value)} placeholder="Ort oder Adresse" placeholderTextColor={FeedColors.textSecondary} style={styles.textInput} returnKeyType="done" onSubmitEditing={() => Keyboard.dismiss()} />
               <TextInput value={form.date} onChangeText={(value) => updateField('date', value)} placeholder="Datum (z. B. 08.11.2026)" placeholderTextColor={FeedColors.textSecondary} style={styles.textInput} returnKeyType="done" onSubmitEditing={() => Keyboard.dismiss()} />
               <TextInput value={form.eventTime} onChangeText={(value) => updateField('eventTime', value)} placeholder="Uhrzeit (z. B. 13:00 Uhr)" placeholderTextColor={FeedColors.textSecondary} style={styles.textInput} returnKeyType="done" onSubmitEditing={() => Keyboard.dismiss()} />

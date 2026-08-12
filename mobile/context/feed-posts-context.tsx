@@ -56,6 +56,10 @@ type NewRemoteTripInput = {
   departureTime: string;
   freeSeats: number;
   occasion?: string;
+  // Optional matchday reference — set when the trip is created from a game-scoped context (e.g.
+  // Stadion -> Spiel auswählen -> Plus). See data/games.ts/getPostGameId.
+  gameId?: string;
+  gameLabel?: string;
 };
 
 type NewRemoteTripRequestInput = {
@@ -76,6 +80,8 @@ type NewRemoteMeetupInput = {
 type NewRemoteWantedEntryInput = {
   description: string;
   requestedService: string;
+  gameId?: string;
+  gameLabel?: string;
 };
 
 type FeedPostsContextValue = {
@@ -93,7 +99,7 @@ type FeedPostsContextValue = {
   isRemotePostsLoading: boolean;
   remotePostsError: string | null;
   refreshRemotePosts: () => void;
-  createRemotePost: (input: { content: string }) => Promise<{ error: string | null }>;
+  createRemotePost: (input: { content: string; gameId?: string; gameLabel?: string }) => Promise<{ error: string | null }>;
   addRemoteComment: (postId: string, text: string) => Promise<{ error: string | null }>;
   toggleRemoteLike: (postId: string) => Promise<void>;
   getRemoteAuthorDisplay: (userId: string) => AuthorDisplay;
@@ -149,11 +155,12 @@ const REMOTE_TRIPS_LIMIT = 50;
 const REMOTE_MEETUPS_LIMIT = 50;
 const REMOTE_WANTED_ENTRIES_LIMIT = 50;
 
-const POSTS_SELECT_COLUMNS = 'id, author_id, content, category, created_at, updated_at';
+const POSTS_SELECT_COLUMNS = 'id, author_id, content, category, created_at, updated_at, game_id, game_label';
 const COMMENTS_SELECT_COLUMNS = 'id, post_id, author_id, content, created_at, updated_at';
 const LIKES_SELECT_COLUMNS = 'post_id, user_id, created_at';
 
-const TRIPS_SELECT_COLUMNS = 'id, owner_id, departure, destination, departure_time, seats_available, occasion, description, created_at, updated_at';
+const TRIPS_SELECT_COLUMNS =
+  'id, owner_id, departure, destination, departure_time, seats_available, occasion, description, created_at, updated_at, game_id, game_label';
 const TRIP_LIKES_SELECT_COLUMNS = 'trip_id, user_id, created_at';
 const TRIP_REQUESTS_SELECT_COLUMNS = 'id, trip_id, requester_id, message, status, created_at, updated_at';
 
@@ -161,7 +168,7 @@ const MEETUPS_SELECT_COLUMNS = 'id, organizer_id, title, description, location, 
 const MEETUP_LIKES_SELECT_COLUMNS = 'meetup_id, user_id, created_at';
 const MEETUP_ATTENDEES_SELECT_COLUMNS = 'meetup_id, user_id, joined_at';
 
-const WANTED_ENTRIES_SELECT_COLUMNS = 'id, owner_id, description, requested_service, created_at, updated_at';
+const WANTED_ENTRIES_SELECT_COLUMNS = 'id, owner_id, description, requested_service, created_at, updated_at, game_id, game_label';
 const WANTED_LIKES_SELECT_COLUMNS = 'wanted_entry_id, user_id, created_at';
 
 const NOT_SIGNED_IN_ERROR = 'Bitte melde dich an, um das zu tun.';
@@ -868,7 +875,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
 
   const getRemoteAuthorDisplay = (userId: string): AuthorDisplay => remoteAuthorProfiles[userId] ?? UNKNOWN_AUTHOR_DISPLAY;
 
-  const createRemotePost = async (input: { content: string }): Promise<{ error: string | null }> => {
+  const createRemotePost = async (input: { content: string; gameId?: string; gameLabel?: string }): Promise<{ error: string | null }> => {
     if (!authUserId) {
       return { error: NOT_SIGNED_IN_ERROR };
     }
@@ -885,7 +892,13 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
 
     const { data, error } = await supabase
       .from('posts')
-      .insert({ author_id: authUserId, content: trimmedContent, category: 'Beitrag' })
+      .insert({
+        author_id: authUserId,
+        content: trimmedContent,
+        category: 'Beitrag',
+        game_id: input.gameId ?? null,
+        game_label: input.gameLabel ?? null,
+      })
       .select(POSTS_SELECT_COLUMNS)
       .single();
 
@@ -998,6 +1011,8 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
         seats_available: input.freeSeats,
         occasion: input.occasion?.trim() || null,
         description: trimmedDescription,
+        game_id: input.gameId ?? null,
+        game_label: input.gameLabel ?? null,
       })
       .select(TRIPS_SELECT_COLUMNS)
       .single();
@@ -1379,7 +1394,13 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
 
     const { data, error } = await supabase
       .from('wanted_entries')
-      .insert({ owner_id: authUserId, description: trimmedDescription, requested_service: trimmedRequestedService })
+      .insert({
+        owner_id: authUserId,
+        description: trimmedDescription,
+        requested_service: trimmedRequestedService,
+        game_id: input.gameId ?? null,
+        game_label: input.gameLabel ?? null,
+      })
       .select(WANTED_ENTRIES_SELECT_COLUMNS)
       .single();
 

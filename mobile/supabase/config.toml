@@ -1,0 +1,9 @@
+project_id = "pumvmdmmmxgrhofxawnf"
+
+# sync-football-games is an administrative/server-side sync (OpenLigaDB -> public.games), never
+# called by the mobile/web app itself -- see supabase/functions/sync-football-games/index.ts.
+# Disabling Supabase's default JWT verification here is what lets it be invoked with only the
+# function's own FOOTBALL_SYNC_SECRET header check (see that file), instead of requiring an
+# end-user Supabase session/JWT that a scheduled server-side sync has no way to present.
+[functions.sync-football-games]
+verify_jwt = false
