@@ -1,10 +1,10 @@
-import { Image } from 'expo-image';
 import { useEffect, useRef, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Keyboard, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Avatar } from '@/components/feed/avatar';
 import { CategoryBadge } from '@/components/feed/category-badge';
+import { PostMediaCarousel } from '@/components/feed/post-media-carousel';
 import { PostMetadata } from '@/components/feed/post-metadata';
 import { NotFoundView } from '@/components/navigation/not-found-view';
 import { ReportModal } from '@/components/reports/report-modal';
@@ -335,15 +335,7 @@ export default function PostDetailScreen() {
         </View>
 
         {post.media && post.media.length > 0 ? (
-          post.media.length === 1 ? (
-            <Image source={{ uri: post.media[0].url }} style={styles.detailSingleImage} contentFit="cover" />
-          ) : (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.detailImageScroll} contentContainerStyle={styles.detailImageScrollContent}>
-              {post.media.map((item) => (
-                <Image key={item.id} source={{ uri: item.url }} style={styles.detailScrollImage} contentFit="cover" />
-              ))}
-            </ScrollView>
-          )
+          <PostMediaCarousel media={post.media} maxHeight={480} />
         ) : post.hasImage ? (
           <View style={styles.imageBox}>
             <Text style={styles.imageText}>Bildbereich</Text>
@@ -564,25 +556,6 @@ const styles = StyleSheet.create({
   imageText: {
     color: FeedColors.textSecondary,
     fontSize: FontSizes.meta,
-  },
-  detailSingleImage: {
-    width: '100%',
-    height: 280,
-    borderRadius: Radii.md,
-    backgroundColor: FeedColors.imagePlaceholder,
-    marginBottom: Spacing.md,
-  },
-  detailImageScroll: {
-    marginBottom: Spacing.md,
-  },
-  detailImageScrollContent: {
-    gap: Spacing.sm,
-  },
-  detailScrollImage: {
-    width: 260,
-    height: 280,
-    borderRadius: Radii.md,
-    backgroundColor: FeedColors.imagePlaceholder,
   },
   metaRow: {
     flexDirection: 'row',
