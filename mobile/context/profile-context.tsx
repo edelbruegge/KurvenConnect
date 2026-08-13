@@ -11,11 +11,22 @@ import { mapProfileError } from '@/lib/profile-errors';
 import { supabase } from '@/lib/supabase';
 
 type ProfileUpdate = {
-  displayName: string;
-  location: string;
-  bio: string;
+  // undefined on any of these three = leave that field unchanged. Needed so the onboarding save
+  // (which only ever sets favoriteTeamId/club/completeOnboarding) can never accidentally write
+  // currentUser's seed-fallback display name/location/bio into a brand-new real profile row.
+  displayName?: string;
+  location?: string;
+  bio?: string;
   // undefined = leave the stored avatar unchanged, null = remove it, string = set a new one.
   avatarUrl?: string | null;
+  // undefined = leave the favorite club unchanged. Set together (favoriteTeamId = stable
+  // OpenLigaDB id, club = matching display name) whenever the user picks/changes their club, so
+  // `club` -- read by every pre-existing screen -- always mirrors the stable id.
+  favoriteTeamId?: string;
+  club?: string;
+  // true = also stamp onboarding_completed_at = now(). Never set to false/undefined-clears; there
+  // is no "un-complete onboarding" flow.
+  completeOnboarding?: boolean;
 };
 
 type AuthorDisplay = {
@@ -100,7 +111,8 @@ type ProfileContextValue = {
 
 const ProfileContext = createContext<ProfileContextValue | undefined>(undefined);
 
-const PROFILE_SELECT_COLUMNS = 'id, display_name, club, location, bio, avatar_url, created_at, updated_at';
+const PROFILE_SELECT_COLUMNS =
+  'id, display_name, club, location, bio, avatar_url, favorite_team_id, onboarding_completed_at, created_at, updated_at';
 const FOLLOWS_SELECT_COLUMNS = 'follower_id, following_id, created_at';
 
 export function ProfileProvider({ children }: { children: React.ReactNode }) {
@@ -242,17 +254,33 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
     }
 
     const updatePayload: Record<string, unknown> = {
-      display_name: input.displayName.trim(),
-      location: input.location.trim(),
-      bio: input.bio.trim(),
       updated_at: new Date().toISOString(),
     };
 
-    // Only touches avatar_url when the caller actually wants to change it -- undefined means "not
-    // part of this save" (e.g. a plain text-field edit), so a normal profile save never
-    // accidentally clears or overwrites the avatar.
+    // Every field below is only touched when the caller actually wants to change it -- undefined
+    // means "not part of this save", so e.g. the onboarding save (favoriteTeamId/club/
+    // completeOnboarding only) never overwrites display name/location/bio, and a plain text-field
+    // edit never overwrites the avatar or favorite club.
+    if (input.displayName !== undefined) {
+      updatePayload.display_name = input.displayName.trim();
+    }
+    if (input.location !== undefined) {
+      updatePayload.location = input.location.trim();
+    }
+    if (input.bio !== undefined) {
+      updatePayload.bio = input.bio.trim();
+    }
     if (input.avatarUrl !== undefined) {
       updatePayload.avatar_url = input.avatarUrl;
+    }
+    if (input.favoriteTeamId !== undefined) {
+      updatePayload.favorite_team_id = input.favoriteTeamId;
+    }
+    if (input.club !== undefined) {
+      updatePayload.club = input.club;
+    }
+    if (input.completeOnboarding) {
+      updatePayload.onboarding_completed_at = new Date().toISOString();
     }
 
     const { data, error } = await supabase

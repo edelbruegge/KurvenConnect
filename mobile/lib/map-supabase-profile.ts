@@ -5,6 +5,11 @@ export type SupabaseProfile = {
   location: string | null;
   bio: string | null;
   avatarUrl: string | null;
+  // Stable OpenLigaDB team id (public.team_stadium_mappings.external_team_id) -- the source of
+  // truth for "favorite club" going forward. `club` above stays a denormalized display-name cache
+  // kept in sync with this whenever it is written (see ProfileUpdate in profile-context.tsx).
+  favoriteTeamId: string | null;
+  onboardingCompletedAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -16,6 +21,8 @@ export type SupabaseProfileRow = {
   location: string | null;
   bio: string | null;
   avatar_url: string | null;
+  favorite_team_id: string | null;
+  onboarding_completed_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -28,6 +35,8 @@ export function mapSupabaseProfileRow(row: SupabaseProfileRow): SupabaseProfile 
     location: row.location,
     bio: row.bio,
     avatarUrl: row.avatar_url,
+    favoriteTeamId: row.favorite_team_id,
+    onboardingCompletedAt: row.onboarding_completed_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

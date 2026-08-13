@@ -9,19 +9,27 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
 import { STADION_MODULES, type StadionModule } from '@/constants/stadion-modules';
 import { useGames } from '@/context/games-context';
+import { useProfiles } from '@/context/profile-context';
 
 export default function StadionScreen() {
   const router = useRouter();
   const { games } = useGames();
+  const { ownProfile } = useProfiles();
   const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
 
   // Default to the first loaded game once the (async) games list arrives -- mirrors the previous
   // seedGames[0]-at-mount default, just no longer available synchronously at the first render.
+  // If the user has a favorite club, prefer their club's game as the default instead -- but only
+  // for this initial default (the `!selectedGameId` guard below never overrides a manual tap).
   useEffect(() => {
     if (!selectedGameId && games.length > 0) {
-      setSelectedGameId(games[0].id);
+      const favoriteTeamId = ownProfile?.favoriteTeamId;
+      const favoriteGame = favoriteTeamId
+        ? games.find((game) => game.externalHomeTeamId === favoriteTeamId || game.externalAwayTeamId === favoriteTeamId)
+        : undefined;
+      setSelectedGameId((favoriteGame ?? games[0]).id);
     }
-  }, [games, selectedGameId]);
+  }, [games, selectedGameId, ownProfile?.favoriteTeamId]);
 
   const selectedGame = games.find((game) => game.id === selectedGameId);
   const selectedGameLabel = selectedGame ? `${selectedGame.homeTeam} – ${selectedGame.awayTeam}` : '';

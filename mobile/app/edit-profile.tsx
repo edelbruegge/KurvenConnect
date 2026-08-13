@@ -2,10 +2,13 @@ import { useEffect, useState } from 'react';
 import { Keyboard, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Avatar } from '@/components/feed/avatar';
+import { ClubPicker } from '@/components/profile/club-picker';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
 import { useAuth } from '@/context/auth-context';
+import { useGames } from '@/context/games-context';
 import { useProfiles } from '@/context/profile-context';
+import type { KnownTeam } from '@/data/database-games';
 import { extractOwnAvatarStoragePath, pickAvatarImage, processAvatarImage, removeAvatarFile, uploadAvatarImage } from '@/lib/avatar-media';
 import { dismissKeyboardOnNative } from '@/lib/dismiss-keyboard';
 import { useSafeBack } from '@/hooks/use-safe-back';
@@ -14,7 +17,8 @@ const BIO_MAX_LENGTH = 160;
 
 export default function EditProfileScreen() {
   const goBack = useSafeBack();
-  const { currentUser, updateOwnProfile } = useProfiles();
+  const { currentUser, ownProfile, updateOwnProfile } = useProfiles();
+  const { knownTeams, isKnownTeamsLoading, knownTeamsError, refreshKnownTeams } = useGames();
   const { user } = useAuth();
   const authUserId = user?.id ?? null;
 
@@ -24,6 +28,13 @@ export default function EditProfileScreen() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+
+  // null = the user hasn't changed the club selection this session -- the existing favorite stays
+  // untouched on save. Only set once the user actually picks a (possibly identical) team in the
+  // picker below.
+  const [selectedTeam, setSelectedTeam] = useState<KnownTeam | null>(null);
+  const [isClubPickerOpen, setIsClubPickerOpen] = useState(false);
+  const currentFavoriteTeamId = selectedTeam?.externalTeamId ?? ownProfile?.favoriteTeamId ?? null;
 
   // A newly picked + processed (square, resized, compressed) local image staged for upload on the
   // next "Speichern" tap -- never written to the server just by picking it (Vorgabe 6). Local to
@@ -179,11 +190,19 @@ export default function EditProfileScreen() {
       newAvatarUrl = url;
     }
 
+    // Only included when the user actually changed the selection (Vorgabe: undefined = unchanged)
+    // -- reopening the picker and re-picking the same team is a no-op, not a redundant write.
+    const clubChange =
+      selectedTeam && selectedTeam.externalTeamId !== ownProfile?.favoriteTeamId
+        ? { favoriteTeamId: selectedTeam.externalTeamId, club: selectedTeam.teamName }
+        : {};
+
     const { error } = await updateOwnProfile({
       displayName: trimmedName,
       location: trimmedLocation,
       bio: trimmedBio,
       avatarUrl: newAvatarUrl,
+      ...clubChange,
     });
 
     setIsSubmitting(false);
@@ -287,10 +306,31 @@ export default function EditProfileScreen() {
 
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Verein</Text>
-              <View style={styles.readOnlyField}>
-                <Text style={styles.readOnlyText}>{currentUser.club}</Text>
-              </View>
-              <Text style={styles.readOnlyHint}>Der Verein kann in diesem Schritt noch nicht geändert werden.</Text>
+              <Pressable
+                onPress={() => setIsClubPickerOpen((current) => !current)}
+                style={styles.clubSummaryRow}
+                accessibilityRole="button"
+                accessibilityLabel="Verein ändern"
+              >
+                <Text style={styles.clubSummaryText}>{selectedTeam?.teamName ?? currentUser.club}</Text>
+                <Text style={styles.chevron}>{isClubPickerOpen ? '︿' : '﹀'}</Text>
+              </Pressable>
+
+              {isClubPickerOpen ? (
+                <View style={styles.clubPickerWrapper}>
+                  <ClubPicker
+                    knownTeams={knownTeams}
+                    selectedTeamId={currentFavoriteTeamId}
+                    onSelect={(team) => {
+                      setSelectedTeam(team);
+                      setIsClubPickerOpen(false);
+                    }}
+                    isLoading={isKnownTeamsLoading}
+                    error={knownTeamsError}
+                    onRetry={refreshKnownTeams}
+                  />
+                </View>
+              ) : null}
             </View>
 
             {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
@@ -405,22 +445,28 @@ const styles = StyleSheet.create({
   charCountExceeded: {
     color: '#F87171',
   },
-  readOnlyField: {
+  clubSummaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     borderWidth: 1,
     borderColor: FeedColors.cardBorder,
     borderRadius: Radii.md,
     paddingHorizontal: Spacing.sm,
     paddingVertical: Spacing.sm,
-    backgroundColor: FeedColors.imagePlaceholder,
+    minHeight: 44,
   },
-  readOnlyText: {
+  clubSummaryText: {
     color: FeedColors.textPrimary,
     fontSize: FontSizes.body,
+    flexShrink: 1,
   },
-  readOnlyHint: {
+  chevron: {
     color: FeedColors.textSecondary,
-    fontSize: FontSizes.meta,
-    marginTop: Spacing.xs,
+    fontSize: FontSizes.body,
+  },
+  clubPickerWrapper: {
+    marginTop: Spacing.sm,
   },
   errorText: {
     color: '#F87171',

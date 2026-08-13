@@ -1,9 +1,10 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 
 import { useAuth } from '@/context/auth-context';
-import type { Game } from '@/data/database-games';
+import type { Game, KnownTeam } from '@/data/database-games';
 import { seedGames } from '@/data/games';
 import { mapSupabaseGameRow, type SupabaseGameRow } from '@/lib/map-supabase-game';
+import { mapSupabaseKnownTeamRow, type SupabaseKnownTeamRow } from '@/lib/map-supabase-team';
 import { supabase } from '@/lib/supabase';
 
 type GamesContextValue = {
@@ -23,6 +24,15 @@ type GamesContextValue = {
   // mapping from a user's favorite club yet (see game-selector.tsx's header comment), so this is a
   // plain, general-purpose lookup, not a personalized "my club" feature.
   getGamesForTeam: (teamName: string) => Game[];
+
+  // The project's one real club data source (public.team_stadium_mappings via the get_known_teams()
+  // RPC), used by the club-onboarding/edit-profile club picker -- see components/profile/club-picker.tsx.
+  // Loaded once per auth session, never per keystroke.
+  knownTeams: KnownTeam[];
+  isKnownTeamsLoading: boolean;
+  knownTeamsError: string | null;
+  refreshKnownTeams: () => void;
+  getKnownTeamById: (externalTeamId: string) => KnownTeam | undefined;
 };
 
 const GamesContext = createContext<GamesContextValue | undefined>(undefined);
@@ -99,6 +109,54 @@ export function GamesProvider({ children }: { children: React.ReactNode }) {
     setReloadToken((token) => token + 1);
   };
 
+  const [knownTeams, setKnownTeams] = useState<KnownTeam[]>([]);
+  const [isKnownTeamsLoading, setIsKnownTeamsLoading] = useState(false);
+  const [knownTeamsError, setKnownTeamsError] = useState<string | null>(null);
+  const [knownTeamsReloadToken, setKnownTeamsReloadToken] = useState(0);
+
+  // Reference data (the 56 real, already-seeded clubs) -- loaded once per auth session via a
+  // single RPC call, never on every keystroke of the club search (Requirement: keine N+1).
+  useEffect(() => {
+    if (!authUserId) {
+      setKnownTeams([]);
+      setIsKnownTeamsLoading(false);
+      setKnownTeamsError(null);
+      return;
+    }
+
+    let isCurrent = true;
+    setIsKnownTeamsLoading(true);
+    setKnownTeamsError(null);
+
+    supabase
+      .rpc('get_known_teams')
+      .then(({ data, error }) => {
+        if (!isCurrent) return;
+
+        if (error) {
+          setKnownTeams([]);
+          setKnownTeamsError('Vereine konnten nicht geladen werden.');
+          setIsKnownTeamsLoading(false);
+          return;
+        }
+
+        const rows = (data ?? []) as SupabaseKnownTeamRow[];
+        setKnownTeams(rows.map(mapSupabaseKnownTeamRow));
+        setIsKnownTeamsLoading(false);
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [authUserId, knownTeamsReloadToken]);
+
+  const refreshKnownTeams = () => {
+    setKnownTeamsReloadToken((token) => token + 1);
+  };
+
+  const getKnownTeamById = (externalTeamId: string): KnownTeam | undefined =>
+    knownTeams.find((team) => team.externalTeamId === externalTeamId);
+
   const getGameById = (gameId: string): Game | undefined => games.find((game) => game.id === gameId);
 
   const getGamesByMatchday = (matchday: number): Game[] => games.filter((game) => game.matchday === matchday);
@@ -149,8 +207,23 @@ export function GamesProvider({ children }: { children: React.ReactNode }) {
       getGameById,
       getGamesByMatchday,
       getGamesForTeam,
+      knownTeams,
+      isKnownTeamsLoading,
+      knownTeamsError,
+      refreshKnownTeams,
+      getKnownTeamById,
     }),
-    [games, upcomingGames, pastGames, currentSeasonGames, isGamesLoading, gamesError],
+    [
+      games,
+      upcomingGames,
+      pastGames,
+      currentSeasonGames,
+      isGamesLoading,
+      gamesError,
+      knownTeams,
+      isKnownTeamsLoading,
+      knownTeamsError,
+    ],
   );
 
   return <GamesContext.Provider value={value}>{children}</GamesContext.Provider>;

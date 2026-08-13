@@ -16,7 +16,7 @@ import { GroupsProvider } from '@/context/groups-context';
 import { MessagesProvider } from '@/context/messages-context';
 import { ModerationProvider } from '@/context/moderation-context';
 import { NotificationsProvider } from '@/context/notifications-context';
-import { ProfileProvider } from '@/context/profile-context';
+import { ProfileProvider, useProfiles } from '@/context/profile-context';
 import { PushNotificationsProvider } from '@/context/push-notifications-context';
 import { ReportsProvider } from '@/context/reports-context';
 import { SavedProvider } from '@/context/saved-context';
@@ -51,6 +51,7 @@ function SupabaseNotConfiguredScreen() {
 
 function RootNavigator() {
   const { isLoading, isAuthenticated } = useAuth();
+  const { ownProfile, isOwnProfileLoading } = useProfiles();
 
   if (!isSupabaseConfigured) {
     return <SupabaseNotConfiguredScreen />;
@@ -60,10 +61,24 @@ function RootNavigator() {
     return <AuthLoadingScreen />;
   }
 
+  // Avoid a flash of the main app before a needed redirect into onboarding: wait for the own
+  // profile to have loaded once auth is settled. ownProfile === null (e.g. the rare missing-row
+  // edge case, see createMissingOwnProfile) is deliberately NOT treated as needing onboarding --
+  // that stays a separate, already-handled fallback in app/(tabs)/profile.tsx.
+  if (isAuthenticated && isOwnProfileLoading) {
+    return <AuthLoadingScreen />;
+  }
+
+  const needsOnboarding = isAuthenticated && ownProfile !== null && !ownProfile.onboardingCompletedAt;
+
   return (
     <>
       <Stack>
-        <Stack.Protected guard={isAuthenticated}>
+        <Stack.Protected guard={isAuthenticated && needsOnboarding}>
+          <Stack.Screen name="onboarding" options={{ headerShown: false }} />
+        </Stack.Protected>
+
+        <Stack.Protected guard={isAuthenticated && !needsOnboarding}>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen
             name="create-post"

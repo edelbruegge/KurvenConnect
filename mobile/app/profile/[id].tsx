@@ -12,7 +12,8 @@ import type { UserProfile } from '@/data/users';
 import { getInitialsFromName, mapSupabaseProfileRow } from '@/lib/map-supabase-profile';
 import { supabase } from '@/lib/supabase';
 
-const PROFILE_SELECT_COLUMNS = 'id, display_name, club, location, bio, avatar_url, created_at, updated_at';
+const PROFILE_SELECT_COLUMNS =
+  'id, display_name, club, location, bio, avatar_url, favorite_team_id, onboarding_completed_at, created_at, updated_at';
 
 export default function PublicProfileScreen() {
   const params = useLocalSearchParams<{ id?: string }>();

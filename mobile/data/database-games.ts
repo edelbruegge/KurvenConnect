@@ -26,3 +26,12 @@ export type Game = {
   stadiumName?: string;
   stadiumCity?: string;
 };
+
+// A club from public.team_stadium_mappings (the project's one real, already-seeded club data
+// source -- see GamesProvider's knownTeams). leagueShortcut is the league of the team's most
+// recently synced home game ('bl1'/'bl2'/'bl3'), or null when no game is on record yet for it.
+export type KnownTeam = {
+  externalTeamId: string;
+  teamName: string;
+  leagueShortcut: string | null;
+};
