@@ -74,7 +74,7 @@ export function MessagesList() {
             onPress={() => handleOpenConversation(conversation.id)}
             style={styles.row}
           >
-            <Avatar initials={otherUser?.initials ?? '?'} />
+            <Avatar initials={otherUser?.initials ?? '?'} avatarUrl={otherUser?.avatarUrl} />
             <View style={styles.rowContent}>
               <View style={styles.rowHeader}>
                 <Text style={[styles.name, isUnread && styles.nameUnread]} numberOfLines={1}>

@@ -45,6 +45,7 @@ type AttendeeDisplay = {
   initials: string;
   club: string | null;
   location: string | null;
+  avatarUrl?: string;
 };
 
 async function openInMaps(address: string) {
@@ -144,6 +145,7 @@ export default function MeetupDetailScreen() {
             initials: getInitialsFromName(mapped.displayName),
             club: mapped.club,
             location: mapped.location,
+            avatarUrl: mapped.avatarUrl ?? undefined,
           };
         });
         setRemoteAttendeeProfiles(map);
@@ -186,7 +188,14 @@ export default function MeetupDetailScreen() {
     const localProfile = getUserById(id);
 
     if (localProfile) {
-      return { id, displayName: localProfile.displayName, initials: localProfile.initials, club: localProfile.club, location: localProfile.location };
+      return {
+        id,
+        displayName: localProfile.displayName,
+        initials: localProfile.initials,
+        club: localProfile.club,
+        location: localProfile.location,
+        avatarUrl: localProfile.avatarUrl,
+      };
     }
 
     return (
@@ -285,7 +294,7 @@ export default function MeetupDetailScreen() {
                 accessibilityRole="button"
                 accessibilityLabel={`Profil von ${author.displayName} öffnen`}
               >
-                <Avatar initials={author.initials} />
+                <Avatar initials={author.initials} avatarUrl={author.avatarUrl} />
                 <View style={styles.userInfo}>
                   <Text style={styles.userName}>{author.displayName}</Text>
                   <Text style={styles.time}>{post.time}</Text>
@@ -427,7 +436,7 @@ export default function MeetupDetailScreen() {
               <Text style={styles.sectionTitle}>Teilnehmer</Text>
 
               <View style={styles.attendeeRow}>
-                <Avatar initials={author.initials} />
+                <Avatar initials={author.initials} avatarUrl={author.avatarUrl} />
                 <View style={styles.attendeeInfo}>
                   <Text style={styles.attendeeName}>{author.displayName}</Text>
                 </View>
@@ -446,7 +455,7 @@ export default function MeetupDetailScreen() {
                     style={styles.attendeeRow}
                     accessibilityLabel={`Profil von ${attendee.displayName} öffnen`}
                   >
-                    <Avatar initials={attendee.initials} />
+                    <Avatar initials={attendee.initials} avatarUrl={attendee.avatarUrl} />
                     <View style={styles.attendeeInfo}>
                       <Text style={styles.attendeeName}>{attendee.displayName}</Text>
                       {attendee.club || attendee.location ? (
@@ -490,7 +499,7 @@ export default function MeetupDetailScreen() {
                   <View key={comment.id} style={styles.commentCard}>
                     <View style={styles.commentHeader}>
                       <View style={styles.commentUserBlock}>
-                        <Avatar initials={commentAuthor.initials} />
+                        <Avatar initials={commentAuthor.initials} avatarUrl={commentAuthor.avatarUrl} />
                         <View style={styles.commentUserInfo}>
                           <Text style={styles.commentUsername}>{commentAuthor.displayName}</Text>
                           <Text style={styles.commentTimestamp}>{comment.timestamp}</Text>

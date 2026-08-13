@@ -209,7 +209,7 @@ export default function NotificationsScreen() {
                 style={styles.row}
               >
                 {actor ? (
-                  <Avatar initials={actor.initials} size={36} />
+                  <Avatar initials={actor.initials} avatarUrl={actor.avatarUrl} size={36} />
                 ) : (
                   <View style={styles.iconBubble}>
                     <IconSymbol size={18} name={getNotificationIcon(notification.type)} color={ClubColors.text} />

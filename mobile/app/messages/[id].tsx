@@ -226,7 +226,7 @@ export default function MessageConversationScreen() {
                 accessibilityRole="button"
                 accessibilityLabel={`Profil von ${otherUser?.displayName ?? 'Nutzer'} öffnen`}
               >
-                <Avatar initials={otherUser?.initials ?? '?'} />
+                <Avatar initials={otherUser?.initials ?? '?'} avatarUrl={otherUser?.avatarUrl} />
                 <Text style={styles.userName}>{otherUser?.displayName ?? 'Unbekannter Nutzer'}</Text>
               </Pressable>
               {otherUserId ? (

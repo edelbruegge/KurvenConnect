@@ -86,7 +86,7 @@ export default function TransferGroupOwnershipScreen() {
               accessibilityRole="button"
               accessibilityLabel={`${member.displayName} als neuen Gruppeninhaber auswählen`}
             >
-              <Avatar initials={getInitialsFromName(member.displayName)} />
+              <Avatar initials={getInitialsFromName(member.displayName)} avatarUrl={member.avatarUrl} />
               <View style={styles.memberInfo}>
                 <Text style={styles.memberName}>{member.displayName}</Text>
                 <Text style={styles.memberMeta}>{member.role === 'admin' ? 'Admin' : 'Mitglied'}</Text>

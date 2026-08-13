@@ -38,8 +38,9 @@ export const POST_MEDIA_SELECT_COLUMNS = 'id, post_id, owner_id, storage_path, p
 // RFC4122 v4 UUID, used only as a collision-free filename segment for Storage paths -- not a
 // security token, so crypto.randomUUID() (native on modern Hermes/all browsers) is preferred when
 // present, with a Math.random()-based fallback so this never hard-depends on it being available.
-// Avoids adding expo-crypto or a uuid package for this one call site.
-function generateUuidV4(): string {
+// Avoids adding expo-crypto or a uuid package for this one call site. Exported for reuse by
+// lib/avatar-media.ts, which needs the exact same collision-free-filename behavior.
+export function generateUuidV4(): string {
   const cryptoObj = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
   if (cryptoObj?.randomUUID) {
     return cryptoObj.randomUUID();

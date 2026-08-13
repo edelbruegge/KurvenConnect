@@ -5,6 +5,7 @@ import { Avatar } from '@/components/feed/avatar';
 import { PostMetadata } from '@/components/feed/post-metadata';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
+import { useFeedPosts } from '@/context/feed-posts-context';
 import { useProfiles } from '@/context/profile-context';
 import { useSaved } from '@/context/saved-context';
 import type { FeedPost } from '@/data/feed-posts';
@@ -17,7 +18,8 @@ type TripCardProps = {
 
 export function TripCard({ post, onPress, onLikePress }: TripCardProps) {
   const router = useRouter();
-  const { getAuthorDisplay } = useProfiles();
+  const { getAuthorDisplay, isCurrentUserId } = useProfiles();
+  const { getRemoteAuthorDisplay } = useFeedPosts();
   const { isSaved, toggleSaved } = useSaved();
   const saved = isSaved(post.id);
   const tripDetails = post.tripDetails;
@@ -26,7 +28,13 @@ export function TripCard({ post, onPress, onLikePress }: TripCardProps) {
     return null;
   }
 
-  const author = getAuthorDisplay(post);
+  // Same source-based branch already used by FeedPostCard/PostDetail: a real Supabase trip
+  // authored by someone other than the current user must resolve live via remoteAuthorProfiles
+  // (kept current, incl. avatar) instead of getAuthorDisplay's local-only getUserById, which only
+  // ever knows the current user + fixed seed profiles and would otherwise silently fall back to
+  // the FeedPost's own baked-in user/initials with no avatar at all.
+  const author =
+    post.source === 'supabase' && !isCurrentUserId(post.userId) ? getRemoteAuthorDisplay(post.userId) : getAuthorDisplay(post);
 
   const handleAuthorPress = (e: GestureResponderEvent) => {
     e.stopPropagation();
@@ -42,7 +50,7 @@ export function TripCard({ post, onPress, onLikePress }: TripCardProps) {
           accessibilityRole="button"
           accessibilityLabel={`Profil von ${author.displayName} öffnen`}
         >
-          <Avatar initials={author.initials} />
+          <Avatar initials={author.initials} avatarUrl={author.avatarUrl} />
           <View style={styles.userInfo}>
             <Text style={styles.userName}>{author.displayName}</Text>
             <Text style={styles.time}>{post.time}</Text>

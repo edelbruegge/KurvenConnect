@@ -126,11 +126,12 @@ export function mapSupabaseGroupDetailResponse(response: SupabaseGroupDetailResp
   };
 }
 
-export function mapSupabaseGroupMemberRow(row: SupabaseGroupMemberRow, displayName: string): GroupMemberRecord {
+export function mapSupabaseGroupMemberRow(row: SupabaseGroupMemberRow, displayName: string, avatarUrl?: string): GroupMemberRecord {
   return {
     userId: row.user_id,
     role: row.role as GroupMemberRecord['role'],
     joinedAt: formatRelativeGermanTime(row.joined_at),
     displayName,
+    avatarUrl,
   };
 }

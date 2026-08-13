@@ -545,14 +545,18 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
         }
 
         const userIds = rows.map((row) => row.user_id);
-        const { data: profileRows } = await supabase.from('profiles').select('id, display_name').in('id', userIds);
+        const { data: profileRows } = await supabase.from('profiles').select('id, display_name, avatar_url').in('id', userIds);
 
         const displayNameById: Record<string, string> = {};
-        ((profileRows ?? []) as { id: string; display_name: string | null }[]).forEach((row) => {
+        const avatarUrlById: Record<string, string | undefined> = {};
+        ((profileRows ?? []) as { id: string; display_name: string | null; avatar_url: string | null }[]).forEach((row) => {
           displayNameById[row.id] = row.display_name?.trim() || 'Neues Mitglied';
+          avatarUrlById[row.id] = row.avatar_url ?? undefined;
         });
 
-        const mapped = rows.map((row) => mapSupabaseGroupMemberRow(row, displayNameById[row.user_id] ?? 'Unbekanntes Mitglied'));
+        const mapped = rows.map((row) =>
+          mapSupabaseGroupMemberRow(row, displayNameById[row.user_id] ?? 'Unbekanntes Mitglied', avatarUrlById[row.user_id]),
+        );
         setGroupMembers((current) => ({ ...current, [groupId]: mapped }));
         setIsGroupMembersLoading(false);
       });

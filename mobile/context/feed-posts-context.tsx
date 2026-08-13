@@ -38,7 +38,7 @@ import { mapWantedEntryError } from '@/lib/wanted-entry-errors';
 import { getPostMediaSignedUrl, getPostMediaSignedUrls, POST_MEDIA_SELECT_COLUMNS, type PostMediaRow } from '@/lib/post-media';
 import { supabase } from '@/lib/supabase';
 
-type AuthorDisplay = { displayName: string; initials: string };
+type AuthorDisplay = { displayName: string; initials: string; avatarUrl?: string };
 
 type RealtimeStatus = 'idle' | 'connecting' | 'subscribed' | 'reconnecting' | 'error' | 'closed';
 
@@ -316,7 +316,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
 
       const { data: profileRows, error: profilesError } = await supabase
         .from('profiles')
-        .select('id, display_name')
+        .select('id, display_name, avatar_url')
         .in('id', Array.from(authorIds));
 
       if (!isCurrent) return;
@@ -329,9 +329,9 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       }
 
       const authorDisplayById: Record<string, AuthorDisplay> = {};
-      (profileRows ?? []).forEach((row: { id: string; display_name: string | null }) => {
+      (profileRows ?? []).forEach((row: { id: string; display_name: string | null; avatar_url: string | null }) => {
         const displayName = row.display_name?.trim() || 'Neues Mitglied';
-        authorDisplayById[row.id] = { displayName, initials: getInitialsFromName(displayName) };
+        authorDisplayById[row.id] = { displayName, initials: getInitialsFromName(displayName), avatarUrl: row.avatar_url ?? undefined };
       });
 
       const commentsByPostId = new Map<string, FeedComment[]>();
@@ -458,7 +458,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
 
       const { data: profileRows, error: profilesError } = await supabase
         .from('profiles')
-        .select('id, display_name')
+        .select('id, display_name, avatar_url')
         .in('id', Array.from(authorIds));
 
       if (!isCurrent) return;
@@ -471,9 +471,9 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       }
 
       const authorDisplayById: Record<string, AuthorDisplay> = {};
-      (profileRows ?? []).forEach((row: { id: string; display_name: string | null }) => {
+      (profileRows ?? []).forEach((row: { id: string; display_name: string | null; avatar_url: string | null }) => {
         const displayName = row.display_name?.trim() || 'Neues Mitglied';
-        authorDisplayById[row.id] = { displayName, initials: getInitialsFromName(displayName) };
+        authorDisplayById[row.id] = { displayName, initials: getInitialsFromName(displayName), avatarUrl: row.avatar_url ?? undefined };
       });
 
       const likeCountByTripId = new Map<string, number>();
@@ -595,7 +595,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
 
       const { data: profileRows, error: profilesError } = await supabase
         .from('profiles')
-        .select('id, display_name')
+        .select('id, display_name, avatar_url')
         .in('id', Array.from(authorIds));
 
       if (!isCurrent) return;
@@ -608,9 +608,9 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       }
 
       const authorDisplayById: Record<string, AuthorDisplay> = {};
-      (profileRows ?? []).forEach((row: { id: string; display_name: string | null }) => {
+      (profileRows ?? []).forEach((row: { id: string; display_name: string | null; avatar_url: string | null }) => {
         const displayName = row.display_name?.trim() || 'Neues Mitglied';
-        authorDisplayById[row.id] = { displayName, initials: getInitialsFromName(displayName) };
+        authorDisplayById[row.id] = { displayName, initials: getInitialsFromName(displayName), avatarUrl: row.avatar_url ?? undefined };
       });
 
       const likeCountByMeetupId = new Map<string, number>();
@@ -708,7 +708,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
 
       const { data: profileRows, error: profilesError } = await supabase
         .from('profiles')
-        .select('id, display_name')
+        .select('id, display_name, avatar_url')
         .in('id', Array.from(authorIds));
 
       if (!isCurrent) return;
@@ -721,9 +721,9 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       }
 
       const authorDisplayById: Record<string, AuthorDisplay> = {};
-      (profileRows ?? []).forEach((row: { id: string; display_name: string | null }) => {
+      (profileRows ?? []).forEach((row: { id: string; display_name: string | null; avatar_url: string | null }) => {
         const displayName = row.display_name?.trim() || 'Neues Mitglied';
-        authorDisplayById[row.id] = { displayName, initials: getInitialsFromName(displayName) };
+        authorDisplayById[row.id] = { displayName, initials: getInitialsFromName(displayName), avatarUrl: row.avatar_url ?? undefined };
       });
 
       const likeCountByWantedEntryId = new Map<string, number>();
@@ -909,14 +909,16 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
 
     supabase
       .from('profiles')
-      .select('id, display_name')
+      .select('id, display_name, avatar_url')
       .eq('id', userId)
       .maybeSingle()
       .then(({ data }) => {
         if (!data) return;
         const displayName = data.display_name?.trim() || 'Neues Mitglied';
         setRemoteAuthorProfiles((current) =>
-          current[userId] ? current : { ...current, [userId]: { displayName, initials: getInitialsFromName(displayName) } },
+          current[userId]
+            ? current
+            : { ...current, [userId]: { displayName, initials: getInitialsFromName(displayName), avatarUrl: data.avatar_url ?? undefined } },
         );
       });
   };
@@ -1215,6 +1217,26 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  // Own-account or another cached author's row changing (most relevantly: avatar_url) -- only
+  // patches an author already present in remoteAuthorProfiles (i.e. someone with visible content
+  // in the currently-loaded feed); an author nobody has loaded yet is left alone rather than
+  // growing this cache into a full-table sync. Reuses this already-existing content-changes
+  // channel (one more table binding), not a new subscription.
+  const handleProfileRowChange = (payload: RealtimeChangePayload) => {
+    if (payload.eventType === 'DELETE') return; // profiles are never hard-deleted by this app
+    const row = payload.new as unknown as { id?: string; display_name?: string | null; avatar_url?: string | null };
+    if (!row?.id) return;
+
+    setRemoteAuthorProfiles((current) => {
+      if (!current[row.id as string]) return current;
+      const displayName = row.display_name?.trim() || 'Neues Mitglied';
+      return {
+        ...current,
+        [row.id as string]: { displayName, initials: getInitialsFromName(displayName), avatarUrl: row.avatar_url ?? undefined },
+      };
+    });
+  };
+
   // Ref indirection so the long-lived channel subscription below always calls each latest closure
   // (fresh authUserId/remoteAuthorProfiles) without needing to reconnect the channel every render
   // — same pattern as handleContentVisibilityEventRef above.
@@ -1223,6 +1245,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
     comments: handlePostCommentsChange,
     postMedia: handlePostMediaChange,
     postLikes: handlePostLikesChange,
+    profile: handleProfileRowChange,
     trips: handleTripsChange,
     tripLikes: handleTripLikesChange,
     meetups: handleMeetupsChange,
@@ -1236,6 +1259,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
     comments: handlePostCommentsChange,
     postMedia: handlePostMediaChange,
     postLikes: handlePostLikesChange,
+    profile: handleProfileRowChange,
     trips: handleTripsChange,
     tripLikes: handleTripLikesChange,
     meetups: handleMeetupsChange,
@@ -1265,6 +1289,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'post_comments' }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.comments(p)))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'post_media' }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.postMedia(p)))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'post_likes' }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.postLikes(p)))
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles' }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.profile(p)))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'trips' }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.trips(p)))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'trip_likes' }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.tripLikes(p)))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'meetups' }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.meetups(p)))

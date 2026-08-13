@@ -19,16 +19,17 @@ type BlockedProfileDisplay = {
   club: string;
   location: string;
   source: 'local' | 'supabase';
+  avatarUrl?: string;
 };
 
-const UNKNOWN_BLOCKED_PROFILE = { displayName: 'Unbekanntes Mitglied', initials: '?', club: '', location: '' };
+const UNKNOWN_BLOCKED_PROFILE = { displayName: 'Unbekanntes Mitglied', initials: '?', club: '', location: '', avatarUrl: undefined as string | undefined };
 
 export default function BlockedUsersScreen() {
   const { blockedUsers, unblockUser, unblockRemoteUser, isRemoteBlocksLoading, remoteBlocksError, refreshRemoteBlocks } = useBlocks();
   const { getUserById } = useProfiles();
-  const [remoteProfiles, setRemoteProfiles] = useState<Record<string, { displayName: string; initials: string; club: string; location: string }>>(
-    {},
-  );
+  const [remoteProfiles, setRemoteProfiles] = useState<
+    Record<string, { displayName: string; initials: string; club: string; location: string; avatarUrl?: string }>
+  >({});
   const [pendingUnblockUserId, setPendingUnblockUserId] = useState<string | null>(null);
   const [unblockError, setUnblockError] = useState<string | null>(null);
 
@@ -55,7 +56,7 @@ export default function BlockedUsersScreen() {
       .then(({ data }) => {
         if (!isCurrent) return;
 
-        const map: Record<string, { displayName: string; initials: string; club: string; location: string }> = {};
+        const map: Record<string, { displayName: string; initials: string; club: string; location: string; avatarUrl?: string }> = {};
         ((data ?? []) as SupabaseProfileRow[]).forEach((row) => {
           const mapped = mapSupabaseProfileRow(row);
           map[row.id] = {
@@ -63,6 +64,7 @@ export default function BlockedUsersScreen() {
             initials: getInitialsFromName(mapped.displayName),
             club: mapped.club ?? '',
             location: mapped.location ?? '',
+            avatarUrl: mapped.avatarUrl ?? undefined,
           };
         });
         setRemoteProfiles(map);
@@ -84,6 +86,7 @@ export default function BlockedUsersScreen() {
         club: localProfile.club,
         location: localProfile.location,
         source: entry.source ?? 'local',
+        avatarUrl: localProfile.avatarUrl,
       };
     }
 
@@ -96,6 +99,7 @@ export default function BlockedUsersScreen() {
       club: remoteProfile.club,
       location: remoteProfile.location,
       source: entry.source ?? 'supabase',
+      avatarUrl: remoteProfile.avatarUrl,
     };
   });
 
@@ -144,7 +148,7 @@ export default function BlockedUsersScreen() {
           {unblockError ? <Text style={styles.unblockErrorText}>{unblockError}</Text> : null}
           {blockedProfiles.map((profile) => (
             <View key={profile.id} style={styles.row}>
-              <Avatar initials={profile.initials} />
+              <Avatar initials={profile.initials} avatarUrl={profile.avatarUrl} />
               <View style={styles.rowInfo}>
                 <Text style={styles.rowName}>{profile.displayName}</Text>
                 <Text style={styles.rowMeta}>

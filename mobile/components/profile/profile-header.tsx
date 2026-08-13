@@ -1,4 +1,3 @@
-import { Image } from 'expo-image';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { Avatar } from '@/components/feed/avatar';
@@ -13,11 +12,7 @@ type ProfileHeaderProps = {
 export function ProfileHeader({ profile }: ProfileHeaderProps) {
   return (
     <View style={styles.container}>
-      {profile.avatarUrl ? (
-        <Image source={{ uri: profile.avatarUrl }} style={styles.avatarImage} contentFit="cover" />
-      ) : (
-        <Avatar initials={profile.initials} size={72} />
-      )}
+      <Avatar initials={profile.initials} avatarUrl={profile.avatarUrl} size={72} />
       <Text style={styles.name}>{profile.displayName}</Text>
 
       <View style={styles.infoRow}>
@@ -41,12 +36,6 @@ export function ProfileHeader({ profile }: ProfileHeaderProps) {
 }
 
 const styles = StyleSheet.create({
-  avatarImage: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: FeedColors.imagePlaceholder,
-  },
   container: {
     backgroundColor: FeedColors.cardBackground,
     borderRadius: Radii.lg,

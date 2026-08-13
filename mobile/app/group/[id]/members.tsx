@@ -189,7 +189,7 @@ export default function GroupMembersScreen() {
                     style={styles.row}
                     accessibilityLabel={`Profil von ${member.displayName} öffnen`}
                   >
-                    <Avatar initials={getInitialsFromName(member.displayName)} />
+                    <Avatar initials={getInitialsFromName(member.displayName)} avatarUrl={member.avatarUrl} />
                     <View style={styles.memberInfo}>
                       <Text style={styles.memberName}>{member.displayName}</Text>
                       <Text style={styles.memberMeta}>Mitglied seit {member.joinedAt}</Text>

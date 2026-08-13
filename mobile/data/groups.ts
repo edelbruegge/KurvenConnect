@@ -154,6 +154,7 @@ export type GroupMemberRecord = {
   role: GroupRole;
   joinedAt: string;
   displayName: string;
+  avatarUrl?: string;
 };
 
 // Local seed groups/requests always use the fixed 'group-...'/'request-...' id scheme (see

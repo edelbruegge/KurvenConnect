@@ -6,7 +6,7 @@ import type { FeedComment, FeedPost } from '@/data/feed-posts';
 import { currentUserSeed, sampleProfiles, seedFollowEdges, CURRENT_USER_ID, type FollowEdge, type UserProfile } from '@/data/users';
 import { mapFollowError } from '@/lib/follow-errors';
 import type { SupabaseFollowRow } from '@/lib/map-supabase-follow';
-import { getInitialsFromName, mapSupabaseProfileRow, type SupabaseProfile } from '@/lib/map-supabase-profile';
+import { getInitialsFromName, mapSupabaseProfileRow, type SupabaseProfile, type SupabaseProfileRow } from '@/lib/map-supabase-profile';
 import { mapProfileError } from '@/lib/profile-errors';
 import { supabase } from '@/lib/supabase';
 
@@ -14,11 +14,14 @@ type ProfileUpdate = {
   displayName: string;
   location: string;
   bio: string;
+  // undefined = leave the stored avatar unchanged, null = remove it, string = set a new one.
+  avatarUrl?: string | null;
 };
 
 type AuthorDisplay = {
   displayName: string;
   initials: string;
+  avatarUrl?: string;
 };
 
 type ConnectionCounts = { followerCount: number; followingCount: number };
@@ -29,6 +32,13 @@ type RealtimeStatus = 'idle' | 'connecting' | 'subscribed' | 'reconnecting' | 'e
 // Same minimal structural payload shape used by FeedPostsContext's own content-changes channel
 // (see context/feed-posts-context.tsx) -- event:'*' covers INSERT/UPDATE/DELETE on one binding.
 type RealtimeFollowChangePayload = {
+  eventType: 'INSERT' | 'UPDATE' | 'DELETE';
+  new: Record<string, unknown>;
+  old: Record<string, unknown>;
+};
+
+// Same minimal structural payload shape, reused for the profiles binding on the same channel.
+type RealtimeProfileChangePayload = {
   eventType: 'INSERT' | 'UPDATE' | 'DELETE';
   new: Record<string, unknown>;
   old: Record<string, unknown>;
@@ -231,14 +241,23 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
       return { error: 'Du bist nicht angemeldet.' };
     }
 
+    const updatePayload: Record<string, unknown> = {
+      display_name: input.displayName.trim(),
+      location: input.location.trim(),
+      bio: input.bio.trim(),
+      updated_at: new Date().toISOString(),
+    };
+
+    // Only touches avatar_url when the caller actually wants to change it -- undefined means "not
+    // part of this save" (e.g. a plain text-field edit), so a normal profile save never
+    // accidentally clears or overwrites the avatar.
+    if (input.avatarUrl !== undefined) {
+      updatePayload.avatar_url = input.avatarUrl;
+    }
+
     const { data, error } = await supabase
       .from('profiles')
-      .update({
-        display_name: input.displayName.trim(),
-        location: input.location.trim(),
-        bio: input.bio.trim(),
-        updated_at: new Date().toISOString(),
-      })
+      .update(updatePayload)
       .eq('id', authUserId)
       .select(PROFILE_SELECT_COLUMNS)
       .single();
@@ -339,7 +358,7 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
       return { displayName: post.user, initials: post.initials };
     }
 
-    return { displayName: author.displayName, initials: author.initials };
+    return { displayName: author.displayName, initials: author.initials, avatarUrl: author.avatarUrl };
   };
 
   const getCommentAuthorDisplay = (comment: FeedComment): AuthorDisplay => {
@@ -349,7 +368,7 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
       return { displayName: comment.username, initials: comment.initials };
     }
 
-    return { displayName: author.displayName, initials: author.initials };
+    return { displayName: author.displayName, initials: author.initials, avatarUrl: author.avatarUrl };
   };
 
   // --- Local (seed-to-seed) follow toggle -- unchanged behaviour from before this step. ---
@@ -763,11 +782,50 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
     if (followingListByUserId[followerId] !== undefined) loadFollowingList(followerId);
   };
 
+  // Own-account (another device/tab of the same user) or another user's row changing while a
+  // screen already has their profile cached -- own-mutation avatar/text saves from THIS client
+  // already update local state directly in updateOwnProfile above and never wait for this. Reuses
+  // the same channel as the follow-sync handler above (Vorgabe: "keine zweite Subscription nur
+  // für Avatare") -- just one more table binding on it, not a new channel.
+  const handleProfileRowChange = (payload: RealtimeProfileChangePayload) => {
+    if (payload.eventType === 'DELETE') return; // profiles are never hard-deleted by this app
+    const row = payload.new as unknown as SupabaseProfileRow;
+    if (!row?.id) return;
+
+    if (row.id === authUserId) {
+      setOwnProfile(mapSupabaseProfileRow(row));
+      return;
+    }
+
+    const mapped = mapSupabaseProfileRow(row);
+    const patchUser = (user: UserProfile): UserProfile =>
+      user.id === row.id ? { ...user, displayName: mapped.displayName, initials: getInitialsFromName(mapped.displayName), avatarUrl: mapped.avatarUrl ?? undefined } : user;
+
+    const patchAllLists = (map: Record<string, ConnectionListState>): Record<string, ConnectionListState> => {
+      let changed = false;
+      const next: Record<string, ConnectionListState> = {};
+      for (const [key, state] of Object.entries(map)) {
+        if (!state.users.some((user) => user.id === row.id)) {
+          next[key] = state;
+          continue;
+        }
+        changed = true;
+        next[key] = { ...state, users: state.users.map(patchUser) };
+      }
+      return changed ? next : map;
+    };
+
+    setFollowerListByUserId(patchAllLists);
+    setFollowingListByUserId(patchAllLists);
+  };
+
   // Ref indirection so the long-lived channel subscription always calls the latest closure
   // (fresh authUserId/caches) without reconnecting the channel every render -- same pattern as
   // FeedPostsContext's handleContentVisibilityEventRef.
   const handleUserFollowsChangeRef = useRef(handleUserFollowsChange);
   handleUserFollowsChangeRef.current = handleUserFollowsChange;
+  const handleProfileRowChangeRef = useRef(handleProfileRowChange);
+  handleProfileRowChangeRef.current = handleProfileRowChange;
 
   useEffect(() => {
     if (!authUserId) {
@@ -783,6 +841,10 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'user_follows' }, (payload) => {
         if (!isCurrent) return;
         handleUserFollowsChangeRef.current(payload as unknown as RealtimeFollowChangePayload);
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles' }, (payload) => {
+        if (!isCurrent) return;
+        handleProfileRowChangeRef.current(payload as unknown as RealtimeProfileChangePayload);
       })
       .subscribe((status) => {
         if (!isCurrent) return;

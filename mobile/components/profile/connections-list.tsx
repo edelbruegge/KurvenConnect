@@ -37,7 +37,7 @@ export function ConnectionsList({ users, emptyMessage, showUnfollowButton, onUnf
               style={styles.row}
               accessibilityLabel={`Profil von ${user.displayName} öffnen`}
             >
-              <Avatar initials={user.initials} />
+              <Avatar initials={user.initials} avatarUrl={user.avatarUrl} />
               <View style={styles.userInfo}>
                 <Text style={styles.userName}>{user.displayName}</Text>
                 <Text style={styles.userMeta}>

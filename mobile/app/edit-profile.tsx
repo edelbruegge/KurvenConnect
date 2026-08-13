@@ -1,16 +1,22 @@
 import { useEffect, useState } from 'react';
 import { Keyboard, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { Avatar } from '@/components/feed/avatar';
+import { IconSymbol } from '@/components/ui/icon-symbol';
 import { FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
+import { useAuth } from '@/context/auth-context';
 import { useProfiles } from '@/context/profile-context';
-import { useSafeBack } from '@/hooks/use-safe-back';
+import { extractOwnAvatarStoragePath, pickAvatarImage, processAvatarImage, removeAvatarFile, uploadAvatarImage } from '@/lib/avatar-media';
 import { dismissKeyboardOnNative } from '@/lib/dismiss-keyboard';
+import { useSafeBack } from '@/hooks/use-safe-back';
 
 const BIO_MAX_LENGTH = 160;
 
 export default function EditProfileScreen() {
   const goBack = useSafeBack();
   const { currentUser, updateOwnProfile } = useProfiles();
+  const { user } = useAuth();
+  const authUserId = user?.id ?? null;
 
   const [displayName, setDisplayName] = useState(currentUser.displayName);
   const [location, setLocation] = useState(currentUser.location);
@@ -18,6 +24,14 @@ export default function EditProfileScreen() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+
+  // A newly picked + processed (square, resized, compressed) local image staged for upload on the
+  // next "Speichern" tap -- never written to the server just by picking it (Vorgabe 6). Local to
+  // this screen, so it is naturally discarded on cancel/navigate-away and reset on every fresh
+  // mount (e.g. after an account switch, Vorgabe 22) without any extra cleanup code.
+  const [pendingAvatarUri, setPendingAvatarUri] = useState<string | null>(null);
+  const [isPickingAvatar, setIsPickingAvatar] = useState(false);
+  const [isRemovingAvatar, setIsRemovingAvatar] = useState(false);
 
   useEffect(() => {
     const show = Keyboard.addListener('keyboardDidShow', () => setKeyboardVisible(true));
@@ -29,10 +43,93 @@ export default function EditProfileScreen() {
     };
   }, []);
 
+  const isBusy = isSubmitting || isPickingAvatar || isRemovingAvatar;
   const isFormValid = () => displayName.trim().length >= 2 && bio.trim().length <= BIO_MAX_LENGTH;
+  const displayedAvatarUrl = pendingAvatarUri ?? currentUser.avatarUrl;
+
+  const handlePickAvatar = async () => {
+    if (isBusy) {
+      return;
+    }
+
+    setIsPickingAvatar(true);
+    setErrorMessage(null);
+
+    const { image, error: pickError } = await pickAvatarImage();
+
+    if (pickError) {
+      setIsPickingAvatar(false);
+      setErrorMessage(pickError);
+      return;
+    }
+
+    if (!image) {
+      // User cancelled the picker -- not an error, nothing changes.
+      setIsPickingAvatar(false);
+      return;
+    }
+
+    const { uri: processedUri, error: processError } = await processAvatarImage(image);
+    setIsPickingAvatar(false);
+
+    if (processError || !processedUri) {
+      setErrorMessage(processError ?? 'Das Bild konnte nicht verarbeitet werden.');
+      return;
+    }
+
+    setPendingAvatarUri(processedUri);
+  };
+
+  // Immediate action for an already-*saved* avatar -- a real mutation in its own right, not a
+  // pending local edit. If the currently shown image is only a not-yet-saved pending pick,
+  // discarding it is a pure local reset instead -- nothing was ever uploaded, so there is nothing
+  // on the server to remove and no reason for a network round-trip.
+  const handleRemoveAvatar = async () => {
+    if (isBusy) {
+      return;
+    }
+
+    if (pendingAvatarUri) {
+      setPendingAvatarUri(null);
+      return;
+    }
+
+    if (!currentUser.avatarUrl) {
+      return;
+    }
+
+    setIsRemovingAvatar(true);
+    setErrorMessage(null);
+
+    // Uses the currently-*saved* text fields, not whatever is mid-edit in the form -- removing
+    // the avatar must never silently also persist unsaved display name/location/bio changes.
+    const previousAvatarUrl = currentUser.avatarUrl;
+    const { error } = await updateOwnProfile({
+      displayName: currentUser.displayName,
+      location: currentUser.location,
+      bio: currentUser.bio,
+      avatarUrl: null,
+    });
+
+    setIsRemovingAvatar(false);
+
+    if (error) {
+      setErrorMessage(error);
+      return;
+    }
+
+    setPendingAvatarUri(null);
+
+    if (authUserId) {
+      const oldPath = extractOwnAvatarStoragePath(previousAvatarUrl, authUserId);
+      if (oldPath) {
+        void removeAvatarFile(oldPath);
+      }
+    }
+  };
 
   const handleSave = async () => {
-    if (isSubmitting) {
+    if (isBusy) {
       return;
     }
 
@@ -58,15 +155,56 @@ export default function EditProfileScreen() {
     setErrorMessage(null);
     setIsSubmitting(true);
 
-    const { error } = await updateOwnProfile({ displayName: trimmedName, location: trimmedLocation, bio: trimmedBio });
+    // Safe swap: (1) image already processed at pick-time, (2) upload must succeed, (3) profile
+    // row update must succeed -- only *then* is the previous avatar file removed. Any failure
+    // along the way leaves the existing avatar and text completely untouched (Vorgabe 14).
+    let newAvatarUrl: string | undefined;
+    const previousAvatarUrl = currentUser.avatarUrl;
+
+    if (pendingAvatarUri) {
+      if (!authUserId) {
+        setIsSubmitting(false);
+        setErrorMessage('Du bist nicht angemeldet.');
+        return;
+      }
+
+      const { url, error: uploadError } = await uploadAvatarImage({ authUserId, uri: pendingAvatarUri });
+
+      if (uploadError || !url) {
+        setIsSubmitting(false);
+        setErrorMessage(uploadError ?? 'Das Profilbild konnte nicht hochgeladen werden.');
+        return;
+      }
+
+      newAvatarUrl = url;
+    }
+
+    const { error } = await updateOwnProfile({
+      displayName: trimmedName,
+      location: trimmedLocation,
+      bio: trimmedBio,
+      avatarUrl: newAvatarUrl,
+    });
 
     setIsSubmitting(false);
 
     if (error) {
+      // The profile row update failed after a successful upload -- clean up the now-orphaned new
+      // file (best effort); the previous avatar was never touched and stays authoritative.
+      if (newAvatarUrl && authUserId) {
+        const orphanPath = extractOwnAvatarStoragePath(newAvatarUrl, authUserId);
+        if (orphanPath) void removeAvatarFile(orphanPath);
+      }
       setErrorMessage(error);
       return;
     }
 
+    if (newAvatarUrl && authUserId) {
+      const oldPath = extractOwnAvatarStoragePath(previousAvatarUrl, authUserId);
+      if (oldPath) void removeAvatarFile(oldPath);
+    }
+
+    setPendingAvatarUri(null);
     goBack();
   };
 
@@ -81,6 +219,28 @@ export default function EditProfileScreen() {
           <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
             <Text style={styles.title}>Profil bearbeiten</Text>
             <Text style={styles.subtitle}>Passe deinen Anzeigenamen, Wohnort und deine Bio an.</Text>
+
+            <View style={styles.avatarSection}>
+              <Pressable
+                onPress={handlePickAvatar}
+                disabled={isBusy}
+                accessibilityRole="button"
+                accessibilityLabel="Profilbild ändern"
+              >
+                <Avatar initials={currentUser.initials} avatarUrl={displayedAvatarUrl} size={96} />
+              </Pressable>
+
+              <Pressable onPress={handlePickAvatar} disabled={isBusy} style={styles.changeAvatarButton} accessibilityRole="button" accessibilityLabel="Profilbild ändern">
+                <IconSymbol size={16} name="photo" color={FeedColors.textPrimary} />
+                <Text style={styles.changeAvatarButtonText}>{isPickingAvatar ? 'Wird verarbeitet …' : 'Profilbild ändern'}</Text>
+              </Pressable>
+
+              {displayedAvatarUrl ? (
+                <Pressable onPress={handleRemoveAvatar} disabled={isBusy} style={styles.removeAvatarButton} accessibilityRole="button" accessibilityLabel="Profilbild entfernen">
+                  <Text style={styles.removeAvatarButtonText}>{isRemovingAvatar ? 'Wird entfernt …' : 'Profilbild entfernen'}</Text>
+                </Pressable>
+              ) : null}
+            </View>
 
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Anzeigename</Text>
@@ -137,13 +297,13 @@ export default function EditProfileScreen() {
 
             <Pressable
               onPress={handleSave}
-              disabled={!isFormValid() || isSubmitting}
-              style={[styles.saveButton, (!isFormValid() || isSubmitting) && styles.saveButtonDisabled]}
+              disabled={!isFormValid() || isBusy}
+              style={[styles.saveButton, (!isFormValid() || isBusy) && styles.saveButtonDisabled]}
             >
               <Text style={styles.saveButtonText}>{isSubmitting ? 'Speichern…' : 'Speichern'}</Text>
             </Pressable>
 
-            <Pressable onPress={handleCancel} disabled={isSubmitting} style={styles.cancelButton}>
+            <Pressable onPress={handleCancel} disabled={isBusy} style={styles.cancelButton}>
               <Text style={styles.cancelButtonText}>Abbrechen</Text>
             </Pressable>
 
@@ -181,6 +341,35 @@ const styles = StyleSheet.create({
     color: FeedColors.textSecondary,
     fontSize: FontSizes.subtitle,
     marginBottom: Spacing.md,
+  },
+  avatarSection: {
+    alignItems: 'center',
+    marginBottom: Spacing.md,
+    gap: Spacing.xs,
+  },
+  changeAvatarButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderColor: FeedColors.cardBorder,
+    borderRadius: Radii.round,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.xs,
+    marginTop: Spacing.xs,
+  },
+  changeAvatarButtonText: {
+    color: FeedColors.textPrimary,
+    fontSize: FontSizes.meta,
+    fontWeight: '600',
+  },
+  removeAvatarButton: {
+    paddingVertical: Spacing.xs,
+  },
+  removeAvatarButtonText: {
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.meta,
+    fontWeight: '600',
   },
   section: {
     backgroundColor: FeedColors.cardBackground,

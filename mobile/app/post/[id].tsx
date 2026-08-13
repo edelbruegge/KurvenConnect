@@ -303,7 +303,7 @@ export default function PostDetailScreen() {
             accessibilityRole="button"
             accessibilityLabel={`Profil von ${author.displayName} öffnen`}
           >
-            <Avatar initials={author.initials} />
+            <Avatar initials={author.initials} avatarUrl={author.avatarUrl} />
             <View style={styles.userInfo}>
               <Text style={styles.userName}>{author.displayName}</Text>
               <Text style={styles.time}>{post.time}</Text>
@@ -443,7 +443,7 @@ export default function PostDetailScreen() {
               <View key={comment.id} style={styles.commentCard}>
                 <View style={styles.commentHeader}>
                   <View style={styles.commentUserBlock}>
-                    <Avatar initials={commentAuthor.initials} />
+                    <Avatar initials={commentAuthor.initials} avatarUrl={commentAuthor.avatarUrl} />
                     <View style={styles.commentUserInfo}>
                       <Text style={styles.commentUsername}>{commentAuthor.displayName}</Text>
                       <Text style={styles.commentTimestamp}>{comment.timestamp}</Text>

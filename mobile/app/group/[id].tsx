@@ -47,7 +47,7 @@ export default function GroupDetailScreen() {
   const [isLeaving, setIsLeaving] = useState(false);
   const [requestActionError, setRequestActionError] = useState<string | null>(null);
   const [processingRequestId, setProcessingRequestId] = useState<string | null>(null);
-  const [remoteMemberNames, setRemoteMemberNames] = useState<Record<string, string>>({});
+  const [remoteMemberProfiles, setRemoteMemberProfiles] = useState<Record<string, { displayName: string; avatarUrl?: string }>>({});
   const [isCheckingGroupDetail, setIsCheckingGroupDetail] = useState(false);
   const [groupDetailError, setGroupDetailError] = useState<string | null>(null);
 
@@ -92,7 +92,7 @@ export default function GroupDetailScreen() {
 
   const remoteIncoming = group && isRemoteAdmin ? (incomingJoinRequests[group.id] ?? []) : [];
 
-  const unresolvedRequesterIdsKey = remoteIncoming.map((request) => request.requesterId).filter((id) => !remoteMemberNames[id]).sort().join(',');
+  const unresolvedRequesterIdsKey = remoteIncoming.map((request) => request.requesterId).filter((id) => !remoteMemberProfiles[id]).sort().join(',');
 
   useEffect(() => {
     const ids = unresolvedRequesterIdsKey ? unresolvedRequesterIdsKey.split(',') : [];
@@ -105,16 +105,16 @@ export default function GroupDetailScreen() {
 
     supabase
       .from('profiles')
-      .select('id, display_name')
+      .select('id, display_name, avatar_url')
       .in('id', ids)
       .then(({ data }) => {
         if (!isCurrent) return;
 
-        const map: Record<string, string> = {};
-        ((data ?? []) as { id: string; display_name: string | null }[]).forEach((row) => {
-          map[row.id] = row.display_name?.trim() || 'Neues Mitglied';
+        const map: Record<string, { displayName: string; avatarUrl?: string }> = {};
+        ((data ?? []) as { id: string; display_name: string | null; avatar_url: string | null }[]).forEach((row) => {
+          map[row.id] = { displayName: row.display_name?.trim() || 'Neues Mitglied', avatarUrl: row.avatar_url ?? undefined };
         });
-        setRemoteMemberNames((current) => ({ ...current, ...map }));
+        setRemoteMemberProfiles((current) => ({ ...current, ...map }));
       });
 
     return () => {
@@ -338,15 +338,18 @@ export default function GroupDetailScreen() {
             ) : (
               remoteIncoming.map((request) => (
                 <View key={request.id} style={styles.requestRow}>
-                  <Avatar initials={(remoteMemberNames[request.requesterId] ?? '?').slice(0, 1)} />
-                  <Text style={styles.requestName}>{remoteMemberNames[request.requesterId] ?? 'Unbekanntes Mitglied'}</Text>
+                  <Avatar
+                    initials={(remoteMemberProfiles[request.requesterId]?.displayName ?? '?').slice(0, 1)}
+                    avatarUrl={remoteMemberProfiles[request.requesterId]?.avatarUrl}
+                  />
+                  <Text style={styles.requestName}>{remoteMemberProfiles[request.requesterId]?.displayName ?? 'Unbekanntes Mitglied'}</Text>
                   <View style={styles.requestActions}>
                     <Pressable
                       onPress={() => void handleManageRemoteRequest(request.id, 'accept')}
                       disabled={isGroupActionSubmitting && processingRequestId === request.id}
                       style={styles.acceptButton}
                       accessibilityRole="button"
-                      accessibilityLabel={`Anfrage von ${remoteMemberNames[request.requesterId] ?? 'Nutzer'} annehmen`}
+                      accessibilityLabel={`Anfrage von ${remoteMemberProfiles[request.requesterId]?.displayName ?? 'Nutzer'} annehmen`}
                     >
                       <Text style={styles.acceptButtonText}>Annehmen</Text>
                     </Pressable>
@@ -355,7 +358,7 @@ export default function GroupDetailScreen() {
                       disabled={isGroupActionSubmitting && processingRequestId === request.id}
                       style={styles.rejectButton}
                       accessibilityRole="button"
-                      accessibilityLabel={`Anfrage von ${remoteMemberNames[request.requesterId] ?? 'Nutzer'} ablehnen`}
+                      accessibilityLabel={`Anfrage von ${remoteMemberProfiles[request.requesterId]?.displayName ?? 'Nutzer'} ablehnen`}
                     >
                       <Text style={styles.rejectButtonText}>Ablehnen</Text>
                     </Pressable>
@@ -374,7 +377,7 @@ export default function GroupDetailScreen() {
 
               return (
                 <View key={request.id} style={styles.requestRow}>
-                  <Avatar initials={requester?.initials ?? '?'} />
+                  <Avatar initials={requester?.initials ?? '?'} avatarUrl={requester?.avatarUrl} />
                   <Text style={styles.requestName}>{requester?.displayName ?? 'Unbekannter Nutzer'}</Text>
                   <View style={styles.requestActions}>
                     <Pressable

@@ -9,7 +9,7 @@ import { mapSupabaseNotificationToNotification, type SupabaseNotificationRow } f
 import { mapNotificationError, mapNotificationRealtimeError } from '@/lib/notification-errors';
 import { supabase } from '@/lib/supabase';
 
-type AuthorDisplay = { displayName: string; initials: string };
+type AuthorDisplay = { displayName: string; initials: string; avatarUrl?: string };
 
 // A minimal structural view of the postgres_changes INSERT payload — only the fields this
 // handler actually reads. Avoids importing @supabase/realtime-js's payload types directly (a
@@ -121,7 +121,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
 
       const { data: profileRows, error: profilesError } =
         actorIds.length > 0
-          ? await supabase.from('profiles').select('id, display_name').in('id', actorIds)
+          ? await supabase.from('profiles').select('id, display_name, avatar_url').in('id', actorIds)
           : { data: [], error: null };
 
       if (!isCurrent) return;
@@ -134,9 +134,9 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
       }
 
       const actorDisplayById: Record<string, AuthorDisplay> = {};
-      (profileRows ?? []).forEach((row: { id: string; display_name: string | null }) => {
+      (profileRows ?? []).forEach((row: { id: string; display_name: string | null; avatar_url: string | null }) => {
         const displayName = row.display_name?.trim() || 'Neues Mitglied';
-        actorDisplayById[row.id] = { displayName, initials: getInitialsFromName(displayName) };
+        actorDisplayById[row.id] = { displayName, initials: getInitialsFromName(displayName), avatarUrl: row.avatar_url ?? undefined };
       });
 
       setRemoteActorProfiles((current) => ({ ...current, ...actorDisplayById }));

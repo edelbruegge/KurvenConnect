@@ -30,6 +30,7 @@ type RequesterDisplay = {
   initials: string;
   club: string | null;
   location: string | null;
+  avatarUrl?: string;
 };
 
 const UNKNOWN_REQUESTER: RequesterDisplay = { displayName: 'Unbekanntes Mitglied', initials: '?', club: null, location: null };
@@ -82,6 +83,7 @@ export default function TripRequestsScreen() {
             initials: getInitialsFromName(mapped.displayName),
             club: mapped.club,
             location: mapped.location,
+            avatarUrl: mapped.avatarUrl ?? undefined,
           };
         });
         setRequesterProfiles(map);
@@ -166,7 +168,7 @@ export default function TripRequestsScreen() {
     return (
       <View key={request.id} style={styles.card}>
         <View style={styles.cardHeader}>
-          <Avatar initials={requester.initials} />
+          <Avatar initials={requester.initials} avatarUrl={requester.avatarUrl} />
           <View style={styles.cardHeaderText}>
             <Text style={styles.requesterName}>{requester.displayName}</Text>
             {requester.club ? <Text style={styles.requesterMeta}>{requester.club}</Text> : null}

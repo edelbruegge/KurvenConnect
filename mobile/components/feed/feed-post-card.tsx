@@ -47,7 +47,7 @@ export function FeedPostCard({ post, onPress, onLikePress, onCommentPress }: Fee
           accessibilityLabel={`Profil von ${author.displayName} öffnen`}
         >
           <View style={styles.avatarMargin}>
-            <Avatar initials={author.initials} />
+            <Avatar initials={author.initials} avatarUrl={author.avatarUrl} />
           </View>
           <View>
             <Text style={styles.userName}>{author.displayName}</Text>
