@@ -1,15 +1,19 @@
+import { Image } from 'expo-image';
 import React, { useEffect, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Keyboard, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { GameSelector } from '@/components/stadion/game-selector';
+import { IconSymbol } from '@/components/ui/icon-symbol';
 import { CategoryLabels, ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
+import { useAuth } from '@/context/auth-context';
 import { useFeedPosts } from '@/context/feed-posts-context';
 import { useStadiumHistory } from '@/context/stadium-history-context';
 import type { FeedPostCategory } from '@/data/feed-posts';
 import { seedGames } from '@/data/games';
 import { dismissKeyboardOnNative } from '@/lib/dismiss-keyboard';
 import { parseGermanDateAndTimeToIso } from '@/lib/map-supabase-meetup';
+import { getPostMediaSignedUrl, MAX_POST_IMAGES, pickPostImages, uploadPostImage, type PickedPostImage } from '@/lib/post-media';
 
 const categoryOptions: FeedPostCategory[] = ['Beitrag', 'Fahrt', 'Gesuch', 'Treffpunkt'];
 
@@ -52,8 +56,15 @@ const initialFormState: CreatePostFormState = {
 export default function CreatePostScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ gameId?: string; gameLabel?: string }>();
-  const { createRemotePost, createRemoteTrip, createRemoteMeetup, createRemoteWantedEntry } = useFeedPosts();
+  const { createRemotePost, createRemoteTrip, createRemoteMeetup, createRemoteWantedEntry, appendRemotePostMedia } = useFeedPosts();
   const { refreshStadiumHistory } = useStadiumHistory();
+  const { user } = useAuth();
+  const authUserId = user?.id ?? null;
+  // Local to this screen, so it is naturally reset whenever create-post is (re-)opened -- e.g.
+  // after an account switch, since nothing outside this component ever reads or persists it.
+  const [selectedImages, setSelectedImages] = useState<PickedPostImage[]>([]);
+  const [isPickingImages, setIsPickingImages] = useState(false);
+  const [imagePickerError, setImagePickerError] = useState<string | null>(null);
   // An optional game preselection via route params — nothing in the app currently links here
   // with these set (the Stadion area has no creation entry point anymore, see
   // app/(tabs)/stadion.tsx), but a future deep link could still pass them, and the shared
@@ -71,6 +82,29 @@ export default function CreatePostScreen() {
 
   const updateField = <K extends keyof CreatePostFormState>(field: K, value: CreatePostFormState[K]) => {
     setForm((currentForm) => ({ ...currentForm, [field]: value }));
+  };
+
+  const handlePickImages = async () => {
+    if (isPickingImages || selectedImages.length >= MAX_POST_IMAGES) {
+      return;
+    }
+
+    setIsPickingImages(true);
+    setImagePickerError(null);
+    const { images, error } = await pickPostImages(MAX_POST_IMAGES - selectedImages.length);
+    setIsPickingImages(false);
+
+    if (error) {
+      setImagePickerError(error);
+    }
+
+    if (images.length > 0) {
+      setSelectedImages((current) => [...current, ...images].slice(0, MAX_POST_IMAGES));
+    }
+  };
+
+  const handleRemoveImage = (uriToRemove: string) => {
+    setSelectedImages((current) => current.filter((image) => image.uri !== uriToRemove));
   };
 
   const [keyboardVisible, setKeyboardVisible] = useState(false);
@@ -191,20 +225,64 @@ export default function CreatePostScreen() {
     if (form.category === 'Beitrag') {
       setIsSubmitting(true);
       setErrorMessage(null);
-      const { error } = await createRemotePost({
+      const { error, postId } = await createRemotePost({
         content: form.description,
         gameId: form.gameId || undefined,
         gameLabel: form.gameId ? form.gameLabel || undefined : undefined,
       });
-      setIsSubmitting(false);
 
-      if (error) {
+      if (error || !postId) {
+        setIsSubmitting(false);
         setErrorMessage(error);
         return;
       }
 
       if (form.gameId) {
         refreshStadiumHistory();
+      }
+
+      // Images are uploaded only after the post itself exists (never a "half" post_media row for
+      // a file that isn't there yet). A failed image never rolls back the already-published post
+      // or text -- that would risk a duplicate post on retry -- it is reported instead, with
+      // whatever was uploaded successfully still cleaned up per-image on its own failure (see
+      // uploadPostImage).
+      if (selectedImages.length > 0 && authUserId) {
+        let failureCount = 0;
+
+        for (let index = 0; index < selectedImages.length; index += 1) {
+          const { mediaRow, error: uploadError } = await uploadPostImage({
+            authUserId,
+            postId,
+            position: index,
+            image: selectedImages[index],
+          });
+
+          if (uploadError || !mediaRow) {
+            failureCount += 1;
+            continue;
+          }
+
+          const signedUrl = await getPostMediaSignedUrl(mediaRow.storage_path);
+          if (signedUrl) {
+            appendRemotePostMedia(postId, { id: mediaRow.id, url: signedUrl, width: mediaRow.width, height: mediaRow.height });
+          }
+        }
+
+        setIsSubmitting(false);
+
+        if (failureCount > 0) {
+          // The post is already live -- clear the form (its text is safely published, keeping it
+          // around would only invite an accidental duplicate post on a second tap) and explain
+          // what happened instead of silently navigating away.
+          setForm(initialFormState);
+          setSelectedImages([]);
+          setErrorMessage(
+            `Dein Beitrag wurde veröffentlicht. ${failureCount} von ${selectedImages.length} Bild(ern) konnte(n) nicht hochgeladen werden. Du findest den Beitrag im Feed.`,
+          );
+          return;
+        }
+      } else {
+        setIsSubmitting(false);
       }
 
       router.replace('/');
@@ -321,6 +399,44 @@ export default function CreatePostScreen() {
               style={styles.textInput}
               textAlignVertical="top"
             />
+
+            {form.category === 'Beitrag' ? (
+              <View style={styles.imagesBlock}>
+                {selectedImages.length > 0 ? (
+                  <View style={styles.imagePreviewGrid}>
+                    {selectedImages.map((image) => (
+                      <View key={image.uri} style={styles.imagePreviewItem}>
+                        <Image source={{ uri: image.uri }} style={styles.imagePreviewThumb} contentFit="cover" />
+                        <Pressable
+                          onPress={() => handleRemoveImage(image.uri)}
+                          style={styles.imageRemoveButton}
+                          accessibilityRole="button"
+                          accessibilityLabel="Bild entfernen"
+                          hitSlop={8}
+                        >
+                          <IconSymbol size={16} name="xmark.circle.fill" color={FeedColors.textPrimary} />
+                        </Pressable>
+                      </View>
+                    ))}
+                  </View>
+                ) : null}
+
+                <Pressable
+                  onPress={handlePickImages}
+                  disabled={isPickingImages || selectedImages.length >= MAX_POST_IMAGES}
+                  style={[styles.addPhotoButton, selectedImages.length >= MAX_POST_IMAGES && styles.addPhotoButtonDisabled]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Foto hinzufügen"
+                >
+                  <IconSymbol size={16} name="photo" color={FeedColors.textPrimary} />
+                  <Text style={styles.addPhotoButtonText}>
+                    {selectedImages.length >= MAX_POST_IMAGES ? `Maximal ${MAX_POST_IMAGES} Fotos erreicht` : 'Foto hinzufügen'}
+                  </Text>
+                </Pressable>
+
+                {imagePickerError ? <Text style={styles.imageErrorText}>{imagePickerError}</Text> : null}
+              </View>
+            ) : null}
           </View>
 
           <GameSelector
@@ -331,7 +447,7 @@ export default function CreatePostScreen() {
           <View style={styles.section}>
             <Text style={styles.hintText}>
               {form.category === 'Beitrag'
-                ? 'Dieser Beitrag wird online gespeichert. Bilder werden in diesem Schritt noch nicht unterstützt.'
+                ? 'Dieser Beitrag wird online gespeichert.'
                 : form.category === 'Fahrt'
                   ? 'Diese Fahrt wird online gespeichert. Bilder werden in diesem Schritt noch nicht unterstützt.'
                   : form.category === 'Treffpunkt'
@@ -460,6 +576,56 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.sm,
     paddingVertical: Spacing.sm,
     marginBottom: Spacing.sm,
+  },
+  imagesBlock: {
+    marginTop: Spacing.xs,
+  },
+  imagePreviewGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.sm,
+    marginBottom: Spacing.sm,
+  },
+  imagePreviewItem: {
+    width: 72,
+    height: 72,
+  },
+  imagePreviewThumb: {
+    width: 72,
+    height: 72,
+    borderRadius: Radii.md,
+    backgroundColor: FeedColors.imagePlaceholder,
+  },
+  imageRemoveButton: {
+    position: 'absolute',
+    top: -6,
+    right: -6,
+    backgroundColor: FeedColors.background,
+    borderRadius: Radii.round,
+  },
+  addPhotoButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
+    borderWidth: 1,
+    borderColor: FeedColors.cardBorder,
+    borderRadius: Radii.round,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.xs,
+  },
+  addPhotoButtonDisabled: {
+    opacity: 0.5,
+  },
+  addPhotoButtonText: {
+    color: FeedColors.textPrimary,
+    fontSize: FontSizes.meta,
+    fontWeight: '600',
+  },
+  imageErrorText: {
+    color: '#F87171',
+    fontSize: FontSizes.meta,
+    marginTop: Spacing.xs,
   },
   hintText: {
     color: FeedColors.textSecondary,

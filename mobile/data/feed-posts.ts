@@ -9,6 +9,16 @@ export type FeedMode = 'for-you' | 'following';
 
 export type TripRequestStatus = 'pending' | 'accepted' | 'rejected' | 'cancelled';
 
+// A single already-uploaded image belonging to a 'Beitrag' post, with a ready-to-render signed
+// URL (private Supabase Storage bucket -- see lib/post-media.ts). Never present for local seed
+// posts; those still use the older hasImage placeholder below.
+export type PostMediaItem = {
+  id: string;
+  url: string;
+  width: number | null;
+  height: number | null;
+};
+
 export type FeedComment = {
   id: string;
   // Optional only for legacy seed comments by background characters with no matching
@@ -69,6 +79,9 @@ export type FeedPost = {
   likedByCurrentUser: boolean;
   comments: FeedComment[];
   hasImage?: boolean;
+  // Real, persisted images (0-4) for 'Beitrag' posts sourced from Supabase, ordered by position.
+  // Undefined/empty for every other post -- see PostMediaItem above.
+  media?: PostMediaItem[];
   tripDetails?: FahrtDetails;
   requestDetails?: GesuchDetails;
   meetupDetails?: MeetupDetails;

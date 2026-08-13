@@ -1,4 +1,4 @@
-import type { FeedComment, FeedPost, FeedPostCategory } from '@/data/feed-posts';
+import type { FeedComment, FeedPost, FeedPostCategory, PostMediaItem } from '@/data/feed-posts';
 
 export type SupabasePostRow = {
   id: string;
@@ -77,6 +77,7 @@ export function mapSupabasePostToFeedPost(
   likeCount: number,
   likedByCurrentUser: boolean,
   author: AuthorDisplay,
+  media: PostMediaItem[] = [],
 ): FeedPost {
   return {
     id: row.id,
@@ -93,5 +94,6 @@ export function mapSupabasePostToFeedPost(
     createdAtIso: row.created_at,
     gameId: row.game_id ?? undefined,
     gameLabel: row.game_label ?? undefined,
+    media,
   };
 }

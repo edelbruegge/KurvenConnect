@@ -3,7 +3,7 @@ import { AppState } from 'react-native';
 
 import { useAuth } from '@/context/auth-context';
 import { useProfiles } from '@/context/profile-context';
-import { feedPosts, isMeetupFull, type FeedComment, type FeedPost, type NewFeedPost } from '@/data/feed-posts';
+import { feedPosts, isMeetupFull, type FeedComment, type FeedPost, type NewFeedPost, type PostMediaItem } from '@/data/feed-posts';
 import { CURRENT_USER_ID } from '@/data/users';
 import { getInitialsFromName } from '@/lib/map-supabase-profile';
 import {
@@ -35,6 +35,7 @@ import {
   type SupabaseWantedLikeRow,
 } from '@/lib/map-supabase-wanted-entry';
 import { mapWantedEntryError } from '@/lib/wanted-entry-errors';
+import { getPostMediaSignedUrl, getPostMediaSignedUrls, POST_MEDIA_SELECT_COLUMNS, type PostMediaRow } from '@/lib/post-media';
 import { supabase } from '@/lib/supabase';
 
 type AuthorDisplay = { displayName: string; initials: string };
@@ -110,7 +111,10 @@ type FeedPostsContextValue = {
   isRemotePostsLoading: boolean;
   remotePostsError: string | null;
   refreshRemotePosts: () => void;
-  createRemotePost: (input: { content: string; gameId?: string; gameLabel?: string }) => Promise<{ error: string | null }>;
+  createRemotePost: (input: { content: string; gameId?: string; gameLabel?: string }) => Promise<{ error: string | null; postId?: string }>;
+  // Attaches one already-uploaded image to a post's local state right after upload succeeds (see
+  // lib/post-media.ts's uploadPostImage) -- own-mutation path, does not wait for realtime.
+  appendRemotePostMedia: (postId: string, media: PostMediaItem) => void;
   addRemoteComment: (postId: string, text: string) => Promise<{ error: string | null }>;
   toggleRemoteLike: (postId: string) => Promise<void>;
   getRemoteAuthorDisplay: (userId: string) => AuthorDisplay;
@@ -276,9 +280,10 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
 
       const postIds = posts.map((post) => post.id);
 
-      const [commentsResult, likesResult] = await Promise.all([
+      const [commentsResult, likesResult, mediaResult] = await Promise.all([
         supabase.from('post_comments').select(COMMENTS_SELECT_COLUMNS).in('post_id', postIds).order('created_at', { ascending: true }),
         supabase.from('post_likes').select(LIKES_SELECT_COLUMNS).in('post_id', postIds),
+        supabase.from('post_media').select(POST_MEDIA_SELECT_COLUMNS).in('post_id', postIds).order('position', { ascending: true }),
       ]);
 
       if (!isCurrent) return;
@@ -297,8 +302,13 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      // Deliberately fault-tolerant, unlike comments/likes above: images are a supplementary
+      // enhancement to a post, not its core content (Vorgabe: Textpost-Verhalten bleibt
+      // unverändert). A media-fetch problem must never take down the entire feed -- posts simply
+      // render without images rather than not rendering at all.
       const comments = (commentsResult.data ?? []) as SupabaseCommentRow[];
       const likes = (likesResult.data ?? []) as SupabaseLikeRow[];
+      const mediaRows = mediaResult.error ? [] : ((mediaResult.data ?? []) as PostMediaRow[]);
 
       const authorIds = new Set<string>();
       posts.forEach((post) => authorIds.add(post.author_id));
@@ -341,6 +351,21 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
         }
       });
 
+      // One batched Storage call for every image across every visible post, regardless of count
+      // -- never one createSignedUrl() call per post/image (no N+1).
+      const signedUrlByPath = await getPostMediaSignedUrls(mediaRows.map((row) => row.storage_path));
+
+      if (!isCurrent) return;
+
+      const mediaByPostId = new Map<string, PostMediaItem[]>();
+      mediaRows.forEach((row) => {
+        const url = signedUrlByPath[row.storage_path];
+        if (!url) return; // Signing failed for this one object -- skip it rather than show a broken image.
+        const list = mediaByPostId.get(row.post_id) ?? [];
+        list.push({ id: row.id, url, width: row.width, height: row.height });
+        mediaByPostId.set(row.post_id, list);
+      });
+
       const mappedPosts = posts.map((row) =>
         mapSupabasePostToFeedPost(
           row,
@@ -348,6 +373,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
           likeCountByPostId.get(row.id) ?? 0,
           likedPostIdsByCurrentUser.has(row.id),
           authorDisplayById[row.author_id] ?? UNKNOWN_AUTHOR_DISPLAY,
+          mediaByPostId.get(row.id) ?? [],
         ),
       );
 
@@ -948,6 +974,32 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  // Covers both "someone else uploaded an image to a post I can see" and, harmlessly (deduped by
+  // id in appendRemotePostMedia), a delayed echo of the current user's own upload -- the uploader
+  // itself never waits on this, see appendRemotePostMedia's own doc comment. Reuses the single
+  // existing content-changes channel below (one more table binding, not a new subscription).
+  const handlePostMediaChange = (payload: RealtimeChangePayload) => {
+    if (payload.eventType === 'INSERT') {
+      const row = payload.new as unknown as PostMediaRow;
+      if (!row?.id || !row?.post_id || !row?.storage_path) return;
+      getPostMediaSignedUrl(row.storage_path).then((url) => {
+        if (!url) return;
+        appendRemotePostMedia(row.post_id, { id: row.id, url, width: row.width, height: row.height });
+      });
+      return;
+    }
+
+    if (payload.eventType === 'DELETE') {
+      const oldId = payload.old?.id as string | undefined;
+      if (!oldId) return;
+      setRemotePosts((current) =>
+        current.map((post) =>
+          post.media?.some((item) => item.id === oldId) ? { ...post, media: post.media.filter((item) => item.id !== oldId) } : post,
+        ),
+      );
+    }
+  };
+
   const handlePostLikesChange = (payload: RealtimeChangePayload) => {
     if (payload.eventType === 'INSERT') {
       const row = payload.new as unknown as SupabaseLikeRow;
@@ -1169,6 +1221,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
   const contentChangeHandlersRef = useRef({
     posts: handlePostsChange,
     comments: handlePostCommentsChange,
+    postMedia: handlePostMediaChange,
     postLikes: handlePostLikesChange,
     trips: handleTripsChange,
     tripLikes: handleTripLikesChange,
@@ -1181,6 +1234,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
   contentChangeHandlersRef.current = {
     posts: handlePostsChange,
     comments: handlePostCommentsChange,
+    postMedia: handlePostMediaChange,
     postLikes: handlePostLikesChange,
     trips: handleTripsChange,
     tripLikes: handleTripLikesChange,
@@ -1209,6 +1263,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       .channel(`content-changes:${authUserId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.posts(p)))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'post_comments' }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.comments(p)))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'post_media' }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.postMedia(p)))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'post_likes' }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.postLikes(p)))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'trips' }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.trips(p)))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'trip_likes' }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.tripLikes(p)))
@@ -1282,7 +1337,11 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
 
   const getRemoteAuthorDisplay = (userId: string): AuthorDisplay => remoteAuthorProfiles[userId] ?? UNKNOWN_AUTHOR_DISPLAY;
 
-  const createRemotePost = async (input: { content: string; gameId?: string; gameLabel?: string }): Promise<{ error: string | null }> => {
+  const createRemotePost = async (input: {
+    content: string;
+    gameId?: string;
+    gameLabel?: string;
+  }): Promise<{ error: string | null; postId?: string }> => {
     if (!authUserId) {
       return { error: NOT_SIGNED_IN_ERROR };
     }
@@ -1315,7 +1374,23 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
 
     const newPost = mapSupabasePostToFeedPost(data as SupabasePostRow, [], 0, false, getOwnAuthorDisplay());
     setRemotePosts((current) => [newPost, ...current]);
-    return { error: null };
+    return { error: null, postId: newPost.id };
+  };
+
+  // Own-mutation path for post images: called right after each successful uploadPostImage() (see
+  // lib/post-media.ts) so the uploader sees their own image immediately, without waiting for the
+  // post_media realtime echo below -- same "don't wait for realtime on your own action" rule
+  // already applied to posts/likes/comments/follows. Idempotent by id, so a later realtime INSERT
+  // for the same row (own or, once shared, anyone else's) is a harmless no-op.
+  const appendRemotePostMedia = (postId: string, media: PostMediaItem) => {
+    setRemotePosts((current) =>
+      current.map((post) => {
+        if (post.id !== postId) return post;
+        const existing = post.media ?? [];
+        if (existing.some((item) => item.id === media.id)) return post;
+        return { ...post, media: [...existing, media] };
+      }),
+    );
   };
 
   const addRemoteComment = async (postId: string, text: string): Promise<{ error: string | null }> => {
@@ -2063,6 +2138,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       remotePostsError,
       refreshRemotePosts,
       createRemotePost,
+      appendRemotePostMedia,
       addRemoteComment,
       toggleRemoteLike,
       getRemoteAuthorDisplay,

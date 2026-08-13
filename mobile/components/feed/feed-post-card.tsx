@@ -1,3 +1,4 @@
+import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View, GestureResponderEvent } from 'react-native';
 
@@ -56,7 +57,17 @@ export function FeedPostCard({ post, onPress, onLikePress, onCommentPress }: Fee
         <CategoryBadge category={post.category} />
       </View>
 
-      {post.hasImage ? (
+      {post.media && post.media.length > 0 ? (
+        post.media.length === 1 ? (
+          <Image source={{ uri: post.media[0].url }} style={styles.singleImage} contentFit="cover" />
+        ) : (
+          <View style={styles.imageGrid}>
+            {post.media.slice(0, 4).map((item) => (
+              <Image key={item.id} source={{ uri: item.url }} style={styles.gridImage} contentFit="cover" />
+            ))}
+          </View>
+        )
+      ) : post.hasImage ? (
         <View style={styles.imageBox}>
           <Text style={styles.imageText}>Bildbereich</Text>
         </View>
@@ -168,6 +179,25 @@ const styles = StyleSheet.create({
   imageText: {
     color: FeedColors.textSecondary,
     fontSize: FontSizes.meta,
+  },
+  singleImage: {
+    width: '100%',
+    height: 220,
+    borderRadius: Radii.md,
+    backgroundColor: FeedColors.imagePlaceholder,
+    marginBottom: Spacing.sm,
+  },
+  imageGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+    marginBottom: Spacing.sm,
+  },
+  gridImage: {
+    width: '49%',
+    height: 120,
+    borderRadius: Radii.md,
+    backgroundColor: FeedColors.imagePlaceholder,
   },
   meetupTitle: {
     color: FeedColors.textPrimary,
