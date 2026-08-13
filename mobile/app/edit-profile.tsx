@@ -5,6 +5,7 @@ import { Avatar } from '@/components/feed/avatar';
 import { ClubPicker } from '@/components/profile/club-picker';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
+import { useActiveClub } from '@/context/active-club-context';
 import { useAuth } from '@/context/auth-context';
 import { useGames } from '@/context/games-context';
 import { useProfiles } from '@/context/profile-context';
@@ -19,6 +20,7 @@ export default function EditProfileScreen() {
   const goBack = useSafeBack();
   const { currentUser, ownProfile, updateOwnProfile } = useProfiles();
   const { knownTeams, isKnownTeamsLoading, knownTeamsError, refreshKnownTeams } = useGames();
+  const { setActiveTeam } = useActiveClub();
   const { user } = useAuth();
   const authUserId = user?.id ?? null;
 
@@ -221,6 +223,12 @@ export default function EditProfileScreen() {
     if (newAvatarUrl && authUserId) {
       const oldPath = extractOwnAvatarStoragePath(previousAvatarUrl, authUserId);
       if (oldPath) void removeAvatarFile(oldPath);
+    }
+
+    // A deliberate change of the permanent favorite club (not temporary browsing) also switches
+    // the active club being viewed -- distinct UX from the Stadion club switcher (Vorgabe 36).
+    if ('favoriteTeamId' in clubChange && selectedTeam) {
+      setActiveTeam(selectedTeam);
     }
 
     setPendingAvatarUri(null);

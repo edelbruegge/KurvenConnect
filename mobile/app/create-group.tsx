@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import { Keyboard, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
+import { useActiveClub } from '@/context/active-club-context';
 import { useGroups } from '@/context/groups-context';
 import type { GroupVisibility } from '@/data/groups';
 import { dismissKeyboardOnNative } from '@/lib/dismiss-keyboard';
@@ -22,6 +23,7 @@ const initialFormState: CreateGroupFormState = {
 export default function CreateGroupScreen() {
   const router = useRouter();
   const { createGroup } = useGroups();
+  const { activeTeam } = useActiveClub();
   const [form, setForm] = useState<CreateGroupFormState>(initialFormState);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -83,7 +85,9 @@ export default function CreateGroupScreen() {
         <Pressable style={{ flex: 1 }} onPress={dismissKeyboardOnNative}>
           <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
             <Text style={styles.title}>Neue Gruppe erstellen</Text>
-            <Text style={styles.subtitle}>Erstelle eine Gruppe rund um Arminia Bielefeld.</Text>
+            <Text style={styles.subtitle}>
+              {activeTeam ? `Erstelle eine Gruppe rund um ${activeTeam.teamName}.` : 'Erstelle eine Gruppe.'}
+            </Text>
 
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Name</Text>

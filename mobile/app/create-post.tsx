@@ -6,6 +6,7 @@ import { Keyboard, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, Scro
 import { GameSelector } from '@/components/stadion/game-selector';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { CategoryLabels, ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
+import { useActiveClub } from '@/context/active-club-context';
 import { useAuth } from '@/context/auth-context';
 import { useFeedPosts } from '@/context/feed-posts-context';
 import { useStadiumHistory } from '@/context/stadium-history-context';
@@ -58,6 +59,7 @@ export default function CreatePostScreen() {
   const params = useLocalSearchParams<{ gameId?: string; gameLabel?: string }>();
   const { createRemotePost, createRemoteTrip, createRemoteMeetup, createRemoteWantedEntry, appendRemotePostMedia } = useFeedPosts();
   const { refreshStadiumHistory } = useStadiumHistory();
+  const { activeTeam } = useActiveClub();
   const { user } = useAuth();
   const authUserId = user?.id ?? null;
   // Local to this screen, so it is naturally reset whenever create-post is (re-)opened -- e.g.
@@ -369,6 +371,7 @@ export default function CreatePostScreen() {
           <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
           <Text style={styles.title}>Neuen Beitrag erstellen</Text>
           <Text style={styles.subtitle}>Erstelle einen lokalen Beispielbeitrag für den aktuellen Feed.</Text>
+          {activeTeam ? <Text style={styles.activeClubHint}>{CategoryLabels[form.category]} für {activeTeam.teamName}</Text> : null}
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Kategorie</Text>
@@ -526,6 +529,13 @@ const styles = StyleSheet.create({
   subtitle: {
     color: FeedColors.textSecondary,
     fontSize: FontSizes.subtitle,
+    marginBottom: Spacing.md,
+  },
+  activeClubHint: {
+    color: ClubColors.text,
+    fontSize: FontSizes.meta,
+    fontWeight: '600',
+    marginTop: -Spacing.sm,
     marginBottom: Spacing.md,
   },
   section: {

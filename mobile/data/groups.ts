@@ -1,5 +1,8 @@
 import { CURRENT_USER_ID } from './users';
 
+// Same real, live-verified OpenLigaDB team id used for local seed feed posts (data/feed-posts.ts).
+const ARMINIA_TEAM_ID = '83';
+
 export type GroupVisibility = 'public' | 'private';
 export type GroupRole = 'admin' | 'member';
 
@@ -171,6 +174,7 @@ export const seedGroups: Group[] = [
     id: 'group-1',
     name: 'Auswärtsfahrer Arminia',
     description: 'Wir organisieren gemeinsame Fahrten zu allen Auswärtsspielen.',
+    clubId: ARMINIA_TEAM_ID,
     clubName: 'Arminia Bielefeld',
     city: 'Bielefeld',
     ownerId: 'user-david-s',
@@ -183,6 +187,7 @@ export const seedGroups: Group[] = [
     id: 'group-2',
     name: 'Familie & Freunde Arminia',
     description: 'Lockere Gruppe für Familien und Freunde, die gemeinsam ins Stadion gehen.',
+    clubId: ARMINIA_TEAM_ID,
     clubName: 'Arminia Bielefeld',
     city: 'Bielefeld',
     ownerId: 'user-sina-p',
@@ -195,6 +200,7 @@ export const seedGroups: Group[] = [
     id: 'group-3',
     name: 'Fanclub Ostkurve',
     description: 'Offizieller Fanclub für alle, die in der Ostkurve stehen.',
+    clubId: ARMINIA_TEAM_ID,
     clubName: 'Arminia Bielefeld',
     city: 'Bielefeld',
     ownerId: 'user-mina-k',
@@ -207,6 +213,7 @@ export const seedGroups: Group[] = [
     id: 'group-4',
     name: 'Nur geladene Gäste',
     description: 'Private Gruppe nur für persönlich eingeladene Mitglieder.',
+    clubId: ARMINIA_TEAM_ID,
     clubName: 'Arminia Bielefeld',
     city: 'Bielefeld',
     ownerId: 'user-luca-r',
@@ -219,6 +226,7 @@ export const seedGroups: Group[] = [
     id: 'group-5',
     name: 'Marcos Blockrunde',
     description: 'Kleine private Runde für alle, die regelmäßig im gleichen Block stehen.',
+    clubId: ARMINIA_TEAM_ID,
     clubName: 'Arminia Bielefeld',
     city: 'Bielefeld',
     ownerId: CURRENT_USER_ID,

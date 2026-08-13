@@ -8,6 +8,7 @@ import 'react-native-reanimated';
 
 import { HeaderBackButton } from '@/components/navigation/header-back-button';
 import { FeedColors, FontSizes, Spacing } from '@/constants/theme';
+import { ActiveClubProvider } from '@/context/active-club-context';
 import { AuthProvider, useAuth } from '@/context/auth-context';
 import { BlocksProvider } from '@/context/blocks-context';
 import { FeedPostsProvider } from '@/context/feed-posts-context';
@@ -196,31 +197,33 @@ export default function RootLayout() {
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <AuthProvider>
         <ProfileProvider>
-          <FeedPostsProvider>
-            <GamesProvider>
-              <StadiumHistoryProvider>
-                <MessagesProvider>
-                  <NotificationsProvider>
-                    <PushNotificationsProvider>
-                      <GroupsProvider>
-                        <SavedProvider>
-                          <ReportsProvider>
-                            <BlocksProvider>
-                              <ModerationProvider>
-                                <UserWarningsProvider>
-                                  <RootNavigator />
-                                </UserWarningsProvider>
-                              </ModerationProvider>
-                            </BlocksProvider>
-                          </ReportsProvider>
-                        </SavedProvider>
-                      </GroupsProvider>
-                    </PushNotificationsProvider>
-                  </NotificationsProvider>
-                </MessagesProvider>
-              </StadiumHistoryProvider>
-            </GamesProvider>
-          </FeedPostsProvider>
+          <GamesProvider>
+            <ActiveClubProvider>
+              <FeedPostsProvider>
+                <StadiumHistoryProvider>
+                  <MessagesProvider>
+                    <NotificationsProvider>
+                      <PushNotificationsProvider>
+                        <GroupsProvider>
+                          <SavedProvider>
+                            <ReportsProvider>
+                              <BlocksProvider>
+                                <ModerationProvider>
+                                  <UserWarningsProvider>
+                                    <RootNavigator />
+                                  </UserWarningsProvider>
+                                </ModerationProvider>
+                              </BlocksProvider>
+                            </ReportsProvider>
+                          </SavedProvider>
+                        </GroupsProvider>
+                      </PushNotificationsProvider>
+                    </NotificationsProvider>
+                  </MessagesProvider>
+                </StadiumHistoryProvider>
+              </FeedPostsProvider>
+            </ActiveClubProvider>
+          </GamesProvider>
         </ProfileProvider>
       </AuthProvider>
     </ThemeProvider>

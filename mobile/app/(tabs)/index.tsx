@@ -6,6 +6,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 import { FeedPostCard } from '@/components/feed/feed-post-card';
 import { GroupRecommendationCard } from '@/components/groups/group-recommendation-card';
 import { RemoteGroupSuggestionCard } from '@/components/groups/remote-group-suggestion-card';
+import { ActiveClubBadge } from '@/components/navigation/active-club-badge';
 import { MessagesButton } from '@/components/navigation/messages-button';
 import { NotificationsButton } from '@/components/navigation/notifications-button';
 import { IconSymbol } from '@/components/ui/icon-symbol';
@@ -98,6 +99,7 @@ export default function HomeScreen() {
             <MessagesButton />
           </View>
         </View>
+        <ActiveClubBadge style={styles.activeClubBadge} />
       </View>
 
       <View style={styles.feedModeRow}>
@@ -210,6 +212,9 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.sm,
     borderBottomColor: FeedColors.cardBorder,
     borderBottomWidth: 1,
+  },
+  activeClubBadge: {
+    marginTop: Spacing.sm,
   },
   headerRow: {
     flexDirection: 'row',

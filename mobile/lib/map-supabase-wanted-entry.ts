@@ -10,6 +10,7 @@ export type SupabaseWantedEntryRow = {
   updated_at: string;
   game_id: string | null;
   game_label: string | null;
+  team_id: string | null;
 };
 
 export type SupabaseWantedLikeRow = {
@@ -41,6 +42,7 @@ export function mapSupabaseWantedEntryToFeedPost(
     createdAtIso: row.created_at,
     gameId: row.game_id ?? undefined,
     gameLabel: row.game_label ?? undefined,
+    teamId: row.team_id ?? undefined,
     requestDetails: {
       requestedService: row.requested_service,
     },

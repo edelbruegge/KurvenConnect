@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 
+import { useActiveClub } from '@/context/active-club-context';
 import { useAuth } from '@/context/auth-context';
 import { useProfiles } from '@/context/profile-context';
 import { feedPosts, isMeetupFull, type FeedComment, type FeedPost, type NewFeedPost, type PostMediaItem } from '@/data/feed-posts';
@@ -174,20 +175,21 @@ const REMOTE_TRIPS_LIMIT = 50;
 const REMOTE_MEETUPS_LIMIT = 50;
 const REMOTE_WANTED_ENTRIES_LIMIT = 50;
 
-const POSTS_SELECT_COLUMNS = 'id, author_id, content, category, created_at, updated_at, game_id, game_label';
+const POSTS_SELECT_COLUMNS = 'id, author_id, content, category, created_at, updated_at, game_id, game_label, team_id';
 const COMMENTS_SELECT_COLUMNS = 'id, post_id, author_id, content, created_at, updated_at';
 const LIKES_SELECT_COLUMNS = 'post_id, user_id, created_at';
 
 const TRIPS_SELECT_COLUMNS =
-  'id, owner_id, departure, destination, departure_time, seats_available, occasion, description, created_at, updated_at, game_id, game_label';
+  'id, owner_id, departure, destination, departure_time, seats_available, occasion, description, created_at, updated_at, game_id, game_label, team_id';
 const TRIP_LIKES_SELECT_COLUMNS = 'trip_id, user_id, created_at';
 const TRIP_REQUESTS_SELECT_COLUMNS = 'id, trip_id, requester_id, message, status, created_at, updated_at';
 
-const MEETUPS_SELECT_COLUMNS = 'id, organizer_id, title, description, location, starts_at, max_attendees, game_id, game_label, created_at, updated_at';
+const MEETUPS_SELECT_COLUMNS =
+  'id, organizer_id, title, description, location, starts_at, max_attendees, game_id, game_label, created_at, updated_at, team_id';
 const MEETUP_LIKES_SELECT_COLUMNS = 'meetup_id, user_id, created_at';
 const MEETUP_ATTENDEES_SELECT_COLUMNS = 'meetup_id, user_id, joined_at';
 
-const WANTED_ENTRIES_SELECT_COLUMNS = 'id, owner_id, description, requested_service, created_at, updated_at, game_id, game_label';
+const WANTED_ENTRIES_SELECT_COLUMNS = 'id, owner_id, description, requested_service, created_at, updated_at, game_id, game_label, team_id';
 const WANTED_LIKES_SELECT_COLUMNS = 'wanted_entry_id, user_id, created_at';
 
 const NOT_SIGNED_IN_ERROR = 'Bitte melde dich an, um das zu tun.';
@@ -209,6 +211,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const authUserId = user?.id ?? null;
   const { currentUser } = useProfiles();
+  const { activeTeamId } = useActiveClub();
 
   const [localPosts, setLocalPosts] = useState<FeedPost[]>(() => feedPosts.map((post) => withLocalSource(post)));
 
@@ -250,6 +253,15 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    if (!activeTeamId) {
+      // Signed in, but the active club hasn't been initialized yet (brief startup window) --
+      // keep the loading state rather than flashing an empty feed (Vorgabe 23).
+      setRemotePosts([]);
+      setIsRemotePostsLoading(true);
+      setRemotePostsError(null);
+      return;
+    }
+
     let isCurrent = true;
     setIsRemotePostsLoading(true);
     setRemotePostsError(null);
@@ -258,6 +270,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       const { data: postRows, error: postsError } = await supabase
         .from('posts')
         .select(POSTS_SELECT_COLUMNS)
+        .eq('team_id', activeTeamId)
         .order('created_at', { ascending: false })
         .limit(REMOTE_POSTS_LIMIT);
 
@@ -385,7 +398,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
     return () => {
       isCurrent = false;
     };
-  }, [authUserId, reloadToken]);
+  }, [authUserId, activeTeamId, reloadToken]);
 
   useEffect(() => {
     if (!authUserId) {
@@ -398,6 +411,13 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    if (!activeTeamId) {
+      setRemoteTrips([]);
+      setIsRemoteTripsLoading(true);
+      setRemoteTripsError(null);
+      return;
+    }
+
     let isCurrent = true;
     setIsRemoteTripsLoading(true);
     setRemoteTripsError(null);
@@ -406,6 +426,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       const { data: tripRows, error: tripsError } = await supabase
         .from('trips')
         .select(TRIPS_SELECT_COLUMNS)
+        .eq('team_id', activeTeamId)
         .order('created_at', { ascending: false })
         .limit(REMOTE_TRIPS_LIMIT);
 
@@ -526,13 +547,20 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
     return () => {
       isCurrent = false;
     };
-  }, [authUserId, tripsReloadToken]);
+  }, [authUserId, activeTeamId, tripsReloadToken]);
 
   useEffect(() => {
     if (!authUserId) {
       setRemoteMeetups([]);
       setRemoteAuthorProfiles({});
       setIsRemoteMeetupsLoading(false);
+      setRemoteMeetupsError(null);
+      return;
+    }
+
+    if (!activeTeamId) {
+      setRemoteMeetups([]);
+      setIsRemoteMeetupsLoading(true);
       setRemoteMeetupsError(null);
       return;
     }
@@ -545,6 +573,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       const { data: meetupRows, error: meetupsError } = await supabase
         .from('meetups')
         .select(MEETUPS_SELECT_COLUMNS)
+        .eq('team_id', activeTeamId)
         .order('starts_at', { ascending: true })
         .limit(REMOTE_MEETUPS_LIMIT);
 
@@ -647,13 +676,20 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
     return () => {
       isCurrent = false;
     };
-  }, [authUserId, meetupsReloadToken]);
+  }, [authUserId, activeTeamId, meetupsReloadToken]);
 
   useEffect(() => {
     if (!authUserId) {
       setRemoteWantedEntries([]);
       setRemoteAuthorProfiles({});
       setIsRemoteWantedEntriesLoading(false);
+      setRemoteWantedEntriesError(null);
+      return;
+    }
+
+    if (!activeTeamId) {
+      setRemoteWantedEntries([]);
+      setIsRemoteWantedEntriesLoading(true);
       setRemoteWantedEntriesError(null);
       return;
     }
@@ -666,6 +702,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       const { data: wantedRows, error: wantedError } = await supabase
         .from('wanted_entries')
         .select(WANTED_ENTRIES_SELECT_COLUMNS)
+        .eq('team_id', activeTeamId)
         .order('created_at', { ascending: false })
         .limit(REMOTE_WANTED_ENTRIES_LIMIT);
 
@@ -752,7 +789,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
     return () => {
       isCurrent = false;
     };
-  }, [authUserId, wantedEntriesReloadToken]);
+  }, [authUserId, activeTeamId, wantedEntriesReloadToken]);
 
   const refreshRemotePosts = () => {
     setReloadToken((token) => token + 1);
@@ -1270,7 +1307,9 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
-    if (!authUserId) {
+    if (!authUserId || !activeTeamId) {
+      // No club to scope the channel to yet -- same "no channel" state as signed-out, avoids
+      // opening a channel with an undefined filter (Vorgabe 21).
       setContentChangesRealtimeStatus('idle');
       return;
     }
@@ -1283,19 +1322,42 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       fn(payload);
     };
 
+    // posts/trips/meetups/wanted_entries are filtered server-side by team_id on INSERT/UPDATE -- a
+    // club switch tears this whole channel down and reopens it (activeTeamId is a dependency
+    // below), so a new/changed row for a different club can never reach this client's state
+    // (Vorgabe 21, bevorzugt serverseitige Filterung). DELETE is deliberately left unfiltered and
+    // bound separately: Supabase Realtime's postgres_changes filter can only evaluate against a
+    // row's replica identity, which for these tables (see 20260816100000_complete_realtime_
+    // publication.sql) is the default (primary key only) -- a DELETE's old record never carries
+    // team_id, so a team_id filter on DELETE risks the event never being delivered at all, not
+    // just filtered out. Removing an id from state is always safe regardless of team (a no-op if
+    // that id was never loaded), so no filter is needed for correctness there. The remaining
+    // bindings (comments/likes/attendees/profiles) have no team_id of their own (Vorgabe 11) and
+    // stay unfiltered -- their handlers only ever patch a parent row already present in the
+    // (already team-scoped) state.
+    const teamFilter = `team_id=eq.${activeTeamId}`;
+
     const channel = supabase
       .channel(`content-changes:${authUserId}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.posts(p)))
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts', filter: teamFilter }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.posts(p)))
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'posts', filter: teamFilter }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.posts(p)))
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'posts' }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.posts(p)))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'post_comments' }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.comments(p)))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'post_media' }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.postMedia(p)))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'post_likes' }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.postLikes(p)))
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles' }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.profile(p)))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'trips' }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.trips(p)))
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'trips', filter: teamFilter }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.trips(p)))
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'trips', filter: teamFilter }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.trips(p)))
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'trips' }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.trips(p)))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'trip_likes' }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.tripLikes(p)))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'meetups' }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.meetups(p)))
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'meetups', filter: teamFilter }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.meetups(p)))
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'meetups', filter: teamFilter }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.meetups(p)))
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'meetups' }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.meetups(p)))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'meetup_likes' }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.meetupLikes(p)))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'meetup_attendees' }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.meetupAttendees(p)))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'wanted_entries' }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.wantedEntries(p)))
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'wanted_entries', filter: teamFilter }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.wantedEntries(p)))
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'wanted_entries', filter: teamFilter }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.wantedEntries(p)))
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'wanted_entries' }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.wantedEntries(p)))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'wanted_likes' }, guard((p: RealtimeChangePayload) => contentChangeHandlersRef.current.wantedLikes(p)))
       .subscribe((status) => {
         if (!isCurrent) return;
@@ -1316,7 +1378,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       isCurrent = false;
       void supabase.removeChannel(channel);
     };
-  }, [authUserId, contentChangesReconnectToken]);
+  }, [authUserId, activeTeamId, contentChangesReconnectToken]);
 
   // --- Foreground refresh: one AppState listener (react-native-web maps this to
   // document.visibilitychange), no polling. Also nudges a realtime reconnect if either channel
@@ -1371,6 +1433,10 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       return { error: NOT_SIGNED_IN_ERROR };
     }
 
+    if (!activeTeamId) {
+      return { error: 'Bitte wähle zuerst einen Verein aus.' };
+    }
+
     const trimmedContent = input.content.trim();
 
     if (!trimmedContent) {
@@ -1389,6 +1455,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
         category: 'Beitrag',
         game_id: input.gameId ?? null,
         game_label: input.gameLabel ?? null,
+        team_id: activeTeamId,
       })
       .select(POSTS_SELECT_COLUMNS)
       .single();
@@ -1491,6 +1558,10 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       return { error: NOT_SIGNED_IN_ERROR };
     }
 
+    if (!activeTeamId) {
+      return { error: 'Bitte wähle zuerst einen Verein aus.' };
+    }
+
     const trimmedDescription = input.description.trim();
     const trimmedDeparture = input.departure.trim();
     const trimmedDestination = input.destination.trim();
@@ -1520,6 +1591,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
         description: trimmedDescription,
         game_id: input.gameId ?? null,
         game_label: input.gameLabel ?? null,
+        team_id: activeTeamId,
       })
       .select(TRIPS_SELECT_COLUMNS)
       .single();
@@ -1708,6 +1780,10 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       return { error: NOT_SIGNED_IN_ERROR };
     }
 
+    if (!activeTeamId) {
+      return { error: 'Bitte wähle zuerst einen Verein aus.' };
+    }
+
     const trimmedDescription = input.description.trim();
     const trimmedTitle = input.title.trim();
     const trimmedLocation = input.location.trim();
@@ -1745,6 +1821,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
         max_attendees: input.maxAttendees ?? null,
         game_id: input.gameId,
         game_label: input.gameLabel,
+        team_id: activeTeamId,
       })
       .select(MEETUPS_SELECT_COLUMNS)
       .single();
@@ -1884,6 +1961,10 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       return { error: NOT_SIGNED_IN_ERROR };
     }
 
+    if (!activeTeamId) {
+      return { error: 'Bitte wähle zuerst einen Verein aus.' };
+    }
+
     const trimmedDescription = input.description.trim();
     const trimmedRequestedService = input.requestedService.trim();
 
@@ -1907,6 +1988,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
         requested_service: trimmedRequestedService,
         game_id: input.gameId ?? null,
         game_label: input.gameLabel ?? null,
+        team_id: activeTeamId,
       })
       .select(WANTED_ENTRIES_SELECT_COLUMNS)
       .single();

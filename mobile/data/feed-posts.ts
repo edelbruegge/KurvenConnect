@@ -103,6 +103,9 @@ export type FeedPost = {
   // instead (established earlier, left untouched) — read gameId via getPostGameId() below.
   gameId?: string;
   gameLabel?: string;
+  // Stable OpenLigaDB team id (matches profiles.favorite_team_id/games.external_home_team_id) --
+  // the club this content belongs to, fixed at creation time (see context/active-club-context.tsx).
+  teamId?: string;
 };
 
 export function getPostGameId(post: FeedPost): string | undefined {
@@ -128,7 +131,11 @@ export function getReportTargetTypeForPost(category: FeedPostCategory): ReportTa
   return 'post';
 }
 
-export const feedPosts: FeedPost[] = [
+// Every local seed post belongs to Arminia Bielefeld's real, live-verified OpenLigaDB team id --
+// seed content must never bypass the team_id filter (only visible when Arminia is the active club).
+const ARMINIA_TEAM_ID = '83';
+
+const feedPostsSeed: FeedPost[] = [
   {
     id: '1',
     userId: 'user-mina-k',
@@ -369,3 +376,5 @@ export const feedPosts: FeedPost[] = [
     gameLabel: 'VfL Bochum – Arminia Bielefeld',
   },
 ];
+
+export const feedPosts: FeedPost[] = feedPostsSeed.map((post) => ({ ...post, teamId: ARMINIA_TEAM_ID }));

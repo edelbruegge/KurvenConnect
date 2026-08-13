@@ -1,37 +1,72 @@
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ActiveClubBadge } from '@/components/navigation/active-club-badge';
 import { MessagesButton } from '@/components/navigation/messages-button';
 import { NotificationsButton } from '@/components/navigation/notifications-button';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
 import { STADION_MODULES, type StadionModule } from '@/constants/stadion-modules';
+import { useActiveClub } from '@/context/active-club-context';
 import { useGames } from '@/context/games-context';
-import { useProfiles } from '@/context/profile-context';
+import type { Game } from '@/data/database-games';
+import { filterGamesForTeam, groupGamesByMatchday, sortByKickoffAscending, sortByKickoffDescending } from '@/lib/team-games';
+
+type GameTab = 'all' | 'next' | 'past';
+
+const TABS: { key: GameTab; label: string }[] = [
+  { key: 'all', label: 'Alle' },
+  { key: 'next', label: 'Nächsten' },
+  { key: 'past', label: 'Vergangen' },
+];
 
 export default function StadionScreen() {
   const router = useRouter();
   const { games } = useGames();
-  const { ownProfile } = useProfiles();
+  const { activeTeamId, activeTeam } = useActiveClub();
   const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<GameTab>('all');
 
-  // Default to the first loaded game once the (async) games list arrives -- mirrors the previous
-  // seedGames[0]-at-mount default, just no longer available synchronously at the first render.
-  // If the user has a favorite club, prefer their club's game as the default instead -- but only
-  // for this initial default (the `!selectedGameId` guard below never overrides a manual tap).
-  useEffect(() => {
-    if (!selectedGameId && games.length > 0) {
-      const favoriteTeamId = ownProfile?.favoriteTeamId;
-      const favoriteGame = favoriteTeamId
-        ? games.find((game) => game.externalHomeTeamId === favoriteTeamId || game.externalAwayTeamId === favoriteTeamId)
-        : undefined;
-      setSelectedGameId((favoriteGame ?? games[0]).id);
+  // The Stadion area always shows exactly the active club's own games -- never a whole league
+  // matchday (Vorgabe 25/26). Reused from components/stadion/game-selector.tsx via lib/team-games.ts
+  // so both places filter/group games identically.
+  const teamGames = useMemo(() => filterGamesForTeam(games, activeTeamId), [games, activeTeamId]);
+
+  const { upcomingGames, pastGames } = useMemo(() => {
+    const now = Date.now();
+    const upcoming: Game[] = [];
+    const past: Game[] = [];
+    for (const game of teamGames) {
+      const kickoffMs = game.kickoffAtIso ? new Date(game.kickoffAtIso).getTime() : null;
+      if (kickoffMs != null && kickoffMs < now) {
+        past.push(game);
+      } else {
+        upcoming.push(game);
+      }
     }
-  }, [games, selectedGameId, ownProfile?.favoriteTeamId]);
+    return { upcomingGames: sortByKickoffAscending(upcoming), pastGames: sortByKickoffDescending(past) };
+  }, [teamGames]);
 
-  const selectedGame = games.find((game) => game.id === selectedGameId);
+  const visibleGames = activeTab === 'all' ? teamGames : activeTab === 'next' ? upcomingGames.slice(0, 1) : pastGames;
+  const groupedGames = useMemo(() => groupGamesByMatchday(visibleGames), [visibleGames]);
+
+  // Default selection: the next upcoming game, else the most recent past one -- reset whenever the
+  // active club changes (a different club's games are a completely different list, Vorgabe 32).
+  // A manual tap is never overridden while browsing the same club (the `!selectedGameId` guard).
+  useEffect(() => {
+    setSelectedGameId(null);
+  }, [activeTeamId]);
+
+  useEffect(() => {
+    if (!selectedGameId && teamGames.length > 0) {
+      const defaultGame = upcomingGames[0] ?? pastGames[0] ?? teamGames[0];
+      setSelectedGameId(defaultGame.id);
+    }
+  }, [teamGames, upcomingGames, pastGames, selectedGameId]);
+
+  const selectedGame = teamGames.find((game) => game.id === selectedGameId);
   const selectedGameLabel = selectedGame ? `${selectedGame.homeTeam} – ${selectedGame.awayTeam}` : '';
 
   const handleOpenModule = (module: StadionModule) => {
@@ -59,29 +94,56 @@ export default function StadionScreen() {
             <MessagesButton />
           </View>
         </View>
+        <ActiveClubBadge style={styles.activeClubBadge} />
       </View>
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.filterRow}
-        style={styles.filterScroll}
-      >
-        {games.map((game) => {
-          const gameLabel = `${game.homeTeam} – ${game.awayTeam}`;
-          return (
-            <Pressable
-              key={game.id}
-              onPress={() => setSelectedGameId(game.id)}
-              style={[styles.filterChip, selectedGameId === game.id && styles.filterChipActive]}
-              accessibilityRole="button"
-              accessibilityLabel={`Spiel auswählen: ${gameLabel}`}
-            >
-              <Text style={[styles.filterChipText, selectedGameId === game.id && styles.filterChipTextActive]}>{gameLabel}</Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
+      {!activeTeamId ? (
+        <View style={styles.emptyState}>
+          <Text style={styles.emptyText}>Wähle zuerst einen Verein aus, um seine Spiele zu sehen.</Text>
+        </View>
+      ) : (
+        <>
+          <View style={styles.tabRow}>
+            {TABS.map((tab) => (
+              <Pressable
+                key={tab.key}
+                onPress={() => setActiveTab(tab.key)}
+                style={[styles.tabButton, activeTab === tab.key && styles.tabButtonActive]}
+                accessibilityRole="button"
+                accessibilityLabel={`${tab.label} Spiele anzeigen`}
+              >
+                <Text style={[styles.tabButtonText, activeTab === tab.key && styles.tabButtonTextActive]}>{tab.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow} style={styles.filterScroll}>
+            {teamGames.length === 0 ? (
+              <Text style={styles.noGamesText}>Keine Spiele für {activeTeam?.teamName ?? 'diesen Verein'} gefunden.</Text>
+            ) : (
+              groupedGames.map((group) =>
+                group.games.map((game) => {
+                  const gameLabel = `${game.homeTeam} – ${game.awayTeam}`;
+                  const isHome = game.externalHomeTeamId === activeTeamId;
+                  return (
+                    <Pressable
+                      key={game.id}
+                      onPress={() => setSelectedGameId(game.id)}
+                      style={[styles.filterChip, selectedGameId === game.id && styles.filterChipActive]}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Spiel auswählen: ${gameLabel}${group.matchday ? `, Spieltag ${group.matchday}` : ''}`}
+                    >
+                      {group.matchday ? <Text style={styles.filterChipMatchday}>Spieltag {group.matchday}</Text> : null}
+                      <Text style={[styles.filterChipText, selectedGameId === game.id && styles.filterChipTextActive]}>{gameLabel}</Text>
+                      <Text style={styles.filterChipHomeAway}>{isHome ? 'Heimspiel' : 'Auswärtsspiel'}</Text>
+                    </Pressable>
+                  );
+                }),
+              )
+            )}
+          </ScrollView>
+        </>
+      )}
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         {STADION_MODULES.map((module) => (
@@ -119,6 +181,9 @@ const styles = StyleSheet.create({
     borderBottomColor: FeedColors.cardBorder,
     borderBottomWidth: 1,
   },
+  activeClubBadge: {
+    marginTop: Spacing.sm,
+  },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -141,6 +206,39 @@ const styles = StyleSheet.create({
     fontSize: FontSizes.subtitle,
     marginTop: 4,
   },
+  emptyState: {
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+  },
+  emptyText: {
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.body,
+  },
+  tabRow: {
+    flexDirection: 'row',
+    gap: Spacing.xs,
+    paddingHorizontal: Spacing.md,
+    paddingTop: Spacing.sm,
+  },
+  tabButton: {
+    borderWidth: 1,
+    borderColor: FeedColors.cardBorder,
+    borderRadius: Radii.round,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.xs,
+  },
+  tabButtonActive: {
+    backgroundColor: ClubColors.surface,
+    borderColor: ClubColors.border,
+  },
+  tabButtonText: {
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.meta,
+  },
+  tabButtonTextActive: {
+    color: FeedColors.textPrimary,
+    fontWeight: '600',
+  },
   filterScroll: {
     flexGrow: 0,
     marginTop: Spacing.sm,
@@ -150,17 +248,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.md,
     gap: Spacing.sm,
   },
+  noGamesText: {
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.meta,
+    paddingVertical: Spacing.xs,
+  },
   filterChip: {
     borderWidth: 1,
     borderColor: FeedColors.cardBorder,
-    borderRadius: Radii.round,
+    borderRadius: Radii.md,
     paddingHorizontal: Spacing.sm,
     paddingVertical: Spacing.xs,
     alignSelf: 'center',
+    minHeight: 44,
+    justifyContent: 'center',
   },
   filterChipActive: {
     backgroundColor: ClubColors.surface,
     borderColor: ClubColors.border,
+  },
+  filterChipMatchday: {
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.badge,
+    fontWeight: '700',
   },
   filterChipText: {
     color: FeedColors.textSecondary,
@@ -168,6 +278,11 @@ const styles = StyleSheet.create({
   },
   filterChipTextActive: {
     color: FeedColors.textPrimary,
+    fontWeight: '600',
+  },
+  filterChipHomeAway: {
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.badge,
   },
   scroll: {
     flex: 1,

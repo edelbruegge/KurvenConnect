@@ -2,11 +2,11 @@ import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
+import { useActiveClub } from '@/context/active-club-context';
 import { useGames } from '@/context/games-context';
-import { useProfiles } from '@/context/profile-context';
 import type { Game } from '@/data/database-games';
 import { formatSeasonLabel } from '@/lib/map-supabase-game';
-import { isSameClub } from '@/lib/normalize-club-name';
+import { filterGamesForTeam, groupGamesByMatchday, sortByKickoffAscending, sortByKickoffDescending } from '@/lib/team-games';
 
 type GameSelectorProps = {
   selectedGameId: string | null;
@@ -19,55 +19,10 @@ type GameSelectorProps = {
 // retroactive post just as easily as an upcoming one.
 type GameTab = 'all' | 'next' | 'past';
 
-type MatchdayGroup = {
-  matchday: number | null;
-  games: Game[];
-};
-
 function matchesSearch(game: Game, query: string): boolean {
   if (!query) return true;
   const haystack = [game.homeTeam, game.awayTeam, game.stadiumName, game.stadiumCity].filter(Boolean).join(' ').toLowerCase();
   return haystack.includes(query.toLowerCase());
-}
-
-function sortByKickoffAscending(games: Game[]): Game[] {
-  return [...games].sort((a, b) => (a.kickoffAtIso ?? '9999').localeCompare(b.kickoffAtIso ?? '9999'));
-}
-
-function sortByKickoffDescending(games: Game[]): Game[] {
-  return [...games].sort((a, b) => (b.kickoffAtIso ?? '').localeCompare(a.kickoffAtIso ?? ''));
-}
-
-/** Groups by the real numeric `matchday` (public.games.matchday, an integer -- see
- * lib/map-supabase-game.ts), sorted ascending; games without a matchday (e.g. the two legacy
- * manual entries from before the full-season sync existed) land in one trailing "Weitere Spiele"
- * group, never dropped, never crashing on a missing value. */
-function groupGamesByMatchday(games: Game[]): MatchdayGroup[] {
-  const byMatchday = new Map<number, Game[]>();
-  const withoutMatchday: Game[] = [];
-
-  for (const game of games) {
-    if (game.matchday == null) {
-      withoutMatchday.push(game);
-      continue;
-    }
-    const existing = byMatchday.get(game.matchday) ?? [];
-    existing.push(game);
-    byMatchday.set(game.matchday, existing);
-  }
-
-  const sortedKeys = [...byMatchday.keys()].sort((a, b) => a - b);
-
-  const groups: MatchdayGroup[] = sortedKeys.map((matchday) => ({
-    matchday,
-    games: sortByKickoffAscending(byMatchday.get(matchday) ?? []),
-  }));
-
-  if (withoutMatchday.length > 0) {
-    groups.push({ matchday: null, games: sortByKickoffAscending(withoutMatchday) });
-  }
-
-  return groups;
 }
 
 /**
@@ -100,27 +55,22 @@ function GameSummaryLines({ game }: { game: Game }) {
  * submit time, exactly as before.
  *
  * Data comes from GamesContext (public.games, now a full real season per league -- 994 rows as of
- * this step), filtered down to the current user's own club (`useProfiles().currentUser.club`,
- * see lib/normalize-club-name.ts) before anything else -- a normal user is never shown the entire
- * season of every league at once. `profiles.club` is plain text with no stable id, so this
- * remains a best-effort name comparison (documented limitation, not glossed over): it will not
- * find a match if the real fixture data spells the club differently in some way
- * normalizeClubName's small, fixed prefix list doesn't cover.
+ * this step), filtered down to the currently active club (context/active-club-context.tsx,
+ * matched by the stable OpenLigaDB team id via filterGamesForTeam -- lib/team-games.ts) before
+ * anything else -- a normal user is never shown the entire season of every league at once, and a
+ * post/trip/meetup/wanted entry's matchday picker always reflects the same club its team_id will
+ * be stamped with (Vorgabe 1/42: one central club selection, not a second independent one here).
  */
 export function GameSelector({ selectedGameId, onChange, label = 'Spieltag' }: GameSelectorProps) {
   const { games, getGameById } = useGames();
-  const { currentUser } = useProfiles();
+  const { activeTeamId, activeTeam } = useActiveClub();
   const [isPickerOpen, setIsPickerOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<GameTab>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
   const selectedGame = selectedGameId ? getGameById(selectedGameId) : undefined;
-  const club = currentUser.club?.trim();
 
-  const clubGames = useMemo(() => {
-    if (!club) return [];
-    return games.filter((game) => isSameClub(club, game.homeTeam) || isSameClub(club, game.awayTeam));
-  }, [games, club]);
+  const clubGames = useMemo(() => filterGamesForTeam(games, activeTeamId), [games, activeTeamId]);
 
   const { clubUpcomingGames, clubPastGames } = useMemo(() => {
     const now = Date.now();
@@ -200,9 +150,9 @@ export function GameSelector({ selectedGameId, onChange, label = 'Spieltag' }: G
       )}
 
       {isPickerOpen ? (
-        !club ? (
+        !activeTeamId ? (
           <View style={styles.noClubBanner}>
-            <Text style={styles.noClubText}>Wähle zuerst deinen Verein im Profil aus, um deine Spieltage anzuzeigen.</Text>
+            <Text style={styles.noClubText}>Wähle zuerst einen Verein aus, um Spieltage anzuzeigen.</Text>
           </View>
         ) : (
           <View style={styles.picker}>
@@ -242,7 +192,7 @@ export function GameSelector({ selectedGameId, onChange, label = 'Spieltag' }: G
             </View>
 
             <Text style={styles.seasonLabel}>
-              {club}
+              {activeTeam?.teamName ?? ''}
               {seasonLabel ? ` · Saison ${seasonLabel}` : ''}
             </Text>
 

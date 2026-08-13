@@ -13,6 +13,7 @@ export type SupabaseMeetupRow = {
   game_label: string;
   created_at: string;
   updated_at: string;
+  team_id: string | null;
 };
 
 export type SupabaseMeetupLikeRow = {
@@ -107,6 +108,7 @@ export function mapSupabaseMeetupToFeedPost(
     comments: [],
     source: 'supabase',
     createdAtIso: row.created_at,
+    teamId: row.team_id ?? undefined,
     meetupDetails,
   };
 }

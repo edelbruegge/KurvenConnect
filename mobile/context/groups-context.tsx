@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 
+import { useActiveClub } from '@/context/active-club-context';
 import { useAuth } from '@/context/auth-context';
 import {
   getGroupMemberCount,
@@ -180,6 +181,7 @@ const GroupsContext = createContext<GroupsContextValue | undefined>(undefined);
 export function GroupsProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const authUserId = user?.id ?? null;
+  const { activeTeamId } = useActiveClub();
 
   // --- Local, in-memory seed groups — membership/join-request logic unchanged; initial
   // lastMessage* fields are derived once from seedGroupMessages (see deriveInitialLocalGroups). ---
@@ -194,7 +196,9 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
   };
 
   const getRecommendedGroups = () =>
-    localGroups.filter((group) => group.ownerId !== CURRENT_USER_ID && !group.memberIds.includes(CURRENT_USER_ID));
+    localGroups.filter(
+      (group) => group.ownerId !== CURRENT_USER_ID && !group.memberIds.includes(CURRENT_USER_ID) && group.clubId === activeTeamId,
+    );
 
   const joinGroup = (groupId: string) => {
     setLocalGroups((current) =>
@@ -363,6 +367,7 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
       p_name: input.name,
       p_description: input.description.trim() || null,
       p_visibility: input.visibility,
+      p_team_id: activeTeamId,
     });
 
     if (error) {
@@ -415,9 +420,9 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
   const [groupSuggestionsReloadToken, setGroupSuggestionsReloadToken] = useState(0);
 
   useEffect(() => {
-    if (!authUserId) {
+    if (!authUserId || !activeTeamId) {
       setGroupSuggestions([]);
-      setIsGroupSuggestionsLoading(false);
+      setIsGroupSuggestionsLoading(!!authUserId);
       setGroupSuggestionsError(null);
       return;
     }
@@ -427,7 +432,7 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
     setGroupSuggestionsError(null);
 
     supabase
-      .rpc('get_group_suggestions', { p_limit: 5 })
+      .rpc('get_group_suggestions', { p_limit: 5, p_team_id: activeTeamId })
       .then(({ data, error }) => {
         if (!isCurrent) return;
 
@@ -445,7 +450,7 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
     return () => {
       isCurrent = false;
     };
-  }, [authUserId, remoteGroups, groupSuggestionsReloadToken]);
+  }, [authUserId, activeTeamId, remoteGroups, groupSuggestionsReloadToken]);
 
   const refreshGroupSuggestions = () => {
     setGroupSuggestionsReloadToken((token) => token + 1);

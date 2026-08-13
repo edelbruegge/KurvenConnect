@@ -7,7 +7,6 @@ import { FeedPostCard } from '@/components/feed/feed-post-card';
 import { TripCard } from '@/components/trips/trip-card';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
-import { useFeedPosts } from '@/context/feed-posts-context';
 import { useSaved } from '@/context/saved-context';
 import { getPostDetailPathname, type FeedPost, type FeedPostCategory } from '@/data/feed-posts';
 import { useVisiblePosts } from '@/hooks/use-visible-posts';
@@ -24,15 +23,17 @@ const FILTERS: { key: SavedFilter; label: string }[] = [
 
 export default function SavedScreen() {
   const router = useRouter();
-  const { getPostById } = useFeedPosts();
-  const { savedIdsMostRecentFirst, isSavedContentLoading, savedContentError, refreshSavedContent } = useSaved();
+  const { savedIdsMostRecentFirst, isSavedContentLoading, savedContentError, refreshSavedContent, getSavedContent } = useSaved();
   const [activeFilter, setActiveFilter] = useState<SavedFilter>('all');
 
   // savedIdsMostRecentFirst is already sorted by save.created_at DESC (see
   // context/saved-context.tsx) -- that order is preserved through every step below (map keeps
-  // order, filter keeps order, useVisiblePosts filters without reordering).
+  // order, filter keeps order, useVisiblePosts filters without reordering). Resolved via
+  // getSavedContent (independent of the currently active club, see saved-context.tsx) rather than
+  // useFeedPosts().getPostById -- a saved item from another club must stay reachable here even
+  // while a different club is currently active (Vorgabe 20).
   const savedPostsUnfiltered = savedIdsMostRecentFirst
-    .map((id) => getPostById(id))
+    .map((id) => getSavedContent(id))
     .filter((post): post is FeedPost => post !== undefined);
 
   // Respects blocking + the current user's own reports, exactly like the rest of the app (Feed,

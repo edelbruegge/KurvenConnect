@@ -39,7 +39,7 @@ export default function PostDetailScreen() {
     pendingRequestCountForTrip,
   } = useFeedPosts();
   const { getOrCreateConversation, getOrCreateDirectConversation } = useMessages();
-  const { isSaved, toggleSaved } = useSaved();
+  const { isSaved, toggleSaved, getSavedContent } = useSaved();
   const { isInteractionBlocked } = useBlocks();
   const { getAuthorDisplay, getCommentAuthorDisplay, isCurrentUserId, isContentOwnedByCurrentUser } = useProfiles();
   const { hasReported } = useReports();
@@ -60,7 +60,10 @@ export default function PostDetailScreen() {
     null,
   );
 
-  const post = params.id ? posts.find((entry) => entry.id === params.id) : undefined;
+  // Falls back to a saved item's team-independent resolved content (Vorgabe 20) when it isn't part
+  // of the currently active club's loaded `posts` -- e.g. opened from "Gespeichert" while another
+  // club is active.
+  const post = params.id ? (posts.find((entry) => entry.id === params.id) ?? getSavedContent(params.id)) : undefined;
   const focusComments = params.focusComments === 'true';
 
   useEffect(() => {
