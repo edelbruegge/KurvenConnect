@@ -57,6 +57,20 @@ type RealtimeProfileChangePayload = {
 
 const EMPTY_CONNECTION_LIST_STATE: ConnectionListState = { users: [], isLoading: false, error: null, hasLoadedOnce: false };
 
+// One page of "Fans von [Verein]" (app/(tabs)/search.tsx, via the get_fan_discovery() RPC) --
+// teamId records which club the currently held `users` belong to, so a caller can tell a genuinely
+// empty result apart from a stale one still loading for a different, just-switched-to club.
+type FanDiscoveryState = { users: UserProfile[]; isLoading: boolean; error: string | null; hasMore: boolean; teamId: string | null };
+const EMPTY_FAN_DISCOVERY_STATE: FanDiscoveryState = { users: [], isLoading: false, error: null, hasMore: false, teamId: null };
+const FAN_DISCOVERY_PAGE_SIZE = 24;
+
+// One page of the global, club-independent user search (app/(tabs)/search.tsx, via the
+// search_profiles() RPC) -- query records which search term the currently held `users` answer, so
+// a caller can tell a genuinely empty result apart from a stale one for a just-edited query.
+type UserSearchState = { users: UserProfile[]; isLoading: boolean; error: string | null; hasMore: boolean; query: string | null };
+const EMPTY_USER_SEARCH_STATE: UserSearchState = { users: [], isLoading: false, error: null, hasMore: false, query: null };
+const USER_SEARCH_PAGE_SIZE = 24;
+
 type ProfileContextValue = {
   currentUser: UserProfile;
   getUserById: (id: string) => UserProfile | undefined;
@@ -93,6 +107,21 @@ type ProfileContextValue = {
   // live; screens can key useRefreshOnFocus off this the same way app/(tabs)/index.tsx already
   // does for contentVisibilityRealtimeStatus.
   connectionsRealtimeStatus: RealtimeStatus;
+
+  // "Fans von [Verein]" (app/(tabs)/search.tsx) -- callers pass the current activeTeamId in
+  // explicitly (see loadFanDiscovery's own comment for why). Kept live by the same user-follows
+  // realtime channel as the rest of this context, no second subscription.
+  fanDiscoveryState: FanDiscoveryState;
+  loadFanDiscovery: (teamId: string) => void;
+  loadMoreFanDiscovery: () => void;
+
+  // Global, club-independent user search (app/(tabs)/search.tsx) -- finds any real account by
+  // display name, regardless of the searcher's activeTeamId (Vorgabe: Suche NICHT nach
+  // favorite_team_id einschränken). Same block-filtering, same pagination, same result shape as
+  // fan discovery above.
+  userSearchState: UserSearchState;
+  searchUsers: (query: string) => void;
+  loadMoreUserSearch: () => void;
 
   // Supabase-backed own profile.
   ownProfile: SupabaseProfile | null;
@@ -139,6 +168,14 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
   const [connectionCountsByUserId, setConnectionCountsByUserId] = useState<Record<string, ConnectionCounts>>({});
   const [followerListByUserId, setFollowerListByUserId] = useState<Record<string, ConnectionListState>>({});
   const [followingListByUserId, setFollowingListByUserId] = useState<Record<string, ConnectionListState>>({});
+
+  // "Fans von [Verein]" discovery state -- see loadFanDiscovery below.
+  const [fanDiscoveryState, setFanDiscoveryState] = useState<FanDiscoveryState>(EMPTY_FAN_DISCOVERY_STATE);
+  const fanDiscoveryRequestIdRef = useRef(0);
+
+  // Global user search state -- see searchUsers below.
+  const [userSearchState, setUserSearchState] = useState<UserSearchState>(EMPTY_USER_SEARCH_STATE);
+  const userSearchRequestIdRef = useRef(0);
 
   const [ownProfile, setOwnProfile] = useState<SupabaseProfile | null>(null);
   const [isOwnProfileLoading, setIsOwnProfileLoading] = useState(false);
@@ -213,6 +250,9 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
       setConnectionCountsByUserId({});
       setFollowerListByUserId({});
       setFollowingListByUserId({});
+      // Never let account B inherit account A's browsed discovery/follow/block state.
+      setFanDiscoveryState(EMPTY_FAN_DISCOVERY_STATE);
+      setUserSearchState(EMPTY_USER_SEARCH_STATE);
       inFlightFollowIds.current.clear();
       return;
     }
@@ -378,6 +418,21 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
   // queries/cache keys -- every other id (a real uuid, or a local sample id never passed to a
   // real-branch function in the first place) is already correct as-is.
   const toRealUserId = (id: string): string => (id === CURRENT_USER_ID && authUserId !== null ? authUserId : id);
+
+  // Shared row->UserProfile shape for every place that lists other real accounts (follower/
+  // following lists below, and fan discovery) -- kept in one place so all three stay consistent.
+  const mapProfileToUserProfile = (profile: SupabaseProfile): UserProfile => ({
+    id: profile.id,
+    displayName: profile.displayName,
+    initials: getInitialsFromName(profile.displayName),
+    club: profile.club || '',
+    location: profile.location || '',
+    bio: profile.bio || '',
+    memberSince: profile.createdAt ? new Date(profile.createdAt).getFullYear().toString() : '',
+    isCurrentUser: authUserId !== null && profile.id === authUserId,
+    avatarUrl: profile.avatarUrl ?? undefined,
+    source: 'supabase',
+  });
 
   const getAuthorDisplay = (post: FeedPost): AuthorDisplay => {
     const author = getUserById(post.userId);
@@ -639,18 +694,7 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
       const users: UserProfile[] = orderedIds
         .map((id) => profilesById.get(id))
         .filter((profile): profile is SupabaseProfile => profile !== undefined)
-        .map((profile) => ({
-          id: profile.id,
-          displayName: profile.displayName,
-          initials: getInitialsFromName(profile.displayName),
-          club: profile.club || '',
-          location: profile.location || '',
-          bio: profile.bio || '',
-          memberSince: profile.createdAt ? new Date(profile.createdAt).getFullYear().toString() : '',
-          isCurrentUser: authUserId !== null && profile.id === authUserId,
-          avatarUrl: profile.avatarUrl ?? undefined,
-          source: 'supabase',
-        }));
+        .map(mapProfileToUserProfile);
 
       setFollowerListByUserId((current) => ({ ...current, [dbId]: { users, isLoading: false, error: null, hasLoadedOnce: true } }));
     })();
@@ -705,21 +749,127 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
       const users: UserProfile[] = orderedIds
         .map((id) => profilesById.get(id))
         .filter((profile): profile is SupabaseProfile => profile !== undefined)
-        .map((profile) => ({
-          id: profile.id,
-          displayName: profile.displayName,
-          initials: getInitialsFromName(profile.displayName),
-          club: profile.club || '',
-          location: profile.location || '',
-          bio: profile.bio || '',
-          memberSince: profile.createdAt ? new Date(profile.createdAt).getFullYear().toString() : '',
-          isCurrentUser: authUserId !== null && profile.id === authUserId,
-          avatarUrl: profile.avatarUrl ?? undefined,
-          source: 'supabase',
-        }));
+        .map(mapProfileToUserProfile);
 
       setFollowingListByUserId((current) => ({ ...current, [dbId]: { users, isLoading: false, error: null, hasLoadedOnce: true } }));
     })();
+  };
+
+  // --- Fan discovery ("Fans von [Verein]", app/(tabs)/search.tsx) -- reuses this same connections
+  // context (Follow-Zustand, Realtime, Mapping) instead of a second profile/follow data source.
+  // Callers (the search screen) pass the current activeTeamId in explicitly, the same pattern as
+  // loadFollowerList/loadFollowingList above, since ProfileProvider itself cannot consume
+  // ActiveClubContext (ActiveClubProvider sits below ProfileProvider in the provider tree). ---
+
+  const loadFanDiscovery = (teamId: string) => {
+    if (!authUserId) return;
+
+    const requestId = ++fanDiscoveryRequestIdRef.current;
+    // Clears the previous club's fans immediately -- never show Team A's fans under a Team B
+    // heading while the new page loads.
+    setFanDiscoveryState({ users: [], isLoading: true, error: null, hasMore: false, teamId });
+
+    supabase
+      .rpc('get_fan_discovery', { p_team_id: teamId, p_limit: FAN_DISCOVERY_PAGE_SIZE, p_offset: 0 })
+      .then(({ data, error }) => {
+        if (fanDiscoveryRequestIdRef.current !== requestId) return;
+
+        if (error) {
+          setFanDiscoveryState({ users: [], isLoading: false, error: mapProfileError(error), hasMore: false, teamId });
+          return;
+        }
+
+        const rows = (data ?? []) as SupabaseProfileRow[];
+        const users = rows.map((row) => mapProfileToUserProfile(mapSupabaseProfileRow(row)));
+        setFanDiscoveryState({ users, isLoading: false, error: null, hasMore: rows.length === FAN_DISCOVERY_PAGE_SIZE, teamId });
+      });
+  };
+
+  const loadMoreFanDiscovery = () => {
+    const { teamId, users, isLoading, hasMore } = fanDiscoveryState;
+
+    if (!teamId || isLoading || !hasMore) return;
+
+    const requestId = ++fanDiscoveryRequestIdRef.current;
+    setFanDiscoveryState((current) => ({ ...current, isLoading: true }));
+
+    supabase
+      .rpc('get_fan_discovery', { p_team_id: teamId, p_limit: FAN_DISCOVERY_PAGE_SIZE, p_offset: users.length })
+      .then(({ data, error }) => {
+        if (fanDiscoveryRequestIdRef.current !== requestId) return;
+
+        if (error) {
+          setFanDiscoveryState((current) => ({ ...current, isLoading: false, error: mapProfileError(error) }));
+          return;
+        }
+
+        const rows = (data ?? []) as SupabaseProfileRow[];
+        const newUsers = rows.map((row) => mapProfileToUserProfile(mapSupabaseProfileRow(row)));
+        setFanDiscoveryState((current) => ({
+          ...current,
+          users: [...current.users, ...newUsers],
+          isLoading: false,
+          hasMore: rows.length === FAN_DISCOVERY_PAGE_SIZE,
+        }));
+      });
+  };
+
+  // --- Global user search (app/(tabs)/search.tsx) -- same shape as fan discovery above, but via
+  // search_profiles() (name match, no favorite_team_id restriction). A real, direct profiles
+  // search -- unlike the pre-existing post-content search, which only ever matched the author-name
+  // string copied onto each already-loaded (and, since the previous step, club-scoped) post. ---
+
+  const searchUsers = (query: string) => {
+    const trimmedQuery = query.trim();
+
+    if (!authUserId || !trimmedQuery) return;
+
+    const requestId = ++userSearchRequestIdRef.current;
+    setUserSearchState({ users: [], isLoading: true, error: null, hasMore: false, query: trimmedQuery });
+
+    supabase
+      .rpc('search_profiles', { p_query: trimmedQuery, p_limit: USER_SEARCH_PAGE_SIZE, p_offset: 0 })
+      .then(({ data, error }) => {
+        if (userSearchRequestIdRef.current !== requestId) return;
+
+        if (error) {
+          setUserSearchState({ users: [], isLoading: false, error: mapProfileError(error), hasMore: false, query: trimmedQuery });
+          return;
+        }
+
+        const rows = (data ?? []) as SupabaseProfileRow[];
+        const users = rows.map((row) => mapProfileToUserProfile(mapSupabaseProfileRow(row)));
+        setUserSearchState({ users, isLoading: false, error: null, hasMore: rows.length === USER_SEARCH_PAGE_SIZE, query: trimmedQuery });
+      });
+  };
+
+  const loadMoreUserSearch = () => {
+    const { query, users, isLoading, hasMore } = userSearchState;
+
+    if (!query || isLoading || !hasMore) return;
+
+    const requestId = ++userSearchRequestIdRef.current;
+    setUserSearchState((current) => ({ ...current, isLoading: true }));
+
+    supabase
+      .rpc('search_profiles', { p_query: query, p_limit: USER_SEARCH_PAGE_SIZE, p_offset: users.length })
+      .then(({ data, error }) => {
+        if (userSearchRequestIdRef.current !== requestId) return;
+
+        if (error) {
+          setUserSearchState((current) => ({ ...current, isLoading: false, error: mapProfileError(error) }));
+          return;
+        }
+
+        const rows = (data ?? []) as SupabaseProfileRow[];
+        const newUsers = rows.map((row) => mapProfileToUserProfile(mapSupabaseProfileRow(row)));
+        setUserSearchState((current) => ({
+          ...current,
+          users: [...current.users, ...newUsers],
+          isLoading: false,
+          hasMore: rows.length === USER_SEARCH_PAGE_SIZE,
+        }));
+      });
   };
 
   const getFollowerListState = (userId: string): ConnectionListState => {
@@ -845,6 +995,17 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
 
     setFollowerListByUserId(patchAllLists);
     setFollowingListByUserId(patchAllLists);
+
+    // Same displayName/avatar patch for fan discovery -- a favorite_team_id change is
+    // deliberately NOT handled here (see loadFanDiscovery's comment); it resolves itself on the
+    // next load/club switch.
+    setFanDiscoveryState((current) =>
+      current.users.some((user) => user.id === row.id) ? { ...current, users: current.users.map(patchUser) } : current,
+    );
+
+    setUserSearchState((current) =>
+      current.users.some((user) => user.id === row.id) ? { ...current, users: current.users.map(patchUser) } : current,
+    );
   };
 
   // Ref indirection so the long-lived channel subscription always calls the latest closure
@@ -954,6 +1115,12 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
       isCurrentUserId,
       isContentOwnedByCurrentUser,
       connectionsRealtimeStatus: followsRealtimeStatus,
+      fanDiscoveryState,
+      loadFanDiscovery,
+      loadMoreFanDiscovery,
+      userSearchState,
+      searchUsers,
+      loadMoreUserSearch,
     }),
     [
       currentUser,
@@ -969,6 +1136,8 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
       ownProfileError,
       authUserId,
       followsRealtimeStatus,
+      fanDiscoveryState,
+      userSearchState,
     ],
   );
 

@@ -37,11 +37,18 @@ import {
 } from '@/lib/map-supabase-wanted-entry';
 import { mapWantedEntryError } from '@/lib/wanted-entry-errors';
 import { getPostMediaSignedUrl, getPostMediaSignedUrls, POST_MEDIA_SELECT_COLUMNS, type PostMediaRow } from '@/lib/post-media';
+import { resolveContentByIds } from '@/lib/resolve-content-by-ids';
 import { supabase } from '@/lib/supabase';
 
 type AuthorDisplay = { displayName: string; initials: string; avatarUrl?: string };
 
 type RealtimeStatus = 'idle' | 'connecting' | 'subscribed' | 'reconnecting' | 'error' | 'closed';
+
+// One profile's own content (see loadUserContent) -- posts, sorted newest first, across all four
+// content types, independent of activeTeamId.
+type UserContentState = { posts: FeedPost[]; isLoading: boolean; error: string | null; hasLoadedOnce: boolean };
+const EMPTY_USER_CONTENT_STATE: UserContentState = { posts: [], isLoading: false, error: null, hasLoadedOnce: false };
+const USER_CONTENT_LIMIT = 50;
 
 // A minimal structural view of the postgres_changes INSERT payload for
 // public.content_visibility_events — only the fields this handler actually reads, same approach
@@ -162,6 +169,14 @@ type FeedPostsContextValue = {
   // trips, meetups, attendees, wanted entries from other clients) — same purpose as above, for
   // hooks/use-refresh-on-focus.ts's isRealtimeHealthy input.
   contentChangesRealtimeStatus: RealtimeStatus;
+
+  // A profile's own post/trip/meetup/wanted-entry history, independent of the viewer's
+  // activeTeamId — the main `posts` array above only ever holds the currently active club's
+  // content, so a profile screen must not derive "this user's posts" from it (a profile would
+  // otherwise appear to lose all history the moment a different club becomes active). See
+  // components/profile/profile-view.tsx.
+  loadUserContent: (userId: string) => void;
+  getUserContentState: (userId: string) => UserContentState;
 };
 
 const FeedPostsContext = createContext<FeedPostsContextValue | undefined>(undefined);
@@ -214,6 +229,16 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
   const { activeTeamId } = useActiveClub();
 
   const [localPosts, setLocalPosts] = useState<FeedPost[]>(() => feedPosts.map((post) => withLocalSource(post)));
+
+  // A profile's own content, loaded on demand per profile actually viewed -- see loadUserContent
+  // below. Reset on account switch so account B never inherits account A's cached profile pages.
+  const [userContentByUserId, setUserContentByUserId] = useState<Record<string, UserContentState>>({});
+
+  useEffect(() => {
+    if (!authUserId) {
+      setUserContentByUserId({});
+    }
+  }, [authUserId]);
 
   const [remotePosts, setRemotePosts] = useState<FeedPost[]>([]);
   const [remoteAuthorProfiles, setRemoteAuthorProfiles] = useState<Record<string, AuthorDisplay>>({});
@@ -2079,6 +2104,53 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
     return merged;
   }, [remotePosts, remoteTrips, remoteMeetups, remoteWantedEntries, localPosts]);
 
+  // A profile's own content, independent of activeTeamId (Vorgabe O) -- first resolves this
+  // user's own id lists across all four tables (cheap, id-only queries, not team-scoped), then
+  // resolves the full FeedPost objects via the same shared resolver saved-context.tsx uses for
+  // "Gespeichert", so this fairly involved mapping exists in exactly one place.
+  const loadUserContent = (userId: string) => {
+    if (!authUserId) return;
+
+    setUserContentByUserId((current) => ({
+      ...current,
+      [userId]: { ...(current[userId] ?? EMPTY_USER_CONTENT_STATE), isLoading: true, error: null },
+    }));
+
+    (async () => {
+      const [postIdsResult, tripIdsResult, meetupIdsResult, wantedIdsResult] = await Promise.all([
+        supabase.from('posts').select('id').eq('author_id', userId).order('created_at', { ascending: false }).limit(USER_CONTENT_LIMIT),
+        supabase.from('trips').select('id').eq('owner_id', userId).order('created_at', { ascending: false }).limit(USER_CONTENT_LIMIT),
+        supabase.from('meetups').select('id').eq('organizer_id', userId).order('created_at', { ascending: false }).limit(USER_CONTENT_LIMIT),
+        supabase.from('wanted_entries').select('id').eq('owner_id', userId).order('created_at', { ascending: false }).limit(USER_CONTENT_LIMIT),
+      ]);
+
+      const firstError = postIdsResult.error ?? tripIdsResult.error ?? meetupIdsResult.error ?? wantedIdsResult.error;
+
+      if (firstError) {
+        setUserContentByUserId((current) => ({
+          ...current,
+          [userId]: { posts: [], isLoading: false, error: mapPostError(firstError), hasLoadedOnce: true },
+        }));
+        return;
+      }
+
+      const postIds = (postIdsResult.data ?? []).map((row) => row.id as string);
+      const tripIds = (tripIdsResult.data ?? []).map((row) => row.id as string);
+      const meetupIds = (meetupIdsResult.data ?? []).map((row) => row.id as string);
+      const wantedIds = (wantedIdsResult.data ?? []).map((row) => row.id as string);
+
+      const resolved = await resolveContentByIds(authUserId, { postIds, tripIds, meetupIds, wantedIds });
+      const sortedPosts = [...resolved.values()].sort((a, b) => getCreatedAtMs(b) - getCreatedAtMs(a));
+
+      setUserContentByUserId((current) => ({
+        ...current,
+        [userId]: { posts: sortedPosts, isLoading: false, error: null, hasLoadedOnce: true },
+      }));
+    })();
+  };
+
+  const getUserContentState = (userId: string): UserContentState => userContentByUserId[userId] ?? EMPTY_USER_CONTENT_STATE;
+
   const getPostById = (id: string) => posts.find((post) => post.id === id);
 
   const findCommentById = (commentId: string) => {
@@ -2279,11 +2351,14 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       toggleRemoteWantedLike,
       contentVisibilityRealtimeStatus,
       contentChangesRealtimeStatus,
+      loadUserContent,
+      getUserContentState,
     }),
     [
       posts,
       remotePosts,
       isRemotePostsLoading,
+      userContentByUserId,
       remotePostsError,
       remoteTrips,
       isRemoteTripsLoading,

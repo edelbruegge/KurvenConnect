@@ -16,6 +16,7 @@ import { ReportModal } from '@/components/reports/report-modal';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { OverflowMenu } from '@/components/ui/overflow-menu';
 import { ClubColors, FeedColors, FontSizes, Radii, Spacing, StatusColors } from '@/constants/theme';
+import { useAuth } from '@/context/auth-context';
 import { useBlocks } from '@/context/blocks-context';
 import { useFeedPosts } from '@/context/feed-posts-context';
 import { useMessages } from '@/context/messages-context';
@@ -36,7 +37,9 @@ type ProfileViewProps = {
 
 export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewProps) {
   const router = useRouter();
-  const { posts, toggleLike } = useFeedPosts();
+  const { user } = useAuth();
+  const authUserId = user?.id ?? null;
+  const { posts, toggleLike, loadUserContent, getUserContentState } = useFeedPosts();
   const { getOrCreateConversation, getOrCreateDirectConversation } = useMessages();
   const {
     isFollowing,
@@ -73,10 +76,28 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
   // via the realtime handler's targeted loadConnectionCounts() re-fetch in profile-context.tsx.
   useRefreshOnFocus(() => loadConnectionCounts(profile.id), connectionsRealtimeStatus === 'subscribed');
 
+  // A real account's own post history must stay independent of the viewer's currently active club
+  // (context/active-club-context.tsx) -- context/feed-posts-context.tsx's `posts` only ever holds
+  // the active club's content, so deriving "this profile's posts" from it would make a profile
+  // appear to lose history the moment a different club becomes active. Local seed profiles have no
+  // real Supabase row to load, so they keep using the original in-memory filter over `posts`
+  // (which already includes every local seed post, unfiltered by club).
+  const isRealProfile = isOwnProfile ? authUserId !== null : profile.source === 'supabase';
+  const remoteContentUserId = isOwnProfile ? authUserId : profile.id;
+
+  useEffect(() => {
+    if (isRealProfile && remoteContentUserId) {
+      loadUserContent(remoteContentUserId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRealProfile, remoteContentUserId]);
+
   const ownPosts = useVisiblePosts(
-    posts.filter((post) =>
-      isOwnProfile ? isContentOwnedByCurrentUser({ source: post.source, ownerId: post.userId }) : post.userId === profile.id,
-    ),
+    isRealProfile && remoteContentUserId
+      ? getUserContentState(remoteContentUserId).posts
+      : posts.filter((post) =>
+          isOwnProfile ? isContentOwnedByCurrentUser({ source: post.source, ownerId: post.userId }) : post.userId === profile.id,
+        ),
   );
   const postsOnly = ownPosts.filter((post) => post.category !== 'Fahrt' && post.category !== 'Treffpunkt');
   const tripsOnly = ownPosts.filter((post) => post.category === 'Fahrt');
