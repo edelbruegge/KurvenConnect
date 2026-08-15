@@ -44,6 +44,7 @@ export function mapSupabaseTripToFeedPost(
   likedByCurrentUser: boolean,
   ownRequest: SupabaseTripRequestRow | undefined,
   author: AuthorDisplay,
+  saveCount = 0,
 ): FeedPost {
   return {
     id: row.id,
@@ -64,6 +65,7 @@ export function mapSupabaseTripToFeedPost(
     gameId: row.game_id ?? undefined,
     gameLabel: row.game_label ?? undefined,
     teamId: row.team_id ?? undefined,
+    savesCount: saveCount,
     tripDetails: {
       departure: row.departure,
       destination: row.destination,

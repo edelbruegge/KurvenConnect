@@ -26,6 +26,7 @@ export function mapSupabaseWantedEntryToFeedPost(
   likeCount: number,
   likedByCurrentUser: boolean,
   author: AuthorDisplay,
+  saveCount = 0,
 ): FeedPost {
   return {
     id: row.id,
@@ -43,6 +44,7 @@ export function mapSupabaseWantedEntryToFeedPost(
     gameId: row.game_id ?? undefined,
     gameLabel: row.game_label ?? undefined,
     teamId: row.team_id ?? undefined,
+    savesCount: saveCount,
     requestDetails: {
       requestedService: row.requested_service,
     },

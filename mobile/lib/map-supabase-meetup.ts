@@ -83,6 +83,7 @@ export function mapSupabaseMeetupToFeedPost(
   likeCount: number,
   likedByCurrentUser: boolean,
   author: AuthorDisplay,
+  saveCount = 0,
 ): FeedPost {
   const meetupDetails: MeetupDetails = {
     gameId: row.game_id,
@@ -109,6 +110,7 @@ export function mapSupabaseMeetupToFeedPost(
     source: 'supabase',
     createdAtIso: row.created_at,
     teamId: row.team_id ?? undefined,
+    savesCount: saveCount,
     meetupDetails,
   };
 }

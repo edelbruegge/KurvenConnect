@@ -75,6 +75,15 @@ export default function StadionScreen() {
       return;
     }
 
+    if (module === 'beitraege') {
+      // "Beiträge" from the main Stadion hub is the vereinsweite Übersicht (all of activeTeam's
+      // posts, not just the currently selected game's) -- deliberately no gameId param, unlike
+      // every other module here. The per-game "Beiträge" preview + its own "Alle anzeigen" link
+      // (app/stadion/[module].tsx's Übersicht tab) still forwards a gameId and stays game-scoped.
+      router.push({ pathname: '/stadion/[module]', params: { module } });
+      return;
+    }
+
     router.push({
       pathname: '/stadion/[module]',
       params: { module, gameId: selectedGameId ?? '', gameLabel: selectedGameLabel },

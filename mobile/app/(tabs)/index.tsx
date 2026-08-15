@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
@@ -11,12 +11,14 @@ import { MessagesButton } from '@/components/navigation/messages-button';
 import { NotificationsButton } from '@/components/navigation/notifications-button';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
+import { useActiveClub } from '@/context/active-club-context';
 import { useFeedPosts } from '@/context/feed-posts-context';
 import { useGroups } from '@/context/groups-context';
 import { useProfiles } from '@/context/profile-context';
 import { getPostDetailPathname, type FeedMode, type FeedPost } from '@/data/feed-posts';
 import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 import { useVisiblePosts } from '@/hooks/use-visible-posts';
+import { rankForYouPosts } from '@/lib/for-you-ranking';
 
 const FEED_MODES: { key: FeedMode; label: string }[] = [
   { key: 'for-you', label: 'Für dich' },
@@ -41,11 +43,57 @@ export default function HomeScreen() {
   } = useFeedPosts();
   const { getRecommendedGroups, groupSuggestions } = useGroups();
   const { followingIds, isConnectionsLoading, connectionsError, refreshConnections } = useProfiles();
+  const { activeTeamId } = useActiveClub();
   const [feedMode, setFeedMode] = useState<FeedMode>('for-you');
   const scrollViewRef = useRef<ScrollView>(null);
 
   const recommendedGroups = getRecommendedGroups();
   const visiblePosts = useVisiblePosts(posts);
+
+  const isForYouLoading = isRemotePostsLoading || isRemoteTripsLoading || isRemoteMeetupsLoading || isRemoteWantedEntriesLoading;
+
+  // "Für dich" ranking order (lib/for-you-ranking.ts) -- deliberately its own state, decoupled
+  // from `visiblePosts` itself, so a live like/comment count update never reshuffles the feed
+  // while someone is reading it (Vorgabe 19/20). Recomputed in full only when a load cycle just
+  // finished (covers initial load, pull-to-refresh, the foreground safety net, and a club switch
+  // finishing its refetch -- all of these already toggle isForYouLoading true->false) or when
+  // activeTeamId itself changes (belt-and-suspenders for the rare case a switch doesn't trigger a
+  // loading transition, e.g. switching between two already-cached-empty clubs).
+  const [rankedPostIds, setRankedPostIds] = useState<string[]>([]);
+  const rankedTeamIdRef = useRef<string | null>(null);
+  const wasForYouLoadingRef = useRef(isForYouLoading);
+
+  useEffect(() => {
+    const justFinishedLoading = wasForYouLoadingRef.current && !isForYouLoading;
+    wasForYouLoadingRef.current = isForYouLoading;
+
+    if (isForYouLoading) return;
+    if (!justFinishedLoading && rankedTeamIdRef.current === activeTeamId) return;
+
+    rankedTeamIdRef.current = activeTeamId;
+    setRankedPostIds(rankForYouPosts(visiblePosts, { followingIds }).map((post) => post.id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isForYouLoading, activeTeamId]);
+
+  // A new realtime post (not yet part of the ranked order) is placed at the top rather than
+  // triggering a full re-rank -- a brand-new post already has the highest possible recency score
+  // in virtually every real case, and this avoids visually reshuffling everything else someone
+  // might currently be reading (Vorgabe 18/20). Bails out to the exact same `current` reference
+  // (no-op re-render) whenever nothing new arrived, e.g. on a plain like/comment count update.
+  useEffect(() => {
+    if (rankedTeamIdRef.current !== activeTeamId) return;
+
+    setRankedPostIds((current) => {
+      const known = new Set(current);
+      const newIds = visiblePosts.filter((post) => post.source === 'supabase' && !known.has(post.id)).map((post) => post.id);
+      return newIds.length > 0 ? [...newIds, ...current] : current;
+    });
+  }, [visiblePosts, activeTeamId]);
+
+  const rankedForYouPosts = useMemo(() => {
+    const postById = new Map(visiblePosts.map((post) => [post.id, post]));
+    return rankedPostIds.map((id) => postById.get(id)).filter((post): post is FeedPost => post !== undefined);
+  }, [rankedPostIds, visiblePosts]);
 
   // Pure client-side filter over state that is already loaded and already kept live by the
   // existing content-changes (posts) and user-follows (followingIds) realtime channels -- no new
@@ -64,8 +112,7 @@ export default function HomeScreen() {
     [visiblePosts, followingIds],
   );
 
-  const isFollowingFeedLoading =
-    isRemotePostsLoading || isRemoteTripsLoading || isRemoteMeetupsLoading || isRemoteWantedEntriesLoading || isConnectionsLoading;
+  const isFollowingFeedLoading = isForYouLoading || isConnectionsLoading;
 
   // Safety net only — while the shared content-visibility AND content-changes channels are
   // healthy, Feed/Stadion/Suche/Profil/Aktivitäten/Gespeichert already stay live via realtime +
@@ -149,7 +196,7 @@ export default function HomeScreen() {
               </View>
             ) : null}
 
-            {visiblePosts.map((post) => (
+            {rankedForYouPosts.map((post) => (
               <FeedPostCard
                 key={post.id}
                 post={post}

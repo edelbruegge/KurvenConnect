@@ -106,6 +106,11 @@ export type FeedPost = {
   // Stable OpenLigaDB team id (matches profiles.favorite_team_id/games.external_home_team_id) --
   // the club this content belongs to, fixed at creation time (see context/active-club-context.tsx).
   teamId?: string;
+  // How many accounts have saved this content ("Gespeichert") -- undefined for local seed posts
+  // and anywhere the count wasn't loaded (e.g. context/saved-context.tsx's own resolver, which has
+  // no ranking use for it). Used only as an engagement signal for the "Für dich" ranking
+  // (lib/for-you-ranking.ts), never rendered in the UI.
+  savesCount?: number;
 };
 
 export function getPostGameId(post: FeedPost): string | undefined {

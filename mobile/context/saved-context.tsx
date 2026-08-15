@@ -111,8 +111,17 @@ export function SavedProvider({ children }: { children: React.ReactNode }) {
       // Content resolution runs after the save ids themselves are already shown as loaded -- a
       // slower content fetch must never block the saved-ids list from appearing, it only fills in
       // the actual cards a moment later.
-      const resolved = await resolveContentByIds(authUserId, { postIds, tripIds, meetupIds, wantedIds });
+      const { resolved, error: resolveError } = await resolveContentByIds(authUserId, { postIds, tripIds, meetupIds, wantedIds });
       if (!isCurrent) return;
+
+      if (resolveError) {
+        // A real fetch failure on the content rows themselves -- surface it rather than silently
+        // leaving the saved list looking empty, while still keeping the already-shown saved-id list
+        // above (Vorgabe: Fehler nicht wie "0 gefundene Posts" behandeln).
+        setSavedContentError(resolveError);
+        return;
+      }
+
       setResolvedContentById(resolved);
     })();
 

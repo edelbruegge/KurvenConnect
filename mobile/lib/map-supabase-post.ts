@@ -79,6 +79,7 @@ export function mapSupabasePostToFeedPost(
   likedByCurrentUser: boolean,
   author: AuthorDisplay,
   media: PostMediaItem[] = [],
+  saveCount = 0,
 ): FeedPost {
   return {
     id: row.id,
@@ -96,6 +97,7 @@ export function mapSupabasePostToFeedPost(
     gameId: row.game_id ?? undefined,
     gameLabel: row.game_label ?? undefined,
     teamId: row.team_id ?? undefined,
+    savesCount: saveCount,
     media,
   };
 }

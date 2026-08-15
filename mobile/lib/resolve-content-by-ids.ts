@@ -1,5 +1,6 @@
 import type { FeedComment, FeedPost, PostMediaItem } from '@/data/feed-posts';
 import { getInitialsFromName } from '@/lib/map-supabase-profile';
+import { mapPostError } from '@/lib/post-errors';
 import { mapSupabaseCommentToFeedComment, mapSupabasePostToFeedPost, type SupabaseCommentRow, type SupabaseLikeRow, type SupabasePostRow } from '@/lib/map-supabase-post';
 import { mapSupabaseTripToFeedPost, type SupabaseTripLikeRow, type SupabaseTripRequestRow, type SupabaseTripRow } from '@/lib/map-supabase-trip';
 import { mapSupabaseMeetupToFeedPost, type SupabaseMeetupAttendeeRow, type SupabaseMeetupLikeRow, type SupabaseMeetupRow } from '@/lib/map-supabase-meetup';
@@ -21,10 +22,22 @@ const UNKNOWN_AUTHOR_DISPLAY: AuthorDisplay = { displayName: 'Unbekanntes Mitgli
  * context/feed-posts-context.tsx (a profile's own post history, see loadUserContent) so this
  * fairly involved mapping (comments/likes/media/attendees/requests) exists in exactly one place.
  */
+export type ResolveContentByIdsResult = {
+  resolved: Map<string, FeedPost>;
+  // Set only when one of the primary content queries (posts/trips/meetups/wanted_entries) itself
+  // errored -- a real Supabase/network failure, never a legitimate "0 rows". Callers must surface
+  // this distinctly (retry banner) rather than treat the affected ids as silently nonexistent
+  // (Vorgabe: ein echter Fehler darf nicht wie "0 gefundene Posts" behandelt werden). Errors on the
+  // supplementary queries below (comments/likes/media/attendees/requests) remain fault-tolerant by
+  // design, same reasoning as elsewhere in this codebase: a post is still real and worth showing
+  // even if, say, its like count failed to load.
+  error: string | null;
+};
+
 export async function resolveContentByIds(
   authUserId: string,
   idsByCategory: { postIds: string[]; tripIds: string[]; meetupIds: string[]; wantedIds: string[] },
-): Promise<Map<string, FeedPost>> {
+): Promise<ResolveContentByIdsResult> {
   const resolved = new Map<string, FeedPost>();
 
   const [postRowsResult, tripRowsResult, meetupRowsResult, wantedRowsResult] = await Promise.all([
@@ -47,6 +60,11 @@ export async function resolveContentByIds(
       ? supabase.from('wanted_entries').select('id, owner_id, description, requested_service, created_at, updated_at, game_id, game_label, team_id').in('id', idsByCategory.wantedIds)
       : Promise.resolve({ data: [] as SupabaseWantedEntryRow[], error: null }),
   ]);
+
+  const primaryError = postRowsResult.error ?? tripRowsResult.error ?? meetupRowsResult.error ?? wantedRowsResult.error;
+  if (primaryError) {
+    return { resolved, error: mapPostError(primaryError) };
+  }
 
   const postRows = (postRowsResult.data ?? []) as SupabasePostRow[];
   const tripRows = (tripRowsResult.data ?? []) as SupabaseTripRow[];
@@ -213,5 +231,5 @@ export async function resolveContentByIds(
     );
   });
 
-  return resolved;
+  return { resolved, error: null };
 }

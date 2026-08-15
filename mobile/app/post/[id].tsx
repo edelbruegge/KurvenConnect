@@ -31,12 +31,11 @@ export default function PostDetailScreen() {
     toggleLike,
     addComment,
     toggleRideRequest,
-    isRemotePostsLoading,
-    isRemoteTripsLoading,
     getRemoteAuthorDisplay,
     createRemoteTripRequest,
     cancelRemoteTripRequest,
     pendingRequestCountForTrip,
+    fetchPostById,
   } = useFeedPosts();
   const { getOrCreateConversation, getOrCreateDirectConversation } = useMessages();
   const { isSaved, toggleSaved, getSavedContent } = useSaved();
@@ -63,7 +62,40 @@ export default function PostDetailScreen() {
   // Falls back to a saved item's team-independent resolved content (Vorgabe 20) when it isn't part
   // of the currently active club's loaded `posts` -- e.g. opened from "Gespeichert" while another
   // club is active.
-  const post = params.id ? (posts.find((entry) => entry.id === params.id) ?? getSavedContent(params.id)) : undefined;
+  const localPost = params.id ? (posts.find((entry) => entry.id === params.id) ?? getSavedContent(params.id)) : undefined;
+
+  // Post Detail must never say "nicht gefunden" just because the personalized/team-scoped feed
+  // state never loaded this particular post (Vorgabe: Für-dich-Ranking ist niemals Source of Truth
+  // für Post Detail). If it isn't already available locally, fetch it directly by id from
+  // public.posts (fetchPostById, context/feed-posts-context.tsx) -- local state always wins once
+  // available, this is purely a fallback for content the local state doesn't happen to hold.
+  const [remoteFallback, setRemoteFallback] = useState<{ status: 'idle' | 'loading' | 'done'; post: typeof localPost; error: string | null }>({
+    status: 'idle',
+    post: undefined,
+    error: null,
+  });
+
+  useEffect(() => {
+    setRemoteFallback({ status: 'idle', post: undefined, error: null });
+  }, [params.id]);
+
+  useEffect(() => {
+    if (!params.id || localPost || remoteFallback.status !== 'idle') return;
+
+    let isCurrent = true;
+    setRemoteFallback({ status: 'loading', post: undefined, error: null });
+
+    fetchPostById(params.id).then(({ post: fetched, error }) => {
+      if (!isCurrent) return;
+      setRemoteFallback({ status: 'done', post: fetched ?? undefined, error });
+    });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [params.id, localPost, remoteFallback.status, fetchPostById]);
+
+  const post = localPost ?? remoteFallback.post;
   const focusComments = params.focusComments === 'true';
 
   useEffect(() => {
@@ -84,8 +116,22 @@ export default function PostDetailScreen() {
   }, [focusComments, commentsY, post]);
 
   if (!post) {
-    if (isRemotePostsLoading || isRemoteTripsLoading) {
+    if (!params.id) {
+      return <NotFoundView title="Beitrag nicht gefunden" message="Der angeforderte Beitrag konnte nicht gefunden werden." />;
+    }
+
+    if (remoteFallback.status !== 'done') {
       return <NotFoundView title="Beitrag wird geladen …" message="Einen Moment, der Beitrag wird geladen." />;
+    }
+
+    if (remoteFallback.error) {
+      return (
+        <NotFoundView
+          title="Beitrag konnte nicht geladen werden"
+          message={remoteFallback.error}
+          onRetry={() => setRemoteFallback({ status: 'idle', post: undefined, error: null })}
+        />
+      );
     }
 
     return <NotFoundView title="Beitrag nicht gefunden" message="Der angeforderte Beitrag konnte nicht gefunden werden." />;

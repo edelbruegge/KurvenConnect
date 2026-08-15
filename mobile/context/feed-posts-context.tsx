@@ -177,6 +177,32 @@ type FeedPostsContextValue = {
   // components/profile/profile-view.tsx.
   loadUserContent: (userId: string) => void;
   getUserContentState: (userId: string) => UserContentState;
+
+  // "Stadion → Beiträge": full, independent overview of an active club's real posts (ALL of them,
+  // regardless of game_id), never derived from the "Für dich" feed's remotePosts (Vorgabe: kein
+  // personalizedPosts.filter/rankedPosts.filter). See loadStadionBeitraege in the provider.
+  stadionBeitraegePosts: FeedPost[];
+  isStadionBeitraegeLoading: boolean;
+  stadionBeitraegeError: string | null;
+  // Which team stadionBeitraegePosts currently holds data for -- lets a screen avoid rendering a
+  // single stale frame of the previous club's posts right after a club switch, before the reload
+  // effect has had a chance to flip isStadionBeitraegeLoading to true.
+  stadionBeitraegeTeamId: string | null;
+  loadStadionBeitraege: (teamId: string) => void;
+
+  // "Spiel → Beiträge": full, independent overview of one game's real posts, not team_id-filtered
+  // (Vorgabe: fetchPostsByGame lädt ALLE Posts mit game_id = X, unabhängig von team_id) and never
+  // derived from the "Für dich" feed. See loadPostsByGame in the provider.
+  gameBeitraegePosts: FeedPost[];
+  isGameBeitraegeLoading: boolean;
+  gameBeitraegeError: string | null;
+  gameBeitraegeGameId: string | null;
+  loadPostsByGame: (gameId: string) => void;
+
+  // Post Detail fallback: fetches a single post by id directly from public.posts when it isn't
+  // already part of the loaded local state (Vorgabe: Für-dich-Ranking ist niemals Source of Truth
+  // für Post Detail). Returns { post: null, error: null } for a genuine "not found".
+  fetchPostById: (postId: string) => Promise<{ post: FeedPost | null; error: string | null }>;
 };
 
 const FeedPostsContext = createContext<FeedPostsContextValue | undefined>(undefined);
@@ -189,6 +215,13 @@ const REMOTE_POSTS_LIMIT = 50;
 const REMOTE_TRIPS_LIMIT = 50;
 const REMOTE_MEETUPS_LIMIT = 50;
 const REMOTE_WANTED_ENTRIES_LIMIT = 50;
+// "Stadion → Beiträge" (see loadStadionBeitraege below) is a full, independent content overview,
+// deliberately NOT derived from `remotePosts` above -- that state exists to feed the "Für dich"
+// feed and is capped at REMOTE_POSTS_LIMIT for that purpose. A club-wide "all posts" overview must
+// not inherit a limit that was only ever meant to bound the Feed's own working set. This is a
+// generous safety cap on the query itself (not a UI page size / not pagination), high enough that
+// no real club's post history is silently truncated for the foreseeable future.
+const STADION_BEITRAEGE_LIMIT = 500;
 
 const POSTS_SELECT_COLUMNS = 'id, author_id, content, category, created_at, updated_at, game_id, game_label, team_id';
 const COMMENTS_SELECT_COLUMNS = 'id, post_id, author_id, content, created_at, updated_at';
@@ -239,6 +272,24 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       setUserContentByUserId({});
     }
   }, [authUserId]);
+
+  // "Stadion → Beiträge" full club overview -- independent of `remotePosts`/the "Für dich" feed on
+  // purpose (see STADION_BEITRAEGE_LIMIT above and loadStadionBeitraege below). Keyed by team id so
+  // a stale previous club's list is never shown as if it were the new club's (Vorgabe: kein
+  // Team-B-Datenrest bei Team A).
+  const [stadionBeitraegePosts, setStadionBeitraegePosts] = useState<FeedPost[]>([]);
+  const [isStadionBeitraegeLoading, setIsStadionBeitraegeLoading] = useState(false);
+  const [stadionBeitraegeError, setStadionBeitraegeError] = useState<string | null>(null);
+  const [stadionBeitraegeTeamId, setStadionBeitraegeTeamId] = useState<string | null>(null);
+
+  // "Spiel → Beiträge": every post for one specific game, deliberately NOT team_id-filtered (a
+  // shared real-world match can have posts from both clubs' fans, and some legacy posts carry
+  // game_id with team_id = NULL -- see loadPostsByGame below) and independent of the "Für dich"
+  // feed's team-scoped, capped remotePosts.
+  const [gameBeitraegePosts, setGameBeitraegePosts] = useState<FeedPost[]>([]);
+  const [isGameBeitraegeLoading, setIsGameBeitraegeLoading] = useState(false);
+  const [gameBeitraegeError, setGameBeitraegeError] = useState<string | null>(null);
+  const [gameBeitraegeGameId, setGameBeitraegeGameId] = useState<string | null>(null);
 
   const [remotePosts, setRemotePosts] = useState<FeedPost[]>([]);
   const [remoteAuthorProfiles, setRemoteAuthorProfiles] = useState<Record<string, AuthorDisplay>>({});
@@ -302,8 +353,12 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       if (!isCurrent) return;
 
       if (postsError) {
+        // A transient reload error (e.g. the foreground-refresh safety net hitting a network blip)
+        // must never erase already-displayed real posts -- only the initial load has nothing yet to
+        // preserve. The existing error banner + "Erneut versuchen" already surfaces this; wiping
+        // remotePosts here would make already-visible Supabase content disappear for a reason that
+        // isn't a legitimate visibility rule (falscher Verein/Moderation/Blockierung).
         setRemotePostsError(mapPostError(postsError));
-        setRemotePosts([]);
         setIsRemotePostsLoading(false);
         return;
       }
@@ -318,24 +373,27 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
 
       const postIds = posts.map((post) => post.id);
 
-      const [commentsResult, likesResult, mediaResult] = await Promise.all([
+      const [commentsResult, likesResult, mediaResult, savesResult] = await Promise.all([
         supabase.from('post_comments').select(COMMENTS_SELECT_COLUMNS).in('post_id', postIds).order('created_at', { ascending: true }),
         supabase.from('post_likes').select(LIKES_SELECT_COLUMNS).in('post_id', postIds),
         supabase.from('post_media').select(POST_MEDIA_SELECT_COLUMNS).in('post_id', postIds).order('position', { ascending: true }),
+        // Bundled alongside the other per-page queries above -- no extra round trip. Save counts
+        // are only ever an engagement *signal* for "Für dich" ranking (lib/for-you-ranking.ts), so
+        // a failure here is deliberately fault-tolerant, same reasoning as media below.
+        supabase.rpc('get_post_save_counts', { p_ids: postIds }),
       ]);
 
       if (!isCurrent) return;
 
       if (commentsResult.error) {
+        // Same reasoning as postsError above: preserve whatever was already loaded and visible.
         setRemotePostsError(mapPostError(commentsResult.error));
-        setRemotePosts([]);
         setIsRemotePostsLoading(false);
         return;
       }
 
       if (likesResult.error) {
         setRemotePostsError(mapPostError(likesResult.error));
-        setRemotePosts([]);
         setIsRemotePostsLoading(false);
         return;
       }
@@ -347,6 +405,8 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       const comments = (commentsResult.data ?? []) as SupabaseCommentRow[];
       const likes = (likesResult.data ?? []) as SupabaseLikeRow[];
       const mediaRows = mediaResult.error ? [] : ((mediaResult.data ?? []) as PostMediaRow[]);
+      const saveCountRows = savesResult.error ? [] : ((savesResult.data ?? []) as { id: string; save_count: number }[]);
+      const saveCountByPostId = new Map(saveCountRows.map((row) => [row.id, row.save_count]));
 
       const authorIds = new Set<string>();
       posts.forEach((post) => authorIds.add(post.author_id));
@@ -361,7 +421,6 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
 
       if (profilesError) {
         setRemotePostsError(mapPostError(profilesError));
-        setRemotePosts([]);
         setIsRemotePostsLoading(false);
         return;
       }
@@ -412,6 +471,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
           likedPostIdsByCurrentUser.has(row.id),
           authorDisplayById[row.author_id] ?? UNKNOWN_AUTHOR_DISPLAY,
           mediaByPostId.get(row.id) ?? [],
+          saveCountByPostId.get(row.id) ?? 0,
         ),
       );
 
@@ -476,9 +536,10 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
 
       const tripIds = trips.map((trip) => trip.id);
 
-      const [likesResult, requestsResult] = await Promise.all([
+      const [likesResult, requestsResult, savesResult] = await Promise.all([
         supabase.from('trip_likes').select(TRIP_LIKES_SELECT_COLUMNS).in('trip_id', tripIds),
         supabase.from('trip_requests').select(TRIP_REQUESTS_SELECT_COLUMNS).in('trip_id', tripIds),
+        supabase.rpc('get_trip_save_counts', { p_ids: tripIds }),
       ]);
 
       if (!isCurrent) return;
@@ -499,6 +560,8 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
 
       const likes = (likesResult.data ?? []) as SupabaseTripLikeRow[];
       const requests = (requestsResult.data ?? []) as SupabaseTripRequestRow[];
+      const saveCountRows = savesResult.error ? [] : ((savesResult.data ?? []) as { id: string; save_count: number }[]);
+      const saveCountByTripId = new Map(saveCountRows.map((row) => [row.id, row.save_count]));
 
       const authorIds = new Set<string>(trips.map((trip) => trip.owner_id));
 
@@ -559,6 +622,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
           likedTripIdsByCurrentUser.has(row.id),
           latestOwnRequestByTripId[row.id],
           authorDisplayById[row.owner_id] ?? UNKNOWN_AUTHOR_DISPLAY,
+          saveCountByTripId.get(row.id) ?? 0,
         ),
       );
 
@@ -621,9 +685,10 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
 
       const meetupIds = meetups.map((meetup) => meetup.id);
 
-      const [likesResult, attendeesResult] = await Promise.all([
+      const [likesResult, attendeesResult, savesResult] = await Promise.all([
         supabase.from('meetup_likes').select(MEETUP_LIKES_SELECT_COLUMNS).in('meetup_id', meetupIds),
         supabase.from('meetup_attendees').select(MEETUP_ATTENDEES_SELECT_COLUMNS).in('meetup_id', meetupIds),
+        supabase.rpc('get_meetup_save_counts', { p_ids: meetupIds }),
       ]);
 
       if (!isCurrent) return;
@@ -644,6 +709,8 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
 
       const likes = (likesResult.data ?? []) as SupabaseMeetupLikeRow[];
       const attendeeRows = (attendeesResult.data ?? []) as SupabaseMeetupAttendeeRow[];
+      const saveCountRows = savesResult.error ? [] : ((savesResult.data ?? []) as { id: string; save_count: number }[]);
+      const saveCountByMeetupId = new Map(saveCountRows.map((row) => [row.id, row.save_count]));
 
       const authorIds = new Set<string>(meetups.map((meetup) => meetup.organizer_id));
 
@@ -690,6 +757,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
           likeCountByMeetupId.get(row.id) ?? 0,
           likedMeetupIdsByCurrentUser.has(row.id),
           authorDisplayById[row.organizer_id] ?? UNKNOWN_AUTHOR_DISPLAY,
+          saveCountByMeetupId.get(row.id) ?? 0,
         ),
       );
 
@@ -750,21 +818,23 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
 
       const wantedEntryIds = wantedEntries.map((entry) => entry.id);
 
-      const { data: likeRows, error: likesError } = await supabase
-        .from('wanted_likes')
-        .select(WANTED_LIKES_SELECT_COLUMNS)
-        .in('wanted_entry_id', wantedEntryIds);
+      const [likesResult, savesResult] = await Promise.all([
+        supabase.from('wanted_likes').select(WANTED_LIKES_SELECT_COLUMNS).in('wanted_entry_id', wantedEntryIds),
+        supabase.rpc('get_wanted_save_counts', { p_ids: wantedEntryIds }),
+      ]);
 
       if (!isCurrent) return;
 
-      if (likesError) {
-        setRemoteWantedEntriesError(mapWantedEntryError(likesError));
+      if (likesResult.error) {
+        setRemoteWantedEntriesError(mapWantedEntryError(likesResult.error));
         setRemoteWantedEntries([]);
         setIsRemoteWantedEntriesLoading(false);
         return;
       }
 
-      const likes = (likeRows ?? []) as SupabaseWantedLikeRow[];
+      const likes = (likesResult.data ?? []) as SupabaseWantedLikeRow[];
+      const saveCountRows = savesResult.error ? [] : ((savesResult.data ?? []) as { id: string; save_count: number }[]);
+      const saveCountByWantedEntryId = new Map(saveCountRows.map((row) => [row.id, row.save_count]));
 
       const authorIds = new Set<string>(wantedEntries.map((entry) => entry.owner_id));
 
@@ -803,6 +873,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
           likeCountByWantedEntryId.get(row.id) ?? 0,
           likedWantedEntryIdsByCurrentUser.has(row.id),
           authorDisplayById[row.owner_id] ?? UNKNOWN_AUTHOR_DISPLAY,
+          saveCountByWantedEntryId.get(row.id) ?? 0,
         ),
       );
 
@@ -986,20 +1057,34 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
   };
 
   const handlePostsChange = (payload: RealtimeChangePayload) => {
+    // Also keeps stadionBeitraegePosts (the "Stadion → Beiträge" full club overview, see
+    // loadStadionBeitraege above) and gameBeitraegePosts ("Spiel → Beiträge", see loadPostsByGame
+    // above) live off this same already-team-filtered channel -- no second subscription. Every
+    // branch below only ever merges/dedupes/removes by id, never replaces the list wholesale
+    // (Vorgabe: kein `setPosts([newPost])`). Note: INSERT/UPDATE on this channel are filtered
+    // server-side to team_id = activeTeamId, so a cross-team post sharing the same game_id (rare,
+    // see report) only appears in gameBeitraegePosts after the next loadPostsByGame call, not
+    // instantly -- DELETE has no such filter and always removes by id regardless of team.
     if (payload.eventType === 'INSERT') {
       const row = payload.new as unknown as SupabasePostRow;
       if (!row?.id) return;
       ensureAuthorProfileCached(row.author_id);
-      setRemotePosts((current) =>
-        current.some((post) => post.id === row.id) ? current : [mapSupabasePostToFeedPost(row, [], 0, false, UNKNOWN_AUTHOR_DISPLAY), ...current],
-      );
+      const newPost = () => mapSupabasePostToFeedPost(row, [], 0, false, UNKNOWN_AUTHOR_DISPLAY);
+      setRemotePosts((current) => (current.some((post) => post.id === row.id) ? current : [newPost(), ...current]));
+      setStadionBeitraegePosts((current) => (current.some((post) => post.id === row.id) ? current : [newPost(), ...current]));
+      if (row.game_id && row.game_id === gameBeitraegeGameId) {
+        setGameBeitraegePosts((current) => (current.some((post) => post.id === row.id) ? current : [newPost(), ...current]));
+      }
       return;
     }
 
     if (payload.eventType === 'UPDATE') {
       const row = payload.new as unknown as SupabasePostRow;
       if (!row?.id) return;
-      setRemotePosts((current) => current.map((post) => (post.id === row.id ? { ...post, description: row.content } : post)));
+      const applyUpdate = (post: FeedPost) => (post.id === row.id ? { ...post, description: row.content } : post);
+      setRemotePosts((current) => current.map(applyUpdate));
+      setStadionBeitraegePosts((current) => current.map(applyUpdate));
+      setGameBeitraegePosts((current) => current.map(applyUpdate));
       return;
     }
 
@@ -1007,6 +1092,8 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       const oldId = payload.old?.id as string | undefined;
       if (!oldId) return;
       setRemotePosts((current) => current.filter((post) => post.id !== oldId));
+      setStadionBeitraegePosts((current) => current.filter((post) => post.id !== oldId));
+      setGameBeitraegePosts((current) => current.filter((post) => post.id !== oldId));
     }
   };
 
@@ -2139,7 +2226,16 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       const meetupIds = (meetupIdsResult.data ?? []).map((row) => row.id as string);
       const wantedIds = (wantedIdsResult.data ?? []).map((row) => row.id as string);
 
-      const resolved = await resolveContentByIds(authUserId, { postIds, tripIds, meetupIds, wantedIds });
+      const { resolved, error: resolveError } = await resolveContentByIds(authUserId, { postIds, tripIds, meetupIds, wantedIds });
+
+      if (resolveError) {
+        setUserContentByUserId((current) => ({
+          ...current,
+          [userId]: { posts: [], isLoading: false, error: resolveError, hasLoadedOnce: true },
+        }));
+        return;
+      }
+
       const sortedPosts = [...resolved.values()].sort((a, b) => getCreatedAtMs(b) - getCreatedAtMs(a));
 
       setUserContentByUserId((current) => ({
@@ -2150,6 +2246,159 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
   };
 
   const getUserContentState = (userId: string): UserContentState => userContentByUserId[userId] ?? EMPTY_USER_CONTENT_STATE;
+
+  // "Stadion → Beiträge" full club overview: a direct `posts WHERE team_id = teamId ORDER BY
+  // created_at DESC` query, independent of `remotePosts`/the "Für dich" ranking (see
+  // STADION_BEITRAEGE_LIMIT above). Reuses resolveContentByIds (lib/resolve-content-by-ids.ts) --
+  // the same resolver loadUserContent above and saved-context.tsx already use -- for the
+  // comments/likes/media bundling, instead of duplicating that mapping a third time (Vorgabe: keine
+  // zweite PostCard / kein paralleles Datenmodell). Only game_id is intentionally NOT filtered here
+  // (Vorgabe: Stadion → Beiträge zeigt alle Posts unabhängig von game_id) -- that stays the game
+  // detail view's job.
+  const loadStadionBeitraege = (teamId: string) => {
+    if (!authUserId) return;
+
+    setIsStadionBeitraegeLoading(true);
+    setStadionBeitraegeError(null);
+
+    (async () => {
+      // Some legacy posts never got team_id set, but their game_id already ties them
+      // unambiguously to one specific, real fixture (public.games) -- if that fixture is one this
+      // exact club played (home or away), the post deterministically belongs to this club's
+      // overview too, without guessing or touching any data. Never widens to "all team_id IS NULL
+      // posts" -- only ones whose game_id resolves to a game this specific team was part of.
+      const { data: teamGameRows, error: teamGamesError } = await supabase
+        .from('games')
+        .select('id')
+        .or(`external_home_team_id.eq.${teamId},external_away_team_id.eq.${teamId}`);
+
+      if (teamGamesError) {
+        setStadionBeitraegeError(mapPostError(teamGamesError));
+        setIsStadionBeitraegeLoading(false);
+        return;
+      }
+
+      const teamGameIds = (teamGameRows ?? []).map((row) => row.id as string);
+
+      let idsQuery = supabase.from('posts').select('id').order('created_at', { ascending: false }).limit(STADION_BEITRAEGE_LIMIT);
+      idsQuery =
+        teamGameIds.length > 0
+          ? idsQuery.or(`team_id.eq.${teamId},and(team_id.is.null,game_id.in.(${teamGameIds.join(',')}))`)
+          : idsQuery.eq('team_id', teamId);
+
+      const { data: idRows, error: idsError } = await idsQuery;
+
+      if (idsError) {
+        // A transient reload error must not erase already-displayed real posts -- same reasoning
+        // as remotePosts' own error handling above. Only clears below when there is genuinely
+        // nothing (an empty, error-free result).
+        setStadionBeitraegeError(mapPostError(idsError));
+        setIsStadionBeitraegeLoading(false);
+        return;
+      }
+
+      const postIds = (idRows ?? []).map((row) => row.id as string);
+
+      if (postIds.length === 0) {
+        setStadionBeitraegePosts([]);
+        setStadionBeitraegeTeamId(teamId);
+        setIsStadionBeitraegeLoading(false);
+        return;
+      }
+
+      const { resolved, error: resolveError } = await resolveContentByIds(authUserId, { postIds, tripIds: [], meetupIds: [], wantedIds: [] });
+
+      if (resolveError) {
+        setStadionBeitraegeError(resolveError);
+        setIsStadionBeitraegeLoading(false);
+        return;
+      }
+
+      const sortedPosts = [...resolved.values()].sort((a, b) => getCreatedAtMs(b) - getCreatedAtMs(a));
+
+      setStadionBeitraegePosts(sortedPosts);
+      setStadionBeitraegeTeamId(teamId);
+      setIsStadionBeitraegeLoading(false);
+    })();
+  };
+
+  // "Spiel → Beiträge": a direct `posts WHERE game_id = gameId ORDER BY created_at DESC` query --
+  // no team_id filter (Vorgabe: fetchPostsByGame lädt ALLE Posts mit game_id = X, unabhängig von
+  // team_id), no ranking, no follow/engagement requirement. Same resolveContentByIds reuse as
+  // loadStadionBeitraege above.
+  const loadPostsByGame = (gameId: string) => {
+    if (!authUserId) return;
+
+    setIsGameBeitraegeLoading(true);
+    setGameBeitraegeError(null);
+
+    (async () => {
+      const { data: idRows, error: idsError } = await supabase
+        .from('posts')
+        .select('id')
+        .eq('game_id', gameId)
+        .order('created_at', { ascending: false })
+        .limit(STADION_BEITRAEGE_LIMIT);
+
+      if (idsError) {
+        setGameBeitraegeError(mapPostError(idsError));
+        setIsGameBeitraegeLoading(false);
+        return;
+      }
+
+      const postIds = (idRows ?? []).map((row) => row.id as string);
+
+      if (postIds.length === 0) {
+        setGameBeitraegePosts([]);
+        setGameBeitraegeGameId(gameId);
+        setIsGameBeitraegeLoading(false);
+        return;
+      }
+
+      const { resolved, error: resolveError } = await resolveContentByIds(authUserId, { postIds, tripIds: [], meetupIds: [], wantedIds: [] });
+
+      if (resolveError) {
+        setGameBeitraegeError(resolveError);
+        setIsGameBeitraegeLoading(false);
+        return;
+      }
+
+      const sortedPosts = [...resolved.values()].sort((a, b) => getCreatedAtMs(b) - getCreatedAtMs(a));
+
+      setGameBeitraegePosts(sortedPosts);
+      setGameBeitraegeGameId(gameId);
+      setIsGameBeitraegeLoading(false);
+    })();
+  };
+
+  // Post-Detail-Fallback: when a post isn't part of the currently loaded local state (not in
+  // `posts` -- team-scoped and capped -- and not a saved item), fetch it directly by id instead of
+  // reporting "nicht gefunden" just because the personalized feed/team scope never loaded it
+  // (Vorgabe: Für-dich-Ranking ist niemals Source of Truth für Post Detail). Scoped to public.posts
+  // specifically -- the reported bug and this round's scope are both about "Beiträge"; Fahrten/
+  // Gesucht detail pages share the same underlying pattern but are untouched here.
+  const fetchPostById = async (postId: string): Promise<{ post: FeedPost | null; error: string | null }> => {
+    if (!authUserId) return { post: null, error: null };
+
+    const { data: row, error } = await supabase.from('posts').select(POSTS_SELECT_COLUMNS).eq('id', postId).maybeSingle();
+
+    if (error) {
+      return { post: null, error: mapPostError(error) };
+    }
+
+    if (!row) {
+      // Genuinely no such row (or RLS-hidden) -- a real "not found", not a loading artifact.
+      return { post: null, error: null };
+    }
+
+    const { resolved, error: resolveError } = await resolveContentByIds(authUserId, { postIds: [postId], tripIds: [], meetupIds: [], wantedIds: [] });
+
+    if (resolveError) {
+      return { post: null, error: resolveError };
+    }
+
+    return { post: resolved.get(postId) ?? null, error: null };
+  };
 
   const getPostById = (id: string) => posts.find((post) => post.id === id);
 
@@ -2353,6 +2602,17 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       contentChangesRealtimeStatus,
       loadUserContent,
       getUserContentState,
+      stadionBeitraegePosts,
+      isStadionBeitraegeLoading,
+      stadionBeitraegeError,
+      stadionBeitraegeTeamId,
+      loadStadionBeitraege,
+      gameBeitraegePosts,
+      isGameBeitraegeLoading,
+      gameBeitraegeError,
+      gameBeitraegeGameId,
+      loadPostsByGame,
+      fetchPostById,
     }),
     [
       posts,
@@ -2375,6 +2635,14 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       authUserId,
       contentVisibilityRealtimeStatus,
       contentChangesRealtimeStatus,
+      stadionBeitraegePosts,
+      isStadionBeitraegeLoading,
+      stadionBeitraegeError,
+      stadionBeitraegeTeamId,
+      gameBeitraegePosts,
+      isGameBeitraegeLoading,
+      gameBeitraegeError,
+      gameBeitraegeGameId,
     ],
   );
 
