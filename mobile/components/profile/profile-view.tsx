@@ -11,6 +11,7 @@ import { ProfileHeader } from '@/components/profile/profile-header';
 import { PushNotificationsSection } from '@/components/profile/push-notifications-section';
 import { UserWarningsSection } from '@/components/profile/user-warnings-section';
 import { ProfileStats, type ProfileStat } from '@/components/profile/profile-stats';
+import { StadiumStatsSection } from '@/components/profile/stadium-stats-section';
 import { TripCard } from '@/components/trips/trip-card';
 import { ReportModal } from '@/components/reports/report-modal';
 import { IconSymbol } from '@/components/ui/icon-symbol';
@@ -23,6 +24,7 @@ import { useMessages } from '@/context/messages-context';
 import { useModeration } from '@/context/moderation-context';
 import { useProfiles } from '@/context/profile-context';
 import { useReports } from '@/context/reports-context';
+import { useStadiumStats } from '@/context/stadium-stats-context';
 import { getPostDetailPathname } from '@/data/feed-posts';
 import type { UserProfile } from '@/data/users';
 import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
@@ -88,6 +90,19 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
   useEffect(() => {
     if (isRealProfile && remoteContentUserId) {
       loadUserContent(remoteContentUserId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRealProfile, remoteContentUserId]);
+
+  // Stadionstatistik: same real-profile/on-demand-per-id loading as the post history above --
+  // get_user_stadium_stats() requires a real Supabase profile id, so this is a no-op for local seed
+  // profiles (Vorgabe 15 only ever applies to real accounts to begin with).
+  const { loadStadiumStats, getStadiumStatsState } = useStadiumStats();
+  const stadiumStatsState = remoteContentUserId ? getStadiumStatsState(remoteContentUserId) : undefined;
+
+  useEffect(() => {
+    if (isRealProfile && remoteContentUserId) {
+      loadStadiumStats(remoteContentUserId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isRealProfile, remoteContentUserId]);
@@ -360,6 +375,16 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
         <View style={styles.statsWrapper}>
           <ProfileStats stats={stats} />
         </View>
+
+        {isRealProfile && remoteContentUserId && stadiumStatsState ? (
+          <StadiumStatsSection
+            stats={stadiumStatsState.stats}
+            isLoading={stadiumStatsState.isLoading}
+            error={stadiumStatsState.error}
+            hasLoadedOnce={stadiumStatsState.hasLoadedOnce}
+            onRetry={() => loadStadiumStats(remoteContentUserId)}
+          />
+        ) : null}
 
         <View style={styles.tabRow}>
           <Pressable

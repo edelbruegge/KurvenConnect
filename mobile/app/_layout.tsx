@@ -23,6 +23,7 @@ import { PushNotificationsProvider } from '@/context/push-notifications-context'
 import { ReportsProvider } from '@/context/reports-context';
 import { SavedProvider } from '@/context/saved-context';
 import { StadiumHistoryProvider } from '@/context/stadium-history-context';
+import { StadiumStatsProvider } from '@/context/stadium-stats-context';
 import { UserWarningsProvider } from '@/context/user-warnings-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { isSupabaseConfigured, SUPABASE_NOT_CONFIGURED_MESSAGE } from '@/lib/supabase';
@@ -211,6 +212,7 @@ export default function RootLayout() {
             <ActiveClubProvider>
               <FeedPostsProvider>
                 <StadiumHistoryProvider>
+                  <StadiumStatsProvider>
                   <MessagesProvider>
                     <NotificationsProvider>
                       <PushNotificationsProvider>
@@ -232,6 +234,7 @@ export default function RootLayout() {
                       </PushNotificationsProvider>
                     </NotificationsProvider>
                   </MessagesProvider>
+                  </StadiumStatsProvider>
                 </StadiumHistoryProvider>
               </FeedPostsProvider>
             </ActiveClubProvider>

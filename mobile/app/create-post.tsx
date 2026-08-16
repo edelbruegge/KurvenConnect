@@ -10,6 +10,7 @@ import { useActiveClub } from '@/context/active-club-context';
 import { useAuth } from '@/context/auth-context';
 import { useFeedPosts } from '@/context/feed-posts-context';
 import { useStadiumHistory } from '@/context/stadium-history-context';
+import { useStadiumStats } from '@/context/stadium-stats-context';
 import type { FeedPostCategory } from '@/data/feed-posts';
 import { seedGames } from '@/data/games';
 import { dismissKeyboardOnNative } from '@/lib/dismiss-keyboard';
@@ -59,6 +60,7 @@ export default function CreatePostScreen() {
   const params = useLocalSearchParams<{ gameId?: string; gameLabel?: string }>();
   const { createRemotePost, createRemoteTrip, createRemoteMeetup, createRemoteWantedEntry, appendRemotePostMedia } = useFeedPosts();
   const { refreshStadiumHistory } = useStadiumHistory();
+  const { refreshStadiumStats } = useStadiumStats();
   const { activeTeam } = useActiveClub();
   const { user } = useAuth();
   const authUserId = user?.id ?? null;
@@ -241,6 +243,12 @@ export default function CreatePostScreen() {
 
       if (form.gameId) {
         refreshStadiumHistory();
+        // Same trigger condition as the just-created public.posts row's own game_id guard (see
+        // record_game_attendance() in the attendance migration) -- a controlled refresh right after
+        // a successful save is enough (Vorgabe 29), no extra realtime subscription needed for this.
+        if (authUserId) {
+          refreshStadiumStats(authUserId);
+        }
       }
 
       // Images are uploaded only after the post itself exists (never a "half" post_media row for
