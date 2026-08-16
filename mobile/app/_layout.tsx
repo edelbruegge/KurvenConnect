@@ -12,6 +12,7 @@ import { ActiveClubProvider } from '@/context/active-club-context';
 import { AuthProvider, useAuth } from '@/context/auth-context';
 import { BlocksProvider } from '@/context/blocks-context';
 import { FeedPostsProvider } from '@/context/feed-posts-context';
+import { GameFollowsProvider } from '@/context/game-follows-context';
 import { GamesProvider } from '@/context/games-context';
 import { GroupsProvider } from '@/context/groups-context';
 import { MessagesProvider } from '@/context/messages-context';
@@ -206,15 +207,17 @@ export default function RootLayout() {
                       <PushNotificationsProvider>
                         <GroupsProvider>
                           <SavedProvider>
-                            <ReportsProvider>
-                              <BlocksProvider>
-                                <ModerationProvider>
-                                  <UserWarningsProvider>
-                                    <RootNavigator />
-                                  </UserWarningsProvider>
-                                </ModerationProvider>
-                              </BlocksProvider>
-                            </ReportsProvider>
+                            <GameFollowsProvider>
+                              <ReportsProvider>
+                                <BlocksProvider>
+                                  <ModerationProvider>
+                                    <UserWarningsProvider>
+                                      <RootNavigator />
+                                    </UserWarningsProvider>
+                                  </ModerationProvider>
+                                </BlocksProvider>
+                              </ReportsProvider>
+                            </GameFollowsProvider>
                           </SavedProvider>
                         </GroupsProvider>
                       </PushNotificationsProvider>

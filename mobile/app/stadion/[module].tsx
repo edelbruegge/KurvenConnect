@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useMemo, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -9,6 +9,7 @@ import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/t
 import { STADION_MODULES, type StadionModule } from '@/constants/stadion-modules';
 import { useActiveClub } from '@/context/active-club-context';
 import { useFeedPosts } from '@/context/feed-posts-context';
+import { useGameFollows } from '@/context/game-follows-context';
 import { useGames } from '@/context/games-context';
 import type { Game } from '@/data/database-games';
 import { getPostDetailPathname, getPostGameId, type FeedPost } from '@/data/feed-posts';
@@ -257,9 +258,30 @@ function EmptyModuleState({ text }: { text: string }) {
 // 'finished' or 'scheduled' in the real synced data (supabase/functions/sync-football-games) -- no
 // "live" state is invented here.
 function GameHeader({ game }: { game: Game }) {
+  const { isGameFollowed, isGameFollowsLoading, toggleGameFollow } = useGameFollows();
   const metaLine = [game.competition, game.matchday != null ? `${game.matchday}. Spieltag` : undefined].filter(Boolean).join(' · ');
   const hasScore = game.homeScore != null && game.awayScore != null;
   const stadiumLine = game.stadiumName ? [game.stadiumName, game.stadiumCity].filter(Boolean).join(' · ') : undefined;
+  // While the initial follow-status load for this account is still in flight, neither "Spiel
+  // folgen" nor "✓ Folge ich" is shown as a definite state -- see GameFollowsProvider's
+  // isGameFollowsLoading doc comment.
+  const isFollowed = !isGameFollowsLoading && isGameFollowed(game.id);
+  // Local-only: the last follow/unfollow attempt's error, so a failed tap is visible instead of
+  // silently reverting (the optimistic flip + rollback in GameFollowsProvider is otherwise easy to
+  // miss). Cleared on every new attempt; never persisted, never affects isFollowed itself.
+  const [followMutationError, setFollowMutationError] = useState<string | null>(null);
+
+  const handleFollowPress = () => {
+    if (__DEV__) {
+      console.log('[game-follow] press', game.id);
+    }
+    setFollowMutationError(null);
+    void toggleGameFollow(game.id).then(({ error }) => {
+      if (error) {
+        setFollowMutationError(error);
+      }
+    });
+  };
 
   return (
     <View>
@@ -279,6 +301,22 @@ function GameHeader({ game }: { game: Game }) {
       </View>
       {game.kickoffAt ? <Text style={styles.gameHeaderDetail}>{game.kickoffAt}</Text> : null}
       {stadiumLine ? <Text style={styles.gameHeaderDetail}>{stadiumLine}</Text> : null}
+      <Pressable
+        onPress={handleFollowPress}
+        disabled={isGameFollowsLoading}
+        accessibilityRole="button"
+        accessibilityLabel={isFollowed ? 'Spiel entfolgen' : 'Spiel folgen'}
+        style={[styles.gameFollowButton, isFollowed && styles.gameFollowButtonActive, isGameFollowsLoading && styles.gameFollowButtonDisabled]}
+      >
+        {isGameFollowsLoading ? (
+          <ActivityIndicator size="small" color={ClubColors.text} />
+        ) : (
+          <Text style={[styles.gameFollowButtonText, isFollowed && styles.gameFollowButtonTextActive]}>
+            {isFollowed ? '✓ Folge ich' : 'Spiel folgen'}
+          </Text>
+        )}
+      </Pressable>
+      {followMutationError ? <Text style={styles.gameFollowErrorText}>{followMutationError}</Text> : null}
     </View>
   );
 }
@@ -339,6 +377,39 @@ const styles = StyleSheet.create({
     color: FeedColors.textSecondary,
     fontSize: FontSizes.meta,
     marginTop: 2,
+  },
+  gameFollowButton: {
+    marginTop: Spacing.sm,
+    alignSelf: 'flex-start',
+    minHeight: 36,
+    minWidth: 120,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.md,
+    borderRadius: Radii.round,
+    backgroundColor: ClubColors.surface,
+    borderWidth: 1,
+    borderColor: ClubColors.border,
+  },
+  gameFollowButtonActive: {
+    backgroundColor: ClubColors.primary,
+    borderColor: ClubColors.primary,
+  },
+  gameFollowButtonDisabled: {
+    opacity: 0.6,
+  },
+  gameFollowButtonText: {
+    color: ClubColors.text,
+    fontSize: FontSizes.meta,
+    fontWeight: '700',
+  },
+  gameFollowButtonTextActive: {
+    color: ClubColors.secondary,
+  },
+  gameFollowErrorText: {
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.meta,
+    marginTop: Spacing.xs,
   },
   scroll: {
     flex: 1,

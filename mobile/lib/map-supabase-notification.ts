@@ -31,6 +31,9 @@ const KNOWN_NOTIFICATION_TYPES: NotificationType[] = [
   'group_admin_demoted',
   'group_member_removed',
   'group_ownership_transferred',
+  'game_new_post',
+  'game_new_trip',
+  'game_new_meetup',
 ];
 
 // Notification types whose title/body are fully resolved server-side at creation time (the group
@@ -67,7 +70,8 @@ export function toReference(referenceType: string | null, referenceId: string | 
     referenceType === 'trip' ||
     referenceType === 'meetup' ||
     referenceType === 'profile' ||
-    referenceType === 'group'
+    referenceType === 'group' ||
+    referenceType === 'post'
   ) {
     return { type: referenceType, id: referenceId };
   }

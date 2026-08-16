@@ -31,7 +31,13 @@ export type NotificationType =
   | 'group_admin_promoted'
   | 'group_admin_demoted'
   | 'group_member_removed'
-  | 'group_ownership_transferred';
+  | 'group_ownership_transferred'
+  // Game-follow event types — see supabase/migrations/20260826100000_add_game_follow_notifications
+  // .sql. Only ever created for a followed game (public.game_follows) with a real new
+  // post/trip/meetup carrying that game_id, never for the creator's own content.
+  | 'game_new_post'
+  | 'game_new_trip'
+  | 'game_new_meetup';
 
 export type NotificationReference =
   | { type: 'post' | 'trip' | 'request'; id: string }

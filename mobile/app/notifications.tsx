@@ -60,6 +60,10 @@ function getNotificationIcon(type: NotificationType): IconSymbolName {
       return 'shield.fill';
     case 'group_member_removed':
       return 'nosign';
+    case 'game_new_post':
+    case 'game_new_trip':
+    case 'game_new_meetup':
+      return 'sportscourt.fill';
     case 'system':
       return 'bell.fill';
   }
