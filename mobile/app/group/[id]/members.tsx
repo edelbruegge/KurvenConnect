@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Avatar } from '@/components/feed/avatar';
+import { InviteUserCard } from '@/components/groups/invite-user-card';
 import { NotFoundView } from '@/components/navigation/not-found-view';
 import { ConnectionsList } from '@/components/profile/connections-list';
 import { OverflowMenu } from '@/components/ui/overflow-menu';
@@ -15,8 +16,11 @@ import { useProfiles } from '@/context/profile-context';
 import { isPlausibleRemoteGroupId } from '@/data/groups';
 import type { UserProfile } from '@/data/users';
 import { getInitialsFromName } from '@/lib/map-supabase-profile';
+import { supabase } from '@/lib/supabase';
 
 type PendingAction = { type: 'remove' | 'promote' | 'demote'; userId: string };
+
+type InviteSearchResult = { id: string; display_name: string | null; location: string | null; avatar_url: string | null };
 
 export default function GroupMembersScreen() {
   const router = useRouter();
@@ -33,6 +37,9 @@ export default function GroupMembersScreen() {
     promoteGroupMember,
     demoteGroupAdmin,
     isGroupActionSubmitting,
+    pendingInvitationsByGroup,
+    refreshPendingInvitationsForGroup,
+    cancelGroupInvitation,
   } = useGroups();
   const { getUserById } = useProfiles();
   const { isUserSuspended } = useModeration();
@@ -41,6 +48,15 @@ export default function GroupMembersScreen() {
   const [groupDetailError, setGroupDetailError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  // "Mitglieder einladen" — a local, isolated search (never shares state with the main Suchen tab's
+  // global search context), reusing search_profiles() the same way app/(tabs)/search.tsx does.
+  const [inviteQuery, setInviteQuery] = useState('');
+  const [inviteResults, setInviteResults] = useState<InviteSearchResult[]>([]);
+  const [isInviteSearching, setIsInviteSearching] = useState(false);
+  const [inviteSearchError, setInviteSearchError] = useState<string | null>(null);
+  const [cancelInvitationError, setCancelInvitationError] = useState<string | null>(null);
+  const [cancellingInviteeId, setCancellingInviteeId] = useState<string | null>(null);
 
   const group = params.id ? getGroupById(params.id) : undefined;
   const isRemoteGroup = group?.source === 'supabase';
@@ -52,6 +68,37 @@ export default function GroupMembersScreen() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [group?.id, isRemoteGroup]);
+
+  const trimmedInviteQuery = inviteQuery.trim();
+
+  useEffect(() => {
+    if (!trimmedInviteQuery) {
+      setInviteResults([]);
+      setInviteSearchError(null);
+      return;
+    }
+
+    const timeout = setTimeout(() => {
+      setIsInviteSearching(true);
+      setInviteSearchError(null);
+
+      supabase
+        .rpc('search_profiles', { p_query: trimmedInviteQuery, p_limit: 10 })
+        .then(({ data, error }) => {
+          setIsInviteSearching(false);
+
+          if (error) {
+            setInviteSearchError('Die Suche konnte nicht durchgeführt werden.');
+            setInviteResults([]);
+            return;
+          }
+
+          setInviteResults((data ?? []) as InviteSearchResult[]);
+        });
+    }, 300);
+
+    return () => clearTimeout(timeout);
+  }, [trimmedInviteQuery]);
 
   // Same "not found" vs. "not a member" distinction as app/group/[id].tsx — a removed member
   // navigating (or already sitting) here must see a specific "kein Mitglied" message, not a
@@ -80,6 +127,33 @@ export default function GroupMembersScreen() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.id, group?.id]);
+
+  // Computed unconditionally at top level (not inside the isRemoteGroup branch below) so the
+  // pending-invitations load effect right after it can depend on it per the Rules of Hooks.
+  const viewerCanInvite = isRemoteGroup && authUserId !== null && (group?.ownerId === authUserId || group?.myRole === 'admin');
+  const pendingInvitations = group ? (pendingInvitationsByGroup[group.id] ?? []) : [];
+
+  useEffect(() => {
+    if (group && viewerCanInvite) {
+      refreshPendingInvitationsForGroup(group.id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [group?.id, viewerCanInvite]);
+
+  const handleCancelInvitation = async (inviteeId: string) => {
+    if (!group || cancellingInviteeId) {
+      return;
+    }
+
+    setCancellingInviteeId(inviteeId);
+    setCancelInvitationError(null);
+    const { error } = await cancelGroupInvitation(group.id, inviteeId);
+    setCancellingInviteeId(null);
+
+    if (error) {
+      setCancelInvitationError(error);
+    }
+  };
 
   if (!group) {
     if (isCheckingGroupDetail) {
@@ -156,13 +230,88 @@ export default function GroupMembersScreen() {
 
     return (
       <SafeAreaView style={styles.safeArea}>
-        {remoteMembers.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyText}>Diese Gruppe hat noch keine Mitglieder.</Text>
-          </View>
-        ) : (
-          <ScrollView contentContainerStyle={styles.scrollContent}>
-            {remoteMembers.map((member) => {
+        <ScrollView contentContainerStyle={styles.scrollContent}>
+          {viewerCanInvite ? (
+            <View style={styles.inviteCard}>
+              <Text style={styles.inviteCardTitle}>Mitglieder einladen</Text>
+              <View style={styles.inviteSearchBar}>
+                <TextInput
+                  value={inviteQuery}
+                  onChangeText={setInviteQuery}
+                  placeholder="Nach Namen suchen …"
+                  placeholderTextColor={FeedColors.textSecondary}
+                  style={styles.inviteSearchInput}
+                  autoCorrect={false}
+                  autoCapitalize="none"
+                />
+              </View>
+
+              {isInviteSearching ? (
+                <View style={styles.inviteLoadingRow}>
+                  <ActivityIndicator size="small" color={FeedColors.textSecondary} />
+                </View>
+              ) : inviteSearchError ? (
+                <Text style={styles.confirmError}>{inviteSearchError}</Text>
+              ) : trimmedInviteQuery ? (
+                (() => {
+                  const memberIds = new Set((remoteMembers ?? []).map((entry) => entry.userId));
+                  const pendingInviteeIds = new Set(pendingInvitations.map((entry) => entry.inviteeId));
+                  const candidates = inviteResults.filter((result) => result.id !== authUserId && !memberIds.has(result.id));
+
+                  return candidates.length === 0 ? (
+                    <Text style={styles.inviteEmptyText}>Keine passenden Nutzer gefunden.</Text>
+                  ) : (
+                    candidates.map((result) => (
+                      <InviteUserCard
+                        key={result.id}
+                        groupId={group.id}
+                        user={{
+                          id: result.id,
+                          displayName: result.display_name?.trim() || 'Neues Mitglied',
+                          avatarUrl: result.avatar_url ?? undefined,
+                          location: result.location ?? undefined,
+                        }}
+                        alreadyInvited={pendingInviteeIds.has(result.id)}
+                      />
+                    ))
+                  );
+                })()
+              ) : null}
+
+              {pendingInvitations.length > 0 ? (
+                <>
+                  <Text style={styles.pendingInvitationsTitle}>Ausstehende Einladungen</Text>
+                  {cancelInvitationError ? <Text style={styles.confirmError}>{cancelInvitationError}</Text> : null}
+                  {pendingInvitations.map((invitation) => (
+                    <View key={invitation.inviteeId} style={styles.pendingInvitationRow}>
+                      <Avatar initials={getInitialsFromName(invitation.displayName)} avatarUrl={invitation.avatarUrl} />
+                      <Text style={styles.pendingInvitationName} numberOfLines={1}>
+                        {invitation.displayName}
+                      </Text>
+                      <Pressable
+                        onPress={() => void handleCancelInvitation(invitation.inviteeId)}
+                        disabled={cancellingInviteeId === invitation.inviteeId}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Einladung an ${invitation.displayName} zurückziehen`}
+                      >
+                        <Text style={styles.pendingInvitationCancelText}>
+                          {cancellingInviteeId === invitation.inviteeId ? 'Wird zurückgezogen …' : 'Zurückziehen'}
+                        </Text>
+                      </Pressable>
+                    </View>
+                  ))}
+                </>
+              ) : null}
+            </View>
+          ) : null}
+
+          {remoteMembers.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyText}>Diese Gruppe hat noch keine Mitglieder.</Text>
+            </View>
+          ) : (
+            <>
+              {remoteMembers.map((member) => {
               const isMemberOwner = member.userId === group.ownerId;
               const isOwnRow = member.userId === authUserId;
 
@@ -232,9 +381,10 @@ export default function GroupMembersScreen() {
                   ) : null}
                 </View>
               );
-            })}
-          </ScrollView>
-        )}
+              })}
+            </>
+          )}
+        </ScrollView>
       </SafeAreaView>
     );
   }
@@ -261,6 +411,64 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: Spacing.md,
     paddingBottom: Spacing.xl,
+  },
+  inviteCard: {
+    backgroundColor: FeedColors.cardBackground,
+    borderRadius: Radii.lg,
+    borderWidth: 1,
+    borderColor: FeedColors.cardBorder,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+  },
+  inviteCardTitle: {
+    color: FeedColors.textPrimary,
+    fontSize: FontSizes.body,
+    fontWeight: '700',
+    marginBottom: Spacing.sm,
+  },
+  inviteSearchBar: {
+    borderWidth: 1,
+    borderColor: FeedColors.cardBorder,
+    borderRadius: Radii.md,
+    marginBottom: Spacing.sm,
+  },
+  inviteSearchInput: {
+    color: FeedColors.textPrimary,
+    fontSize: FontSizes.body,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.sm,
+  },
+  inviteLoadingRow: {
+    paddingVertical: Spacing.sm,
+    alignItems: 'center',
+  },
+  inviteEmptyText: {
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.meta,
+  },
+  pendingInvitationsTitle: {
+    color: FeedColors.textPrimary,
+    fontSize: FontSizes.meta,
+    fontWeight: '700',
+    marginTop: Spacing.sm,
+    marginBottom: Spacing.xs,
+  },
+  pendingInvitationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    paddingVertical: Spacing.xs,
+  },
+  pendingInvitationName: {
+    flex: 1,
+    color: FeedColors.textPrimary,
+    fontSize: FontSizes.meta,
+    fontWeight: '600',
+  },
+  pendingInvitationCancelText: {
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.badge,
+    fontWeight: '600',
   },
   row: {
     flexDirection: 'row',

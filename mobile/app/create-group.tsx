@@ -134,6 +134,11 @@ export default function CreateGroupScreen() {
                   <Text style={[styles.optionText, form.visibility === 'private' && styles.optionTextActive]}>Privat</Text>
                 </Pressable>
               </View>
+              <Text style={styles.visibilityHint}>
+                {form.visibility === 'public'
+                  ? 'Kann von anderen Fans gefunden und betreten werden.'
+                  : 'Nur eingeladene Mitglieder können diese Gruppe sehen und beitreten.'}
+              </Text>
             </View>
 
             {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
@@ -217,6 +222,11 @@ const styles = StyleSheet.create({
   },
   optionTextActive: {
     color: FeedColors.textPrimary,
+  },
+  visibilityHint: {
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.meta,
+    marginTop: Spacing.sm,
   },
   textInput: {
     borderWidth: 1,

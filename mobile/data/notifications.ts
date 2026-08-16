@@ -32,6 +32,11 @@ export type NotificationType =
   | 'group_admin_demoted'
   | 'group_member_removed'
   | 'group_ownership_transferred'
+  // See supabase/migrations/20260828100000_add_group_invitations.sql — an owner/admin invited this
+  // account to a group. reference is always { type: 'group', id: groupId }; the invitation itself
+  // is resolved by (groupId, invitee=self) via respond_to_group_invitation(), never by a separate
+  // id carried on the notification.
+  | 'group_invitation'
   // Game-follow event types — see supabase/migrations/20260826100000_add_game_follow_notifications
   // .sql. Only ever created for a followed game (public.game_follows) with a real new
   // post/trip/meetup carrying that game_id, never for the creator's own content.

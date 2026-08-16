@@ -14,7 +14,22 @@ const BLOCKED_MESSAGE = 'Diese Aktion ist derzeit nicht möglich.';
  */
 export function mapGroupError(
   error: unknown,
-  context: 'load' | 'create' | 'join' | 'request' | 'manage' | 'cancel' | 'leave' | 'update' | 'removeMember' | 'promote' | 'demote' | 'transferOwnership',
+  context:
+    | 'load'
+    | 'create'
+    | 'join'
+    | 'request'
+    | 'manage'
+    | 'cancel'
+    | 'leave'
+    | 'update'
+    | 'removeMember'
+    | 'promote'
+    | 'demote'
+    | 'transferOwnership'
+    | 'invite'
+    | 'respond'
+    | 'cancelInvitation',
 ): string {
   const rawMessage = error instanceof Error ? error.message : String((error as { message?: string })?.message ?? error ?? '');
   const message = rawMessage.toLowerCase();
@@ -44,7 +59,13 @@ export function mapGroupError(
                       ? 'Das Mitglied konnte nicht entfernt werden.'
                       : context === 'promote' || context === 'demote'
                         ? 'Die Adminrechte konnten nicht geändert werden.'
-                        : 'Die Gruppeninhaberschaft konnte nicht übertragen werden.';
+                        : context === 'transferOwnership'
+                          ? 'Die Gruppeninhaberschaft konnte nicht übertragen werden.'
+                          : context === 'invite'
+                            ? 'Die Einladung konnte nicht gesendet werden.'
+                            : context === 'respond'
+                              ? 'Die Einladung konnte nicht bearbeitet werden.'
+                              : 'Die Einladung konnte nicht zurückgezogen werden.';
 
   if (!message) {
     return genericMessage;
@@ -84,6 +105,30 @@ export function mapGroupError(
 
   if (message.includes('already a member')) {
     return 'Du bist bereits Mitglied dieser Gruppe.';
+  }
+
+  if (message.includes('cannot invite yourself')) {
+    return 'Du kannst dich nicht selbst einladen.';
+  }
+
+  if (message.includes('invitee not found')) {
+    return 'Dieser Nutzer wurde nicht gefunden.';
+  }
+
+  if (message.includes('invitation already pending')) {
+    return 'Dieser Nutzer wurde bereits eingeladen.';
+  }
+
+  if (message.includes('invitation not found')) {
+    return 'Diese Einladung ist nicht mehr verfügbar.';
+  }
+
+  if (message.includes('invitation already resolved')) {
+    return 'Diese Einladung wurde bereits bearbeitet.';
+  }
+
+  if (message.includes('invalid response')) {
+    return 'Ungültige Antwort auf die Einladung.';
   }
 
   if (message.includes('request already exists')) {

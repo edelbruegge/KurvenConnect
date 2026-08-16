@@ -11,11 +11,14 @@ import {
   seedGroups,
   sortGroupsByRecentActivity,
   type Group,
+  type GroupInvitation,
+  type GroupInvitationStatus,
   type GroupJoinRequest,
   type GroupJoinRequestRecord,
   type GroupJoinRequestStatus,
   type GroupMemberRecord,
   type GroupMessage,
+  type GroupPendingInvitation,
   type GroupSuggestion,
   type GroupVisibility,
 } from '@/data/groups';
@@ -24,14 +27,18 @@ import { mapGroupError } from '@/lib/group-errors';
 import { mapGroupMessageError } from '@/lib/group-message-errors';
 import {
   mapSupabaseGroupDetailResponse,
+  mapSupabaseGroupInvitationRow,
   mapSupabaseGroupJoinRequestRow,
   mapSupabaseGroupMemberRow,
   mapSupabaseGroupMembershipRow,
+  mapSupabaseGroupPendingInvitationRow,
   mapSupabaseGroupSuggestionRow,
   type SupabaseGroupDetailResponse,
+  type SupabaseGroupInvitationRow,
   type SupabaseGroupJoinRequestRow,
   type SupabaseGroupMemberRow,
   type SupabaseGroupMembershipRow,
+  type SupabaseGroupPendingInvitationRow,
   type SupabaseGroupSuggestionRow,
 } from '@/lib/map-supabase-group';
 import { mapSupabaseGroupMessageRow, type SupabaseGroupMessageRow } from '@/lib/map-supabase-group-message';
@@ -174,6 +181,21 @@ type GroupsContextValue = {
 
   groupMessagesRealtimeStatus: RealtimeStatus;
   retryGroupMessagesRealtime: () => void;
+
+  // Group invitations — a distinct, complementary flow to join requests above (owner/admin invites
+  // a specific user; that user accepts/declines). See supabase/migrations/
+  // 20260828100000_add_group_invitations.sql.
+  // The current account's own invitations, keyed by group id (latest one per group).
+  myGroupInvitations: Record<string, GroupInvitation>;
+  getInvitationStatusForGroup: (groupId: string) => GroupInvitationStatus | null;
+  respondToGroupInvitation: (groupId: string, response: 'accepted' | 'declined') => Promise<ActionResult>;
+  // Pending invitations for a group the caller administers — loaded on demand only, never eagerly
+  // for every group (same convention as groupMembers above).
+  pendingInvitationsByGroup: Record<string, GroupPendingInvitation[]>;
+  isPendingInvitationsLoading: boolean;
+  refreshPendingInvitationsForGroup: (groupId: string) => void;
+  inviteUserToGroup: (groupId: string, inviteeId: string, invitee: { displayName: string; avatarUrl?: string }) => Promise<ActionResult>;
+  cancelGroupInvitation: (groupId: string, inviteeId: string) => Promise<ActionResult>;
 };
 
 const GroupsContext = createContext<GroupsContextValue | undefined>(undefined);
@@ -195,9 +217,16 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
     return group ? group.memberIds.includes(CURRENT_USER_ID) : false;
   };
 
+  // Same visibility gap found and fixed server-side in get_group_suggestions() (see the migration)
+  // existed here too for local seed groups -- a private seed group (e.g. "Nur geladene Gäste") was
+  // being suggested to every non-member, exactly the discoverability leak Vorgabe 4 forbids.
   const getRecommendedGroups = () =>
     localGroups.filter(
-      (group) => group.ownerId !== CURRENT_USER_ID && !group.memberIds.includes(CURRENT_USER_ID) && group.clubId === activeTeamId,
+      (group) =>
+        group.ownerId !== CURRENT_USER_ID &&
+        !group.memberIds.includes(CURRENT_USER_ID) &&
+        group.clubId === activeTeamId &&
+        group.visibility === 'public',
     );
 
   const joinGroup = (groupId: string) => {
@@ -515,6 +544,213 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
         const mapped = ((data ?? []) as SupabaseGroupJoinRequestRow[]).map(mapSupabaseGroupJoinRequestRow);
         setIncomingJoinRequests((current) => ({ ...current, [groupId]: mapped }));
       });
+  };
+
+  // --- My own group invitations (public.group_invitations, invitee = me) — loaded once on
+  // sign-in, same eager pattern as myJoinRequests above (small dataset, needed by any notification
+  // card that might render). Reduced to "latest invitation per group" since a user can have more
+  // than one historical (declined/cancelled) row for the same group but never more than one
+  // pending one (see the migration's partial unique index). ---
+  const [myGroupInvitations, setMyGroupInvitations] = useState<Record<string, GroupInvitation>>({});
+  const [myGroupInvitationsReloadToken, setMyGroupInvitationsReloadToken] = useState(0);
+
+  useEffect(() => {
+    if (!authUserId) {
+      setMyGroupInvitations({});
+      return;
+    }
+
+    let isCurrent = true;
+
+    supabase
+      .from('group_invitations')
+      .select('group_id, inviter_id, status, created_at, responded_at')
+      .eq('invitee_id', authUserId)
+      .order('created_at', { ascending: false })
+      .then(({ data, error }) => {
+        if (!isCurrent || error) return;
+
+        const byGroup: Record<string, GroupInvitation> = {};
+        ((data ?? []) as SupabaseGroupInvitationRow[]).forEach((row) => {
+          // Rows already arrive newest-first — the first one seen per group is the latest.
+          if (!byGroup[row.group_id]) {
+            byGroup[row.group_id] = mapSupabaseGroupInvitationRow(row);
+          }
+        });
+
+        setMyGroupInvitations(byGroup);
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [authUserId, myGroupInvitationsReloadToken]);
+
+  const refreshMyGroupInvitations = () => {
+    setMyGroupInvitationsReloadToken((token) => token + 1);
+  };
+
+  const getInvitationStatusForGroup = (groupId: string): GroupInvitationStatus | null =>
+    myGroupInvitations[groupId]?.status ?? null;
+
+  // --- Pending invitations for a group I administer — loaded on demand only (same "never eagerly
+  // for every group" convention as groupMembers/incomingJoinRequests). ---
+  const [pendingInvitationsByGroup, setPendingInvitationsByGroup] = useState<Record<string, GroupPendingInvitation[]>>({});
+  const [isPendingInvitationsLoading, setIsPendingInvitationsLoading] = useState(false);
+
+  const refreshPendingInvitationsForGroup = (groupId: string) => {
+    if (!authUserId) {
+      return;
+    }
+
+    setIsPendingInvitationsLoading(true);
+
+    supabase
+      .from('group_invitations')
+      .select('group_id, invitee_id, created_at')
+      .eq('group_id', groupId)
+      .eq('status', 'pending')
+      .then(async ({ data, error }) => {
+        if (error) {
+          setIsPendingInvitationsLoading(false);
+          return;
+        }
+
+        const rows = (data ?? []) as SupabaseGroupPendingInvitationRow[];
+
+        if (rows.length === 0) {
+          setPendingInvitationsByGroup((current) => ({ ...current, [groupId]: [] }));
+          setIsPendingInvitationsLoading(false);
+          return;
+        }
+
+        const inviteeIds = rows.map((row) => row.invitee_id);
+        const { data: profileRows } = await supabase.from('profiles').select('id, display_name, avatar_url').in('id', inviteeIds);
+
+        const displayNameById: Record<string, string> = {};
+        const avatarUrlById: Record<string, string | undefined> = {};
+        ((profileRows ?? []) as { id: string; display_name: string | null; avatar_url: string | null }[]).forEach((row) => {
+          displayNameById[row.id] = row.display_name?.trim() || 'Neues Mitglied';
+          avatarUrlById[row.id] = row.avatar_url ?? undefined;
+        });
+
+        const mapped = rows.map((row) =>
+          mapSupabaseGroupPendingInvitationRow(row, displayNameById[row.invitee_id] ?? 'Unbekanntes Mitglied', avatarUrlById[row.invitee_id]),
+        );
+        setPendingInvitationsByGroup((current) => ({ ...current, [groupId]: mapped }));
+        setIsPendingInvitationsLoading(false);
+      });
+  };
+
+  const inviteUserToGroup = async (
+    groupId: string,
+    inviteeId: string,
+    invitee: { displayName: string; avatarUrl?: string },
+  ): Promise<ActionResult> => {
+    const actionKey = `invite:${groupId}:${inviteeId}`;
+
+    if (inFlightGroupActionIds.current.has(actionKey)) {
+      return { error: null };
+    }
+
+    inFlightGroupActionIds.current.add(actionKey);
+    setIsGroupActionSubmitting(true);
+    setGroupActionError(null);
+
+    try {
+      const { error } = await supabase.rpc('invite_user_to_group', { p_group_id: groupId, p_invitee_id: inviteeId });
+
+      if (error) {
+        const mapped = mapGroupError(error, 'invite');
+        setGroupActionError(mapped);
+        return { error: mapped };
+      }
+
+      // Own mutation: update immediately rather than waiting on a refetch — mirrors every other
+      // "own action" handler in this file (join/leave/send message/...).
+      setPendingInvitationsByGroup((current) => ({
+        ...current,
+        [groupId]: [
+          ...(current[groupId] ?? []),
+          { groupId, inviteeId, displayName: invitee.displayName, avatarUrl: invitee.avatarUrl, createdAt: 'gerade eben' },
+        ],
+      }));
+
+      return { error: null };
+    } finally {
+      inFlightGroupActionIds.current.delete(actionKey);
+      setIsGroupActionSubmitting(false);
+    }
+  };
+
+  const cancelGroupInvitation = async (groupId: string, inviteeId: string): Promise<ActionResult> => {
+    const actionKey = `cancelInvitation:${groupId}:${inviteeId}`;
+
+    if (inFlightGroupActionIds.current.has(actionKey)) {
+      return { error: null };
+    }
+
+    inFlightGroupActionIds.current.add(actionKey);
+    setIsGroupActionSubmitting(true);
+    setGroupActionError(null);
+
+    try {
+      const { error } = await supabase.rpc('cancel_group_invitation', { p_group_id: groupId, p_invitee_id: inviteeId });
+
+      if (error) {
+        const mapped = mapGroupError(error, 'cancelInvitation');
+        setGroupActionError(mapped);
+        return { error: mapped };
+      }
+
+      setPendingInvitationsByGroup((current) => ({
+        ...current,
+        [groupId]: (current[groupId] ?? []).filter((entry) => entry.inviteeId !== inviteeId),
+      }));
+
+      return { error: null };
+    } finally {
+      inFlightGroupActionIds.current.delete(actionKey);
+      setIsGroupActionSubmitting(false);
+    }
+  };
+
+  const respondToGroupInvitation = async (groupId: string, response: 'accepted' | 'declined'): Promise<ActionResult> => {
+    const actionKey = `respond:${groupId}`;
+
+    if (inFlightGroupActionIds.current.has(actionKey)) {
+      return { error: null };
+    }
+
+    inFlightGroupActionIds.current.add(actionKey);
+    setIsGroupActionSubmitting(true);
+    setGroupActionError(null);
+
+    try {
+      const { data, error } = await supabase.rpc('respond_to_group_invitation', { p_group_id: groupId, p_response: response });
+
+      if (error) {
+        const mapped = mapGroupError(error, 'respond');
+        setGroupActionError(mapped);
+        return { error: mapped };
+      }
+
+      const updated = mapSupabaseGroupInvitationRow(data as SupabaseGroupInvitationRow);
+      setMyGroupInvitations((current) => ({ ...current, [groupId]: updated }));
+
+      // Accepting creates real membership atomically server-side (Vorgabe 19/41) — this just makes
+      // "Meine Gruppen" reflect it immediately, same as every other own-mutation refresh in this
+      // file; the existing group_members realtime handler would not otherwise catch a brand-new
+      // membership (it only refreshes groups already present in remoteGroups).
+      if (response === 'accepted') {
+        refreshMyGroups();
+      }
+
+      return { error: null };
+    } finally {
+      inFlightGroupActionIds.current.delete(actionKey);
+      setIsGroupActionSubmitting(false);
+    }
   };
 
   // --- Member list for a single group, loaded on demand only (never eagerly for every group). ---
@@ -900,6 +1136,8 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
       setGroupMessagesHasMoreByGroupId({});
       setActiveGroupId(null);
       groupMessagesRequestSeq.current = {};
+      setPendingInvitationsByGroup({});
+      setIsPendingInvitationsLoading(false);
     }
   }, [authUserId]);
 
@@ -1471,6 +1709,7 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
       refreshMyGroups();
       refreshGroupSuggestions();
       refreshMyJoinRequests();
+      refreshMyGroupInvitations();
 
       if (activeGroupIdRef.current) {
         loadGroupMessages(activeGroupIdRef.current);
@@ -1556,6 +1795,14 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
       setActiveGroupId,
       groupMessagesRealtimeStatus,
       retryGroupMessagesRealtime,
+      myGroupInvitations,
+      getInvitationStatusForGroup,
+      respondToGroupInvitation,
+      pendingInvitationsByGroup,
+      isPendingInvitationsLoading,
+      refreshPendingInvitationsForGroup,
+      inviteUserToGroup,
+      cancelGroupInvitation,
     }),
     [
       localGroups,
@@ -1581,6 +1828,9 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
       groupMessagesHasMoreByGroupId,
       activeGroupId,
       groupMessagesRealtimeStatus,
+      myGroupInvitations,
+      pendingInvitationsByGroup,
+      isPendingInvitationsLoading,
     ],
   );
 

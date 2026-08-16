@@ -31,6 +31,7 @@ const KNOWN_NOTIFICATION_TYPES: NotificationType[] = [
   'group_admin_demoted',
   'group_member_removed',
   'group_ownership_transferred',
+  'group_invitation',
   'game_new_post',
   'game_new_trip',
   'game_new_meetup',
@@ -51,6 +52,7 @@ const GROUP_NOTIFICATION_TYPES: NotificationType[] = [
   'group_admin_demoted',
   'group_member_removed',
   'group_ownership_transferred',
+  'group_invitation',
 ];
 
 // Exported so the push-notification payload parser (lib/push-notifications.ts) can validate a

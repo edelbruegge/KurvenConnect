@@ -1,11 +1,13 @@
 import { useRouter } from 'expo-router';
+import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Avatar } from '@/components/feed/avatar';
 import { IconSymbol, type IconSymbolName } from '@/components/ui/icon-symbol';
-import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
+import { ClubColors, FeedColors, FontSizes, Radii, Spacing, StatusColors } from '@/constants/theme';
 import { useFeedPosts } from '@/context/feed-posts-context';
+import { useGroups } from '@/context/groups-context';
 import { useMessages } from '@/context/messages-context';
 import { useModeration } from '@/context/moderation-context';
 import { useNotifications } from '@/context/notifications-context';
@@ -49,6 +51,7 @@ function getNotificationIcon(type: NotificationType): IconSymbolName {
     case 'group_message':
       return 'message';
     case 'group_join_request':
+    case 'group_invitation':
       return 'person.badge.plus';
     case 'group_join_accepted':
       return 'checkmark.circle.fill';
@@ -86,6 +89,9 @@ export default function NotificationsScreen() {
   const { isUserSuspended } = useModeration();
   const { isModeratedAway } = useSafetySelectors();
   const { isUserReported, hasReported } = useReports();
+  const { getInvitationStatusForGroup, respondToGroupInvitation } = useGroups();
+  const [respondingInvitationGroupId, setRespondingInvitationGroupId] = useState<string | null>(null);
+  const [invitationRespondErrorByGroupId, setInvitationRespondErrorByGroupId] = useState<Record<string, string>>({});
 
   const shouldHideNotification = (notification: AppNotification): boolean => {
     if (notification.actorId && (isUserSuspended(notification.actorId) || isUserReported(notification.actorId))) {
@@ -153,6 +159,29 @@ export default function NotificationsScreen() {
     }
   };
 
+  // group_invitation: Annehmen/Ablehnen directly on the notification card (Vorgabe 16), not a
+  // second notification screen. Looked up by group id (the notification's own reference_id) — see
+  // the migration's own reasoning for why no separate invitation id ever needs to reach the client.
+  const handleRespondToInvitation = async (groupId: string, response: 'accepted' | 'declined') => {
+    if (respondingInvitationGroupId) {
+      return;
+    }
+
+    setRespondingInvitationGroupId(groupId);
+    setInvitationRespondErrorByGroupId((current) => ({ ...current, [groupId]: '' }));
+
+    const { error } = await respondToGroupInvitation(groupId, response);
+
+    setRespondingInvitationGroupId(null);
+
+    if (error) {
+      // Buttons re-activate (respondingInvitationGroupId cleared above) and the notification stays
+      // exactly as it was — never silently disappears on a failed accept/decline (Vorgabe 37).
+      setInvitationRespondErrorByGroupId((current) => ({ ...current, [groupId]: error }));
+      return;
+    }
+  };
+
   const hasUnread = visibleNotifications.some((notification) => isUnread(notification));
 
   const errorBanner = remoteNotificationsError ? (
@@ -206,12 +235,30 @@ export default function NotificationsScreen() {
 
             const display = getNotificationDisplayContent(notification, { actorDisplayName, tripRoute });
 
+            // group_invitation: the notification's own reference is always { type: 'group', id:
+            // groupId } (see the migration) — invitation status is resolved independently via
+            // GroupsContext, not from the (immutable) notification row itself, so it stays correct
+            // across app restarts and after a response in a previous session.
+            const isGroupInvitation = notification.type === 'group_invitation';
+            const invitationGroupId = isGroupInvitation && notification.reference?.type === 'group' ? notification.reference.id : undefined;
+            const invitationStatus = invitationGroupId ? getInvitationStatusForGroup(invitationGroupId) : null;
+            const isPendingInvitation = isGroupInvitation && invitationStatus === 'pending';
+            const isRespondingToThisInvitation = invitationGroupId !== undefined && respondingInvitationGroupId === invitationGroupId;
+            const invitationRespondError = invitationGroupId ? invitationRespondErrorByGroupId[invitationGroupId] : undefined;
+
+            const handleRowPress = () => {
+              if (isGroupInvitation && invitationStatus !== 'accepted') {
+                // Pending: nothing to open yet, the buttons below are the only actions. Declined/
+                // cancelled: never grants access, so there is nothing to navigate to either.
+                markAsRead(notification.id);
+                return;
+              }
+
+              handleOpenNotification(notification);
+            };
+
             return (
-              <Pressable
-                key={notification.id}
-                onPress={() => handleOpenNotification(notification)}
-                style={styles.row}
-              >
+              <Pressable key={notification.id} onPress={handleRowPress} style={styles.row}>
                 {actor ? (
                   <Avatar initials={actor.initials} avatarUrl={actor.avatarUrl} size={36} />
                 ) : (
@@ -223,6 +270,44 @@ export default function NotificationsScreen() {
                   {display.title ? <Text style={[styles.notificationTitle, unread && styles.textUnread]}>{display.title}</Text> : null}
                   <Text style={[styles.text, unread && styles.textUnread]}>{display.body}</Text>
                   <Text style={styles.time}>{notification.createdAt}</Text>
+
+                  {isPendingInvitation && invitationGroupId ? (
+                    <View style={styles.invitationActionsBlock}>
+                      {invitationRespondError ? <Text style={styles.invitationErrorText}>{invitationRespondError}</Text> : null}
+                      <View style={styles.invitationButtonRow}>
+                        <Pressable
+                          onPress={(event) => {
+                            event.stopPropagation();
+                            void handleRespondToInvitation(invitationGroupId, 'accepted');
+                          }}
+                          disabled={isRespondingToThisInvitation}
+                          style={[styles.invitationAcceptButton, isRespondingToThisInvitation && styles.invitationButtonDisabled]}
+                          accessibilityRole="button"
+                          accessibilityLabel="Einladung annehmen"
+                        >
+                          <Text style={styles.invitationAcceptButtonText}>Annehmen</Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={(event) => {
+                            event.stopPropagation();
+                            void handleRespondToInvitation(invitationGroupId, 'declined');
+                          }}
+                          disabled={isRespondingToThisInvitation}
+                          style={[styles.invitationDeclineButton, isRespondingToThisInvitation && styles.invitationButtonDisabled]}
+                          accessibilityRole="button"
+                          accessibilityLabel="Einladung ablehnen"
+                        >
+                          <Text style={styles.invitationDeclineButtonText}>Ablehnen</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  ) : isGroupInvitation && invitationStatus === 'accepted' ? (
+                    <Text style={styles.invitationResolvedText}>Einladung angenommen · Gruppe öffnen</Text>
+                  ) : isGroupInvitation && (invitationStatus === 'declined' || invitationStatus === 'cancelled') ? (
+                    <Text style={styles.invitationResolvedText}>
+                      {invitationStatus === 'declined' ? 'Einladung abgelehnt' : 'Einladung zurückgezogen'}
+                    </Text>
+                  ) : null}
                 </View>
                 {unread ? <View style={styles.unreadDot} /> : null}
               </Pressable>
@@ -315,6 +400,54 @@ const styles = StyleSheet.create({
     color: FeedColors.textSecondary,
     fontSize: FontSizes.meta,
     marginTop: 2,
+  },
+  invitationActionsBlock: {
+    marginTop: Spacing.sm,
+  },
+  invitationErrorText: {
+    color: StatusColors.error,
+    fontSize: FontSizes.meta,
+    marginBottom: Spacing.xs,
+  },
+  invitationButtonRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+  },
+  invitationAcceptButton: {
+    minHeight: 36,
+    paddingHorizontal: Spacing.md,
+    borderRadius: Radii.round,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: ClubColors.primary,
+  },
+  invitationAcceptButtonText: {
+    color: ClubColors.secondary,
+    fontSize: FontSizes.meta,
+    fontWeight: '700',
+  },
+  invitationDeclineButton: {
+    minHeight: 36,
+    paddingHorizontal: Spacing.md,
+    borderRadius: Radii.round,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: FeedColors.cardBorder,
+  },
+  invitationDeclineButtonText: {
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.meta,
+    fontWeight: '700',
+  },
+  invitationButtonDisabled: {
+    opacity: 0.5,
+  },
+  invitationResolvedText: {
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.meta,
+    fontWeight: '600',
+    marginTop: Spacing.xs,
   },
   unreadDot: {
     width: 8,

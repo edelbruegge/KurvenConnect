@@ -1,4 +1,14 @@
-import type { Group, GroupJoinRequestRecord, GroupJoinRequestStatus, GroupMemberRecord, GroupSuggestion, GroupVisibility } from '@/data/groups';
+import type {
+  Group,
+  GroupInvitation,
+  GroupInvitationStatus,
+  GroupJoinRequestRecord,
+  GroupJoinRequestStatus,
+  GroupMemberRecord,
+  GroupPendingInvitation,
+  GroupSuggestion,
+  GroupVisibility,
+} from '@/data/groups';
 import { formatRelativeGermanTime } from '@/lib/map-supabase-post';
 
 // A row from get_my_groups().
@@ -123,6 +133,50 @@ export function mapSupabaseGroupDetailResponse(response: SupabaseGroupDetailResp
     memberCount: response.member_count,
     myRole: response.my_role as Group['myRole'],
     createdAtIso: response.created_at,
+  };
+}
+
+// A row from public.group_invitations, scoped to the current user as invitee (RLS: "Invitees can
+// read their own group invitations").
+export type SupabaseGroupInvitationRow = {
+  group_id: string;
+  inviter_id: string;
+  status: string;
+  created_at: string;
+  responded_at: string | null;
+};
+
+export function mapSupabaseGroupInvitationRow(row: SupabaseGroupInvitationRow): GroupInvitation {
+  return {
+    groupId: row.group_id,
+    inviterId: row.inviter_id,
+    status: row.status as GroupInvitationStatus,
+    createdAt: formatRelativeGermanTime(row.created_at),
+    createdAtIso: row.created_at,
+    respondedAtIso: row.responded_at ?? undefined,
+  };
+}
+
+// A row from public.group_invitations, scoped to a group the current user administers (RLS:
+// "Group admins can read invitations for their groups") -- always status = 'pending' in practice
+// since that's the only status the invite UI ever queries for.
+export type SupabaseGroupPendingInvitationRow = {
+  group_id: string;
+  invitee_id: string;
+  created_at: string;
+};
+
+export function mapSupabaseGroupPendingInvitationRow(
+  row: SupabaseGroupPendingInvitationRow,
+  displayName: string,
+  avatarUrl?: string,
+): GroupPendingInvitation {
+  return {
+    groupId: row.group_id,
+    inviteeId: row.invitee_id,
+    displayName,
+    avatarUrl,
+    createdAt: formatRelativeGermanTime(row.created_at),
   };
 }
 

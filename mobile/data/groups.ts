@@ -160,6 +160,34 @@ export type GroupMemberRecord = {
   avatarUrl?: string;
 };
 
+// public.group_invitations — a distinct flow from GroupJoinRequest above (owner/admin invites a
+// specific user; that user accepts/declines), never a duplicate of it. 'cancelled' is only ever
+// set by the inviting admin/owner withdrawing a still-pending invitation, never by the invitee.
+export type GroupInvitationStatus = 'pending' | 'accepted' | 'declined' | 'cancelled';
+
+// The invitee's own view of one of their invitations — resolved by (groupId, invitee=self), never
+// carries the raw invitation id client-side since respond_to_group_invitation() looks it up by
+// (group_id, invitee_id) itself (see the migration's own reasoning comment).
+export type GroupInvitation = {
+  groupId: string;
+  inviterId: string;
+  status: GroupInvitationStatus;
+  createdAt: string;
+  createdAtIso: string;
+  respondedAtIso?: string;
+};
+
+// A group admin/owner's view of one pending invitation they sent — used by the "Mitglieder
+// einladen" screen to show "Eingeladen" instead of re-offering the invite button, and to allow
+// withdrawing it.
+export type GroupPendingInvitation = {
+  groupId: string;
+  inviteeId: string;
+  displayName: string;
+  avatarUrl?: string;
+  createdAt: string;
+};
+
 // Local seed groups/requests always use the fixed 'group-...'/'request-...' id scheme (see
 // seedGroups/seedGroupJoinRequests below) — never a UUID. Used to fail closed before ever sending
 // an id to a remote group RPC that expects a real UUID.
