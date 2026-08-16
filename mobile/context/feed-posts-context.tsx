@@ -5,6 +5,7 @@ import { useActiveClub } from '@/context/active-club-context';
 import { useAuth } from '@/context/auth-context';
 import { useProfiles } from '@/context/profile-context';
 import { feedPosts, isMeetupFull, type FeedComment, type FeedPost, type NewFeedPost, type PostMediaItem } from '@/data/feed-posts';
+import { getReportTargetKey, type ReportTargetType } from '@/data/reports';
 import { CURRENT_USER_ID } from '@/data/users';
 import { getInitialsFromName } from '@/lib/map-supabase-profile';
 import {
@@ -165,6 +166,12 @@ type FeedPostsContextValue = {
   // events) — exposed so a screen can decide whether a focus-triggered refresh is actually
   // needed (only when this is not 'subscribed').
   contentVisibilityRealtimeStatus: RealtimeStatus;
+  // True once a moderator has hidden this exact target (via the same content-visibility channel
+  // above) and it hasn't been restored since -- checked by app/post/[id].tsx for both locally-held
+  // and fetchPostById-fallback-loaded content, so an already-open detail screen (or one reached via
+  // the independent-fetch fallback, which bypasses the remotePosts/remoteTrips/etc. list pruning
+  // entirely) stops rendering hidden content instead of leaving it visible indefinitely.
+  isContentHidden: (targetType: ReportTargetType, targetId: string) => boolean;
   // Realtime status of the content-changes channel (new/updated/deleted posts, comments, likes,
   // trips, meetups, attendees, wanted entries from other clients) — same purpose as above, for
   // hooks/use-refresh-on-focus.ts's isRealtimeHealthy input.
@@ -198,6 +205,28 @@ type FeedPostsContextValue = {
   gameBeitraegeError: string | null;
   gameBeitraegeGameId: string | null;
   loadPostsByGame: (gameId: string) => void;
+
+  // "Spiel → Fahrten/Treffen/Gesucht": same reasoning/shape as gameBeitraegePosts above, for the
+  // other three content tables -- full, independent, game_id-only overviews, never derived from
+  // the team-scoped/capped "Für dich" working set (same rule loadPostsByGame already enforces for
+  // Beiträge, previously left unapplied here).
+  gameTripsPosts: FeedPost[];
+  isGameTripsLoading: boolean;
+  gameTripsError: string | null;
+  gameTripsGameId: string | null;
+  loadTripsByGame: (gameId: string) => void;
+
+  gameMeetupsPosts: FeedPost[];
+  isGameMeetupsLoading: boolean;
+  gameMeetupsError: string | null;
+  gameMeetupsGameId: string | null;
+  loadMeetupsByGame: (gameId: string) => void;
+
+  gameWantedPosts: FeedPost[];
+  isGameWantedLoading: boolean;
+  gameWantedError: string | null;
+  gameWantedGameId: string | null;
+  loadWantedByGame: (gameId: string) => void;
 
   // Post Detail fallback: fetches a single post by id directly from public.posts when it isn't
   // already part of the loaded local state (Vorgabe: Für-dich-Ranking ist niemals Source of Truth
@@ -290,6 +319,23 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
   const [isGameBeitraegeLoading, setIsGameBeitraegeLoading] = useState(false);
   const [gameBeitraegeError, setGameBeitraegeError] = useState<string | null>(null);
   const [gameBeitraegeGameId, setGameBeitraegeGameId] = useState<string | null>(null);
+
+  // "Spiel → Fahrten/Treffen/Gesucht": same reasoning as gameBeitraegePosts above, one independent
+  // state slice per table.
+  const [gameTripsPosts, setGameTripsPosts] = useState<FeedPost[]>([]);
+  const [isGameTripsLoading, setIsGameTripsLoading] = useState(false);
+  const [gameTripsError, setGameTripsError] = useState<string | null>(null);
+  const [gameTripsGameId, setGameTripsGameId] = useState<string | null>(null);
+
+  const [gameMeetupsPosts, setGameMeetupsPosts] = useState<FeedPost[]>([]);
+  const [isGameMeetupsLoading, setIsGameMeetupsLoading] = useState(false);
+  const [gameMeetupsError, setGameMeetupsError] = useState<string | null>(null);
+  const [gameMeetupsGameId, setGameMeetupsGameId] = useState<string | null>(null);
+
+  const [gameWantedPosts, setGameWantedPosts] = useState<FeedPost[]>([]);
+  const [isGameWantedLoading, setIsGameWantedLoading] = useState(false);
+  const [gameWantedError, setGameWantedError] = useState<string | null>(null);
+  const [gameWantedGameId, setGameWantedGameId] = useState<string | null>(null);
 
   const [remotePosts, setRemotePosts] = useState<FeedPost[]>([]);
   const [remoteAuthorProfiles, setRemoteAuthorProfiles] = useState<Record<string, AuthorDisplay>>({});
@@ -913,6 +959,15 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
   const [contentVisibilityReconnectToken, setContentVisibilityReconnectToken] = useState(0);
   const contentVisibilityRealtimeStatusRef = useRef<RealtimeStatus>('idle');
 
+  // `${targetType}:${targetId}` keys for content a moderator has currently hidden. Unlike the
+  // remotePosts/remoteTrips/etc. pruning below (which only removes an item from the shared list
+  // caches), this is checked directly by app/post/[id].tsx so a detail screen already open on that
+  // exact content -- or one reached moments later via the independent fetchPostById fallback,
+  // which queries the content tables directly and is therefore not affected by the list pruning at
+  // all -- also stops rendering it, instead of a moderator's hide action leaving that one screen
+  // showing (or briefly re-showing) removed content indefinitely.
+  const [hiddenContentKeys, setHiddenContentKeys] = useState<Set<string>>(new Set());
+
   useEffect(() => {
     contentVisibilityRealtimeStatusRef.current = contentVisibilityRealtimeStatus;
   }, [contentVisibilityRealtimeStatus]);
@@ -931,6 +986,18 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
     const action = row.action as string;
 
     if (action === 'hidden') {
+      if (targetType === 'post' || targetType === 'trip' || targetType === 'meetup' || targetType === 'wanted_entry') {
+        // Client vocabulary calls a Gesucht/wanted_entry target 'request' (see
+        // lib/map-supabase-content-restriction.ts) -- translated here so isContentHidden below can
+        // be called with the same ReportTargetType every other safety check already uses.
+        const clientTargetType: ReportTargetType = targetType === 'wanted_entry' ? 'request' : targetType;
+        setHiddenContentKeys((current) => {
+          const next = new Set(current);
+          next.add(getReportTargetKey(clientTargetType, targetId));
+          return next;
+        });
+      }
+
       if (targetType === 'post') {
         setRemotePosts((current) => current.filter((post) => post.id !== targetId));
       } else if (targetType === 'trip') {
@@ -954,6 +1021,16 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
     }
 
     if (action === 'restored') {
+      if (targetType === 'post' || targetType === 'trip' || targetType === 'meetup' || targetType === 'wanted_entry') {
+        const clientTargetType: ReportTargetType = targetType === 'wanted_entry' ? 'request' : targetType;
+        setHiddenContentKeys((current) => {
+          if (!current.has(getReportTargetKey(clientTargetType, targetId))) return current;
+          const next = new Set(current);
+          next.delete(getReportTargetKey(clientTargetType, targetId));
+          return next;
+        });
+      }
+
       if (targetType === 'post' || targetType === 'comment') {
         refreshRemotePosts();
       } else if (targetType === 'trip') {
@@ -975,6 +1052,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!authUserId) {
       setContentVisibilityRealtimeStatus('idle');
+      setHiddenContentKeys(new Set());
       return;
     }
 
@@ -2174,22 +2252,32 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
   // sorting. Meetups are additionally queried ordered by starts_at (soonest first) so that
   // dimension is preserved on remoteMeetups itself, even though this shared merge re-sorts by
   // creation time for a single, predictable ordering across all categories.
+  //
+  // Local seed posts are gated to their own club (data/feed-posts.ts's own header comment already
+  // documents this exact invariant: "seed content must never bypass the team_id filter (only
+  // visible when Arminia is the active club)") -- restored here because the merge below had no
+  // such gate, so every real account browsing any club was seeing all 10 fake seed posts
+  // (fabricated authors like "Mina K.") mixed indistinguishably into their real "Für dich" feed.
+  // Every seed post already carries teamId (data/feed-posts.ts:385), so a plain equality filter is
+  // sufficient -- no new field, no new architecture.
   const posts = useMemo(() => {
     const remoteCombined = [...remotePosts, ...remoteTrips, ...remoteMeetups, ...remoteWantedEntries].sort(
       (a, b) => getCreatedAtMs(b) - getCreatedAtMs(a),
     );
 
+    const clubScopedLocalPosts = localPosts.filter((post) => post.teamId === activeTeamId);
+
     const seenIds = new Set<string>();
     const merged: FeedPost[] = [];
 
-    for (const post of [...remoteCombined, ...localPosts]) {
+    for (const post of [...remoteCombined, ...clubScopedLocalPosts]) {
       if (seenIds.has(post.id)) continue;
       seenIds.add(post.id);
       merged.push(post);
     }
 
     return merged;
-  }, [remotePosts, remoteTrips, remoteMeetups, remoteWantedEntries, localPosts]);
+  }, [remotePosts, remoteTrips, remoteMeetups, remoteWantedEntries, localPosts, activeTeamId]);
 
   // A profile's own content, independent of activeTeamId (Vorgabe O) -- first resolves this
   // user's own id lists across all four tables (cheap, id-only queries, not team-scoped), then
@@ -2371,27 +2459,182 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
     })();
   };
 
-  // Post-Detail-Fallback: when a post isn't part of the currently loaded local state (not in
+  // "Spiel → Fahrten": same reasoning/shape as loadPostsByGame above, against public.trips.
+  const loadTripsByGame = (gameId: string) => {
+    if (!authUserId) return;
+
+    setIsGameTripsLoading(true);
+    setGameTripsError(null);
+
+    (async () => {
+      const { data: idRows, error: idsError } = await supabase
+        .from('trips')
+        .select('id')
+        .eq('game_id', gameId)
+        .order('created_at', { ascending: false })
+        .limit(STADION_BEITRAEGE_LIMIT);
+
+      if (idsError) {
+        setGameTripsError(mapPostError(idsError));
+        setIsGameTripsLoading(false);
+        return;
+      }
+
+      const tripIds = (idRows ?? []).map((row) => row.id as string);
+
+      if (tripIds.length === 0) {
+        setGameTripsPosts([]);
+        setGameTripsGameId(gameId);
+        setIsGameTripsLoading(false);
+        return;
+      }
+
+      const { resolved, error: resolveError } = await resolveContentByIds(authUserId, { postIds: [], tripIds, meetupIds: [], wantedIds: [] });
+
+      if (resolveError) {
+        setGameTripsError(resolveError);
+        setIsGameTripsLoading(false);
+        return;
+      }
+
+      const sortedTrips = [...resolved.values()].sort((a, b) => getCreatedAtMs(b) - getCreatedAtMs(a));
+
+      setGameTripsPosts(sortedTrips);
+      setGameTripsGameId(gameId);
+      setIsGameTripsLoading(false);
+    })();
+  };
+
+  // "Spiel → Treffen": same reasoning/shape as loadPostsByGame above, against public.meetups.
+  const loadMeetupsByGame = (gameId: string) => {
+    if (!authUserId) return;
+
+    setIsGameMeetupsLoading(true);
+    setGameMeetupsError(null);
+
+    (async () => {
+      const { data: idRows, error: idsError } = await supabase
+        .from('meetups')
+        .select('id')
+        .eq('game_id', gameId)
+        .order('created_at', { ascending: false })
+        .limit(STADION_BEITRAEGE_LIMIT);
+
+      if (idsError) {
+        setGameMeetupsError(mapPostError(idsError));
+        setIsGameMeetupsLoading(false);
+        return;
+      }
+
+      const meetupIds = (idRows ?? []).map((row) => row.id as string);
+
+      if (meetupIds.length === 0) {
+        setGameMeetupsPosts([]);
+        setGameMeetupsGameId(gameId);
+        setIsGameMeetupsLoading(false);
+        return;
+      }
+
+      const { resolved, error: resolveError } = await resolveContentByIds(authUserId, { postIds: [], tripIds: [], meetupIds, wantedIds: [] });
+
+      if (resolveError) {
+        setGameMeetupsError(resolveError);
+        setIsGameMeetupsLoading(false);
+        return;
+      }
+
+      const sortedMeetups = [...resolved.values()].sort((a, b) => getCreatedAtMs(b) - getCreatedAtMs(a));
+
+      setGameMeetupsPosts(sortedMeetups);
+      setGameMeetupsGameId(gameId);
+      setIsGameMeetupsLoading(false);
+    })();
+  };
+
+  // "Spiel → Gesucht": same reasoning/shape as loadPostsByGame above, against public.wanted_entries.
+  const loadWantedByGame = (gameId: string) => {
+    if (!authUserId) return;
+
+    setIsGameWantedLoading(true);
+    setGameWantedError(null);
+
+    (async () => {
+      const { data: idRows, error: idsError } = await supabase
+        .from('wanted_entries')
+        .select('id')
+        .eq('game_id', gameId)
+        .order('created_at', { ascending: false })
+        .limit(STADION_BEITRAEGE_LIMIT);
+
+      if (idsError) {
+        setGameWantedError(mapPostError(idsError));
+        setIsGameWantedLoading(false);
+        return;
+      }
+
+      const wantedIds = (idRows ?? []).map((row) => row.id as string);
+
+      if (wantedIds.length === 0) {
+        setGameWantedPosts([]);
+        setGameWantedGameId(gameId);
+        setIsGameWantedLoading(false);
+        return;
+      }
+
+      const { resolved, error: resolveError } = await resolveContentByIds(authUserId, { postIds: [], tripIds: [], meetupIds: [], wantedIds });
+
+      if (resolveError) {
+        setGameWantedError(resolveError);
+        setIsGameWantedLoading(false);
+        return;
+      }
+
+      const sortedWanted = [...resolved.values()].sort((a, b) => getCreatedAtMs(b) - getCreatedAtMs(a));
+
+      setGameWantedPosts(sortedWanted);
+      setGameWantedGameId(gameId);
+      setIsGameWantedLoading(false);
+    })();
+  };
+
+  // Post-Detail-Fallback: when content isn't part of the currently loaded local state (not in
   // `posts` -- team-scoped and capped -- and not a saved item), fetch it directly by id instead of
   // reporting "nicht gefunden" just because the personalized feed/team scope never loaded it
-  // (Vorgabe: Für-dich-Ranking ist niemals Source of Truth für Post Detail). Scoped to public.posts
-  // specifically -- the reported bug and this round's scope are both about "Beiträge"; Fahrten/
-  // Gesucht detail pages share the same underlying pattern but are untouched here.
+  // (Vorgabe: Für-dich-Ranking ist niemals Source of Truth für Post Detail). app/post/[id].tsx
+  // renders Beitrag AND Fahrt AND Gesuch detail (getPostDetailPathname only routes Treffpunkt to
+  // its own /meetup/[id] screen) -- so this checks all three tables the id could belong to, not
+  // just public.posts, otherwise a Fahrt/Gesuch outside the working set falsely showed "nicht
+  // gefunden" even though it exists. Three cheap indexed-PK lookups in parallel, then a single
+  // resolveContentByIds call scoped to whichever table actually matched.
   const fetchPostById = async (postId: string): Promise<{ post: FeedPost | null; error: string | null }> => {
     if (!authUserId) return { post: null, error: null };
 
-    const { data: row, error } = await supabase.from('posts').select(POSTS_SELECT_COLUMNS).eq('id', postId).maybeSingle();
+    const [postRowResult, tripRowResult, wantedRowResult] = await Promise.all([
+      supabase.from('posts').select('id').eq('id', postId).maybeSingle(),
+      supabase.from('trips').select('id').eq('id', postId).maybeSingle(),
+      supabase.from('wanted_entries').select('id').eq('id', postId).maybeSingle(),
+    ]);
 
-    if (error) {
-      return { post: null, error: mapPostError(error) };
+    const firstError = postRowResult.error ?? tripRowResult.error ?? wantedRowResult.error;
+
+    if (firstError) {
+      return { post: null, error: mapPostError(firstError) };
     }
 
-    if (!row) {
-      // Genuinely no such row (or RLS-hidden) -- a real "not found", not a loading artifact.
+    const idsByCategory = {
+      postIds: postRowResult.data ? [postId] : [],
+      tripIds: tripRowResult.data ? [postId] : [],
+      meetupIds: [],
+      wantedIds: wantedRowResult.data ? [postId] : [],
+    };
+
+    if (idsByCategory.postIds.length === 0 && idsByCategory.tripIds.length === 0 && idsByCategory.wantedIds.length === 0) {
+      // Genuinely no such row in any of the three tables (or RLS-hidden) -- a real "not found",
+      // not a loading artifact.
       return { post: null, error: null };
     }
 
-    const { resolved, error: resolveError } = await resolveContentByIds(authUserId, { postIds: [postId], tripIds: [], meetupIds: [], wantedIds: [] });
+    const { resolved, error: resolveError } = await resolveContentByIds(authUserId, idsByCategory);
 
     if (resolveError) {
       return { post: null, error: resolveError };
@@ -2399,6 +2642,9 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
 
     return { post: resolved.get(postId) ?? null, error: null };
   };
+
+  const isContentHidden = (targetType: ReportTargetType, targetId: string): boolean =>
+    hiddenContentKeys.has(getReportTargetKey(targetType, targetId));
 
   const getPostById = (id: string) => posts.find((post) => post.id === id);
 
@@ -2599,6 +2845,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       createRemoteWantedEntry,
       toggleRemoteWantedLike,
       contentVisibilityRealtimeStatus,
+      isContentHidden,
       contentChangesRealtimeStatus,
       loadUserContent,
       getUserContentState,
@@ -2612,6 +2859,21 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       gameBeitraegeError,
       gameBeitraegeGameId,
       loadPostsByGame,
+      gameTripsPosts,
+      isGameTripsLoading,
+      gameTripsError,
+      gameTripsGameId,
+      loadTripsByGame,
+      gameMeetupsPosts,
+      isGameMeetupsLoading,
+      gameMeetupsError,
+      gameMeetupsGameId,
+      loadMeetupsByGame,
+      gameWantedPosts,
+      isGameWantedLoading,
+      gameWantedError,
+      gameWantedGameId,
+      loadWantedByGame,
       fetchPostById,
     }),
     [
@@ -2634,6 +2896,7 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       currentUser,
       authUserId,
       contentVisibilityRealtimeStatus,
+      hiddenContentKeys,
       contentChangesRealtimeStatus,
       stadionBeitraegePosts,
       isStadionBeitraegeLoading,
@@ -2643,6 +2906,18 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       isGameBeitraegeLoading,
       gameBeitraegeError,
       gameBeitraegeGameId,
+      gameTripsPosts,
+      isGameTripsLoading,
+      gameTripsError,
+      gameTripsGameId,
+      gameMeetupsPosts,
+      isGameMeetupsLoading,
+      gameMeetupsError,
+      gameMeetupsGameId,
+      gameWantedPosts,
+      isGameWantedLoading,
+      gameWantedError,
+      gameWantedGameId,
     ],
   );
 

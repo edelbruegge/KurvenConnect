@@ -599,10 +599,18 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
 
       const newMessage = mapSupabaseMessageToMessage(data as SupabaseMessageRow);
 
-      setRemoteMessagesByConversationId((current) => ({
-        ...current,
-        [input.conversationId]: [...(current[input.conversationId] ?? []), newMessage],
-      }));
+      // Same existing-id guard as the realtime INSERT handler above -- the realtime echo of this
+      // exact row can arrive before this insert().select() response does, and without this check
+      // both paths would append the same message, producing a duplicate bubble.
+      setRemoteMessagesByConversationId((current) => {
+        const existing = current[input.conversationId] ?? [];
+
+        if (existing.some((entry) => entry.id === newMessage.id)) {
+          return current;
+        }
+
+        return { ...current, [input.conversationId]: [...existing, newMessage] };
+      });
 
       setRemoteConversations((current) =>
         current.map((conversation) =>

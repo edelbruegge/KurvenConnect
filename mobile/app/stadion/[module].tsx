@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -12,7 +12,7 @@ import { useFeedPosts } from '@/context/feed-posts-context';
 import { useGameFollows } from '@/context/game-follows-context';
 import { useGames } from '@/context/games-context';
 import type { Game } from '@/data/database-games';
-import { getPostDetailPathname, getPostGameId, type FeedPost } from '@/data/feed-posts';
+import { getPostDetailPathname, type FeedPost } from '@/data/feed-posts';
 import { useVisiblePosts } from '@/hooks/use-visible-posts';
 
 const PREVIEW_COUNT = 3;
@@ -21,7 +21,6 @@ export default function StadionModuleScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ module?: string; gameId?: string; gameLabel?: string }>();
   const {
-    posts,
     toggleLike,
     stadionBeitraegePosts,
     isStadionBeitraegeLoading,
@@ -33,8 +32,22 @@ export default function StadionModuleScreen() {
     gameBeitraegeError,
     gameBeitraegeGameId,
     loadPostsByGame,
+    gameTripsPosts,
+    isGameTripsLoading,
+    gameTripsError,
+    gameTripsGameId,
+    loadTripsByGame,
+    gameMeetupsPosts,
+    isGameMeetupsLoading,
+    gameMeetupsError,
+    gameMeetupsGameId,
+    loadMeetupsByGame,
+    gameWantedPosts,
+    isGameWantedLoading,
+    gameWantedError,
+    gameWantedGameId,
+    loadWantedByGame,
   } = useFeedPosts();
-  const visiblePosts = useVisiblePosts(posts);
   const { activeTeam, activeTeamId } = useActiveClub();
   const { getGameById } = useGames();
 
@@ -69,29 +82,34 @@ export default function StadionModuleScreen() {
   const visibleStadionBeitraege = useVisiblePosts(stadionBeitraegeTeamId === activeTeamId ? stadionBeitraegePosts : []);
   const isClubWideBeitraegeLoading = isStadionBeitraegeLoading || stadionBeitraegeTeamId !== activeTeamId;
 
-  // "Spiel → Beiträge" (Übersicht-Vorschau UND vollständige Liste): its own independent, NOT
-  // team_id-filtered query (feed-posts-context.tsx's loadPostsByGame) -- a shared real-world match
-  // can have posts from either club's fans, and some legacy posts carry game_id with team_id = NULL
-  // (see report), both of which the old `visiblePosts`-derived filter below silently excluded since
-  // `posts` itself is already `.eq('team_id', activeTeamId)`. Fahrten/Treffen/Gesucht are untouched
-  // -- out of this fix's scope.
+  // "Spiel → Beiträge/Fahrten/Treffen/Gesucht" (Übersicht-Vorschau UND vollständige Liste): each
+  // its own independent, NOT team_id-filtered query (feed-posts-context.tsx's loadPostsByGame/
+  // loadTripsByGame/loadMeetupsByGame/loadWantedByGame) -- a shared real-world match can have
+  // content from either club's fans, and some legacy posts carry game_id with team_id = NULL (see
+  // report), both of which a `posts`-state-derived filter would silently exclude since that shared
+  // state is already `.eq('team_id', activeTeamId)` and capped for the "Für dich" feed's own
+  // purposes. Fahrten/Treffen/Gesucht previously used exactly that excluding filter -- fixed here
+  // to match the same independent-query pattern Beiträge already used.
   useEffect(() => {
     if (!gameId) return;
     loadPostsByGame(gameId);
+    loadTripsByGame(gameId);
+    loadMeetupsByGame(gameId);
+    loadWantedByGame(gameId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameId]);
 
   const visibleGameBeitraege = useVisiblePosts(gameBeitraegeGameId === gameId ? gameBeitraegePosts : []);
   const isGameBeitraegeReady = gameBeitraegeGameId === gameId && !isGameBeitraegeLoading;
 
-  const gamePosts = useMemo(() => {
-    const forGame = visiblePosts.filter((post) => getPostGameId(post) === gameId);
-    return {
-      fahrten: forGame.filter((post) => post.category === 'Fahrt'),
-      treffen: forGame.filter((post) => post.category === 'Treffpunkt'),
-      gesucht: forGame.filter((post) => post.category === 'Gesuch'),
-    };
-  }, [visiblePosts, gameId]);
+  const visibleGameTrips = useVisiblePosts(gameTripsGameId === gameId ? gameTripsPosts : []);
+  const isGameTripsReady = gameTripsGameId === gameId && !isGameTripsLoading;
+
+  const visibleGameMeetups = useVisiblePosts(gameMeetupsGameId === gameId ? gameMeetupsPosts : []);
+  const isGameMeetupsReady = gameMeetupsGameId === gameId && !isGameMeetupsLoading;
+
+  const visibleGameWanted = useVisiblePosts(gameWantedGameId === gameId ? gameWantedPosts : []);
+  const isGameWantedReady = gameWantedGameId === gameId && !isGameWantedLoading;
 
   const handleOpenPost = (post: FeedPost) => {
     router.push({ pathname: getPostDetailPathname(post), params: { id: post.id } });
@@ -162,8 +180,20 @@ export default function StadionModuleScreen() {
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         {activeModule === 'uebersicht' ? (
           <>
-            {renderOverviewSection('Fahrten', gamePosts.fahrten, 'fahrten', 'Noch keine Fahrten zu diesem Spiel.', renderTripList)}
-            {renderOverviewSection('Treffen', gamePosts.treffen, 'treffen', 'Noch keine Treffen zu diesem Spiel.', renderPostList)}
+            {renderOverviewSection(
+              'Fahrten',
+              isGameTripsReady ? visibleGameTrips : [],
+              'fahrten',
+              gameTripsError ? gameTripsError : isGameTripsReady ? 'Noch keine Fahrten zu diesem Spiel.' : 'Fahrten werden geladen …',
+              renderTripList,
+            )}
+            {renderOverviewSection(
+              'Treffen',
+              isGameMeetupsReady ? visibleGameMeetups : [],
+              'treffen',
+              gameMeetupsError ? gameMeetupsError : isGameMeetupsReady ? 'Noch keine Treffen zu diesem Spiel.' : 'Treffen werden geladen …',
+              renderPostList,
+            )}
             {renderOverviewSection(
               'Beiträge',
               isGameBeitraegeReady ? visibleGameBeitraege : [],
@@ -171,23 +201,51 @@ export default function StadionModuleScreen() {
               gameBeitraegeError ? gameBeitraegeError : isGameBeitraegeReady ? 'Noch keine Beiträge zu diesem Spiel.' : 'Beiträge werden geladen …',
               renderPostList,
             )}
-            {renderOverviewSection('Gesucht', gamePosts.gesucht, 'gesucht', 'Noch keine Gesucht-Einträge zu diesem Spiel.', renderPostList)}
+            {renderOverviewSection(
+              'Gesucht',
+              isGameWantedReady ? visibleGameWanted : [],
+              'gesucht',
+              gameWantedError ? gameWantedError : isGameWantedReady ? 'Noch keine Gesucht-Einträge zu diesem Spiel.' : 'Gesucht-Einträge werden geladen …',
+              renderPostList,
+            )}
           </>
         ) : null}
 
         {activeModule === 'fahrten' ? (
-          gamePosts.fahrten.length === 0 ? (
+          gameTripsError ? (
+            <View style={styles.remoteErrorBanner}>
+              <Text style={styles.remoteErrorText}>{gameTripsError}</Text>
+              <Pressable onPress={() => gameId && loadTripsByGame(gameId)} accessibilityRole="button" accessibilityLabel="Erneut versuchen">
+                <Text style={styles.remoteErrorRetry}>Erneut versuchen</Text>
+              </Pressable>
+            </View>
+          ) : !isGameTripsReady ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color={FeedColors.textPrimary} />
+            </View>
+          ) : visibleGameTrips.length === 0 ? (
             <EmptyModuleState text="Noch keine Fahrten zu diesem Spiel vorhanden." />
           ) : (
-            renderTripList(gamePosts.fahrten)
+            renderTripList(visibleGameTrips)
           )
         ) : null}
 
         {activeModule === 'treffen' ? (
-          gamePosts.treffen.length === 0 ? (
+          gameMeetupsError ? (
+            <View style={styles.remoteErrorBanner}>
+              <Text style={styles.remoteErrorText}>{gameMeetupsError}</Text>
+              <Pressable onPress={() => gameId && loadMeetupsByGame(gameId)} accessibilityRole="button" accessibilityLabel="Erneut versuchen">
+                <Text style={styles.remoteErrorRetry}>Erneut versuchen</Text>
+              </Pressable>
+            </View>
+          ) : !isGameMeetupsReady ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color={FeedColors.textPrimary} />
+            </View>
+          ) : visibleGameMeetups.length === 0 ? (
             <EmptyModuleState text="Noch keine Treffen zu diesem Spiel vorhanden." />
           ) : (
-            renderPostList(gamePosts.treffen)
+            renderPostList(visibleGameMeetups)
           )
         ) : null}
 
@@ -232,10 +290,21 @@ export default function StadionModuleScreen() {
         ) : null}
 
         {activeModule === 'gesucht' ? (
-          gamePosts.gesucht.length === 0 ? (
+          gameWantedError ? (
+            <View style={styles.remoteErrorBanner}>
+              <Text style={styles.remoteErrorText}>{gameWantedError}</Text>
+              <Pressable onPress={() => gameId && loadWantedByGame(gameId)} accessibilityRole="button" accessibilityLabel="Erneut versuchen">
+                <Text style={styles.remoteErrorRetry}>Erneut versuchen</Text>
+              </Pressable>
+            </View>
+          ) : !isGameWantedReady ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color={FeedColors.textPrimary} />
+            </View>
+          ) : visibleGameWanted.length === 0 ? (
             <EmptyModuleState text="Noch keine Gesucht-Einträge zu diesem Spiel vorhanden." />
           ) : (
-            renderPostList(gamePosts.gesucht)
+            renderPostList(visibleGameWanted)
           )
         ) : null}
       </ScrollView>

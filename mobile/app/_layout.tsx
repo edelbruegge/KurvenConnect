@@ -138,6 +138,15 @@ function RootNavigator() {
             name="group/[id]/members"
             options={{ title: 'Mitglieder', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
           />
+          <Stack.Screen name="group/[id]/chat" options={{ headerShown: false }} />
+          <Stack.Screen
+            name="group/[id]/edit"
+            options={{ title: 'Gruppe bearbeiten', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
+          />
+          <Stack.Screen
+            name="group/[id]/transfer-ownership"
+            options={{ title: 'Inhaberschaft übertragen', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
+          />
           <Stack.Screen
             name="saved"
             options={{ title: 'Gespeichert', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}

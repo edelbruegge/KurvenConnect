@@ -36,6 +36,7 @@ export default function PostDetailScreen() {
     cancelRemoteTripRequest,
     pendingRequestCountForTrip,
     fetchPostById,
+    isContentHidden,
   } = useFeedPosts();
   const { getOrCreateConversation, getOrCreateDirectConversation } = useMessages();
   const { isSaved, toggleSaved, getSavedContent } = useSaved();
@@ -142,6 +143,16 @@ export default function PostDetailScreen() {
   }
 
   if (isModeratedAway(getReportTargetTypeForPost(post.category), post.id, post.userId)) {
+    return <NotFoundView title="Inhalt nicht verfügbar" message="Dieser Inhalt wurde moderativ ausgeblendet." />;
+  }
+
+  // Real, server-driven moderation signal (content_restrictions via the content-visibility
+  // realtime channel) -- distinct from isModeratedAway above (local/demo-only). Checked in
+  // addition to it so a screen already open on this exact content, or one reached moments later
+  // through the independent fetchPostById fallback (which queries the content tables directly and
+  // is therefore unaffected by the list-pruning that same channel already does for remotePosts/
+  // remoteTrips/etc.), stops rendering hidden content instead of leaving it visible.
+  if (isContentHidden(getReportTargetTypeForPost(post.category), post.id)) {
     return <NotFoundView title="Inhalt nicht verfügbar" message="Dieser Inhalt wurde moderativ ausgeblendet." />;
   }
 
