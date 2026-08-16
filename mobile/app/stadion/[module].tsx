@@ -5,10 +5,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { FeedPostCard } from '@/components/feed/feed-post-card';
 import { TripCard } from '@/components/trips/trip-card';
-import { FeedColors, FontSizes, Spacing } from '@/constants/theme';
+import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
 import { STADION_MODULES, type StadionModule } from '@/constants/stadion-modules';
 import { useActiveClub } from '@/context/active-club-context';
 import { useFeedPosts } from '@/context/feed-posts-context';
+import { useGames } from '@/context/games-context';
+import type { Game } from '@/data/database-games';
 import { getPostDetailPathname, getPostGameId, type FeedPost } from '@/data/feed-posts';
 import { useVisiblePosts } from '@/hooks/use-visible-posts';
 
@@ -33,6 +35,7 @@ export default function StadionModuleScreen() {
   } = useFeedPosts();
   const visiblePosts = useVisiblePosts(posts);
   const { activeTeam, activeTeamId } = useActiveClub();
+  const { getGameById } = useGames();
 
   const activeModule: StadionModule = STADION_MODULES.some((module) => module.key === params.module)
     ? (params.module as StadionModule)
@@ -40,6 +43,12 @@ export default function StadionModuleScreen() {
   const gameId = params.gameId || null;
   const gameLabel = params.gameLabel || null;
   const moduleMeta = STADION_MODULES.find((module) => module.key === activeModule);
+  // Spieltag-Zentrale: the full Game record (competition/matchday/kickoff/score/stadium), looked
+  // up from the already app-wide loaded GamesContext -- zero new query. Only rendered as the rich
+  // header on the Übersicht hub itself; every other module (reached via "Alle anzeigen") keeps the
+  // existing simple title/subtitle header unchanged.
+  const selectedGame = gameId ? getGameById(gameId) : undefined;
+  const isSpieltagZentrale = activeModule === 'uebersicht' && Boolean(gameId) && Boolean(selectedGame);
 
   // "Stadion → Beiträge" reached without a gameId is the vereinsweite vollständige Übersicht --
   // loaded from its own independent, non-ranked, non-limited query (feed-posts-context.tsx's
@@ -116,7 +125,10 @@ export default function StadionModuleScreen() {
   ) => (
     <View style={styles.overviewSection}>
       <View style={styles.overviewSectionHeader}>
-        <Text style={styles.overviewSectionTitle}>{title}</Text>
+        <Text style={styles.overviewSectionTitle}>
+          {title}
+          {items.length > 0 ? ` (${items.length})` : ''}
+        </Text>
         {items.length > 0 ? (
           <Pressable onPress={() => handleOpenModule(module)} accessibilityRole="button" accessibilityLabel={`Alle ${title} anzeigen`}>
             <Text style={styles.overviewAllLink}>Alle anzeigen</Text>
@@ -134,10 +146,16 @@ export default function StadionModuleScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.header}>
-        <Text style={styles.title}>{moduleMeta?.label ?? 'Stadion'}</Text>
-        <Text style={styles.subtitle}>
-          {activeModule === 'beitraege' && !gameId ? `Alle Beiträge von ${activeTeam?.teamName ?? 'deinem Verein'}` : (gameLabel ?? 'Kein Spiel ausgewählt')}
-        </Text>
+        {isSpieltagZentrale && selectedGame ? (
+          <GameHeader game={selectedGame} />
+        ) : (
+          <>
+            <Text style={styles.title}>{moduleMeta?.label ?? 'Stadion'}</Text>
+            <Text style={styles.subtitle}>
+              {activeModule === 'beitraege' && !gameId ? `Alle Beiträge von ${activeTeam?.teamName ?? 'deinem Verein'}` : (gameLabel ?? 'Kein Spiel ausgewählt')}
+            </Text>
+          </>
+        )}
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
@@ -232,6 +250,39 @@ function EmptyModuleState({ text }: { text: string }) {
   );
 }
 
+// Spieltag-Zentrale header: every line is conditional on the field actually being present on
+// `Game` (data/database-games.ts already types every non-guaranteed field as nullable/optional) --
+// never a fabricated date, score, or competition. Mirrors the same omission pattern
+// components/stadion/game-selector.tsx's GameSummaryLines already uses. `status` only ever holds
+// 'finished' or 'scheduled' in the real synced data (supabase/functions/sync-football-games) -- no
+// "live" state is invented here.
+function GameHeader({ game }: { game: Game }) {
+  const metaLine = [game.competition, game.matchday != null ? `${game.matchday}. Spieltag` : undefined].filter(Boolean).join(' · ');
+  const hasScore = game.homeScore != null && game.awayScore != null;
+  const stadiumLine = game.stadiumName ? [game.stadiumName, game.stadiumCity].filter(Boolean).join(' · ') : undefined;
+
+  return (
+    <View>
+      {metaLine ? <Text style={styles.gameHeaderMeta}>{metaLine}</Text> : null}
+      <Text style={styles.title}>
+        {game.homeTeam} – {game.awayTeam}
+      </Text>
+      <View style={styles.gameHeaderStatusRow}>
+        <View style={styles.gameHeaderBadge}>
+          <Text style={styles.gameHeaderBadgeText}>{game.status === 'finished' ? 'Beendet' : 'Kommend'}</Text>
+        </View>
+        {hasScore ? (
+          <Text style={styles.gameHeaderScore}>
+            {game.homeScore} : {game.awayScore}
+          </Text>
+        ) : null}
+      </View>
+      {game.kickoffAt ? <Text style={styles.gameHeaderDetail}>{game.kickoffAt}</Text> : null}
+      {stadiumLine ? <Text style={styles.gameHeaderDetail}>{stadiumLine}</Text> : null}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
@@ -253,6 +304,41 @@ const styles = StyleSheet.create({
     color: FeedColors.textSecondary,
     fontSize: FontSizes.subtitle,
     marginTop: 4,
+  },
+  gameHeaderMeta: {
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.meta,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  gameHeaderStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginTop: Spacing.xs,
+  },
+  gameHeaderBadge: {
+    backgroundColor: ClubColors.surface,
+    borderWidth: 1,
+    borderColor: ClubColors.border,
+    borderRadius: Radii.round,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.xs,
+  },
+  gameHeaderBadgeText: {
+    color: FeedColors.textPrimary,
+    fontSize: FontSizes.badge,
+    fontWeight: '700',
+  },
+  gameHeaderScore: {
+    color: FeedColors.textPrimary,
+    fontSize: FontSizes.body,
+    fontWeight: '700',
+  },
+  gameHeaderDetail: {
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.meta,
+    marginTop: 2,
   },
   scroll: {
     flex: 1,
