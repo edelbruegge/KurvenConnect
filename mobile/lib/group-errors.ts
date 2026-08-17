@@ -29,7 +29,9 @@ export function mapGroupError(
     | 'transferOwnership'
     | 'invite'
     | 'respond'
-    | 'cancelInvitation',
+    | 'cancelInvitation'
+    | 'setGroupType'
+    | 'delete',
 ): string {
   const rawMessage = error instanceof Error ? error.message : String((error as { message?: string })?.message ?? error ?? '');
   const message = rawMessage.toLowerCase();
@@ -65,7 +67,11 @@ export function mapGroupError(
                             ? 'Die Einladung konnte nicht gesendet werden.'
                             : context === 'respond'
                               ? 'Die Einladung konnte nicht bearbeitet werden.'
-                              : 'Die Einladung konnte nicht zurückgezogen werden.';
+                              : context === 'cancelInvitation'
+                                ? 'Die Einladung konnte nicht zurückgezogen werden.'
+                                : context === 'setGroupType'
+                                  ? 'Die Gruppenstruktur konnte nicht geändert werden.'
+                                  : 'Die Gruppe konnte nicht gelöscht werden.';
 
   if (!message) {
     return genericMessage;
@@ -91,12 +97,66 @@ export function mapGroupError(
     return 'Bitte wähle eine gültige Sichtbarkeit.';
   }
 
+  if (message.includes('invalid group type')) {
+    return 'Bitte wähle eine gültige Gruppenstruktur.';
+  }
+
+  // Order matters below: these are all more specific than the generic "not authorized"/"not a
+  // member" checks further down, so they must be matched first.
+  if (message.includes('parent group is required')) {
+    return 'Bitte wähle eine Hauptgruppe aus.';
+  }
+
+  if (message.includes('parent group not found')) {
+    return 'Die Hauptgruppe ist nicht mehr verfügbar.';
+  }
+
+  if (message.includes('parent is not a main group')) {
+    return 'Diese Gruppe ist keine Hauptgruppe.';
+  }
+
+  if (message.includes('parent group only allowed for subgroups')) {
+    return 'Eine Hauptgruppe ist nur für Untergruppen zulässig.';
+  }
+
+  if (message.includes('not authorized for parent group')) {
+    return 'Du bist nicht berechtigt, für diese Hauptgruppe eine Untergruppe zu erstellen.';
+  }
+
+  if (message.includes('subgroup less protected than parent') || message.includes('less protected than parent')) {
+    return 'Die Sichtbarkeit der Untergruppe darf nicht offener sein als die der Hauptgruppe.';
+  }
+
+  if (message.includes('subgroups less protected')) {
+    return 'Passe zuerst die Sichtbarkeit der Untergruppen an.';
+  }
+
+  if (message.includes('invitee not a member of parent group')) {
+    return 'Dieser Nutzer ist noch kein Mitglied der Hauptgruppe.';
+  }
+
+  if (message.includes('not a member of parent group')) {
+    return 'Du bist kein Mitglied der Hauptgruppe mehr.';
+  }
+
+  if (message.includes('cannot change type of a subgroup')) {
+    return 'Die Struktur einer Untergruppe kann nicht geändert werden.';
+  }
+
+  if (message.includes('group has subgroups')) {
+    return 'Diese Gruppe hat noch Untergruppen.';
+  }
+
+  if (message.includes('group does not accept join requests')) {
+    return 'Diese Gruppe akzeptiert keine Beitrittsanfragen.';
+  }
+
   if (message.includes('group not found')) {
     return 'Diese Gruppe ist nicht mehr verfügbar.';
   }
 
   if (message.includes('group is private')) {
-    return 'Diese Gruppe ist privat. Du kannst nur eine Beitrittsanfrage senden.';
+    return 'Diese Gruppe kann nicht direkt betreten werden.';
   }
 
   if (message.includes('group is public')) {

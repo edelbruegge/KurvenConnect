@@ -39,7 +39,7 @@ export function GroupRecommendationCard({ group }: GroupRecommendationCardProps)
           <Text style={styles.recommendationBadgeText}>Gruppe für dich</Text>
         </View>
         <View style={styles.visibilityBadge}>
-          <Text style={styles.visibilityBadgeText}>{group.visibility === 'public' ? 'Öffentlich' : 'Privat'}</Text>
+          <Text style={styles.visibilityBadgeText}>{group.visibility === 'public' ? 'Öffentlich' : 'Geschlossen'}</Text>
         </View>
       </View>
 

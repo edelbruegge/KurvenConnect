@@ -50,7 +50,9 @@ export default function GroupMembersScreen() {
   const [actionError, setActionError] = useState<string | null>(null);
 
   // "Mitglieder einladen" — a local, isolated search (never shares state with the main Suchen tab's
-  // global search context), reusing search_profiles() the same way app/(tabs)/search.tsx does.
+  // global search context). Uses search_team_profiles() (search_profiles' own name-match logic +
+  // get_fan_discovery's own team filter, see the migration) so results are scoped to the group's
+  // own club, not every registered user worldwide.
   const [inviteQuery, setInviteQuery] = useState('');
   const [inviteResults, setInviteResults] = useState<InviteSearchResult[]>([]);
   const [isInviteSearching, setIsInviteSearching] = useState(false);
@@ -62,6 +64,14 @@ export default function GroupMembersScreen() {
   const isRemoteGroup = group?.source === 'supabase';
   const remoteMembers = group ? groupMembers[group.id] : undefined;
 
+  // A subgroup may only invite people who are already members of its parent group (Vorgabe 9) --
+  // the RPC enforces this regardless, but proactively loading the parent's member list lets the UI
+  // show *why* a found candidate can't be invited instead of a mysterious failure after tapping
+  // "Einladen". Loaded on demand only, same "never eagerly for every group" convention as the
+  // group's own member list.
+  const isSubgroupInvite = isRemoteGroup && group?.groupType === 'subgroup' && Boolean(group.parentGroupId);
+  const parentMembers = isSubgroupInvite && group?.parentGroupId ? groupMembers[group.parentGroupId] : undefined;
+
   useEffect(() => {
     if (group && isRemoteGroup) {
       refreshGroupMembers(group.id);
@@ -69,35 +79,52 @@ export default function GroupMembersScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [group?.id, isRemoteGroup]);
 
+  useEffect(() => {
+    if (isSubgroupInvite && group?.parentGroupId) {
+      refreshGroupMembers(group.parentGroupId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSubgroupInvite, group?.parentGroupId]);
+
   const trimmedInviteQuery = inviteQuery.trim();
+  const MIN_INVITE_QUERY_LENGTH = 2;
+
+  const runInviteSearch = (query: string) => {
+    if (!group?.clubId) {
+      setInviteSearchError('Die Vereinszugehörigkeit dieser Gruppe konnte nicht ermittelt werden.');
+      setInviteResults([]);
+      return;
+    }
+
+    setIsInviteSearching(true);
+    setInviteSearchError(null);
+
+    supabase
+      .rpc('search_team_profiles', { p_team_id: group.clubId, p_query: query, p_limit: 10 })
+      .then(({ data, error }) => {
+        setIsInviteSearching(false);
+
+        if (error) {
+          setInviteSearchError('Die Suche konnte nicht durchgeführt werden.');
+          setInviteResults([]);
+          return;
+        }
+
+        setInviteResults((data ?? []) as InviteSearchResult[]);
+      });
+  };
 
   useEffect(() => {
-    if (!trimmedInviteQuery) {
+    if (trimmedInviteQuery.length < MIN_INVITE_QUERY_LENGTH) {
       setInviteResults([]);
       setInviteSearchError(null);
       return;
     }
 
-    const timeout = setTimeout(() => {
-      setIsInviteSearching(true);
-      setInviteSearchError(null);
-
-      supabase
-        .rpc('search_profiles', { p_query: trimmedInviteQuery, p_limit: 10 })
-        .then(({ data, error }) => {
-          setIsInviteSearching(false);
-
-          if (error) {
-            setInviteSearchError('Die Suche konnte nicht durchgeführt werden.');
-            setInviteResults([]);
-            return;
-          }
-
-          setInviteResults((data ?? []) as InviteSearchResult[]);
-        });
-    }, 300);
+    const timeout = setTimeout(() => runInviteSearch(trimmedInviteQuery), 300);
 
     return () => clearTimeout(timeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trimmedInviteQuery]);
 
   // Same "not found" vs. "not a member" distinction as app/group/[id].tsx — a removed member
@@ -234,6 +261,9 @@ export default function GroupMembersScreen() {
           {viewerCanInvite ? (
             <View style={styles.inviteCard}>
               <Text style={styles.inviteCardTitle}>Mitglieder einladen</Text>
+              {isSubgroupInvite ? (
+                <Text style={styles.inviteSubgroupHint}>Nur Mitglieder der Hauptgruppe können in diese Untergruppe eingeladen werden.</Text>
+              ) : null}
               <View style={styles.inviteSearchBar}>
                 <TextInput
                   value={inviteQuery}
@@ -251,12 +281,26 @@ export default function GroupMembersScreen() {
                   <ActivityIndicator size="small" color={FeedColors.textSecondary} />
                 </View>
               ) : inviteSearchError ? (
-                <Text style={styles.confirmError}>{inviteSearchError}</Text>
-              ) : trimmedInviteQuery ? (
+                <View>
+                  <Text style={styles.confirmError}>{inviteSearchError}</Text>
+                  <Pressable
+                    onPress={() => runInviteSearch(trimmedInviteQuery)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Suche erneut versuchen"
+                  >
+                    <Text style={styles.inviteRetryText}>Erneut versuchen</Text>
+                  </Pressable>
+                </View>
+              ) : trimmedInviteQuery.length >= MIN_INVITE_QUERY_LENGTH ? (
                 (() => {
                   const memberIds = new Set((remoteMembers ?? []).map((entry) => entry.userId));
                   const pendingInviteeIds = new Set(pendingInvitations.map((entry) => entry.inviteeId));
+                  // Eligibility is filtered *after* the real global search, never by pre-narrowing
+                  // the search itself (Vorgabe 8) -- self and existing members are excluded outright
+                  // (an invite there would never make sense), a subgroup's non-parent-members stay
+                  // in the list but get a disabledReason on their card instead (Vorgabe 9).
                   const candidates = inviteResults.filter((result) => result.id !== authUserId && !memberIds.has(result.id));
+                  const parentMemberIds = parentMembers ? new Set(parentMembers.map((entry) => entry.userId)) : null;
 
                   return candidates.length === 0 ? (
                     <Text style={styles.inviteEmptyText}>Keine passenden Nutzer gefunden.</Text>
@@ -272,6 +316,7 @@ export default function GroupMembersScreen() {
                           location: result.location ?? undefined,
                         }}
                         alreadyInvited={pendingInviteeIds.has(result.id)}
+                        disabledReason={parentMemberIds && !parentMemberIds.has(result.id) ? 'Noch kein Mitglied der Hauptgruppe' : undefined}
                       />
                     ))
                   );
@@ -445,6 +490,17 @@ const styles = StyleSheet.create({
   inviteEmptyText: {
     color: FeedColors.textSecondary,
     fontSize: FontSizes.meta,
+  },
+  inviteSubgroupHint: {
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.meta,
+    marginBottom: Spacing.sm,
+  },
+  inviteRetryText: {
+    color: FeedColors.textPrimary,
+    fontSize: FontSizes.meta,
+    fontWeight: '700',
+    marginTop: Spacing.xs,
   },
   pendingInvitationsTitle: {
     color: FeedColors.textPrimary,

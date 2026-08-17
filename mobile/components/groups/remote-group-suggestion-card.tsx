@@ -60,7 +60,7 @@ export function RemoteGroupSuggestionCard({ suggestion }: RemoteGroupSuggestionC
           <Text style={styles.recommendationBadgeText}>Gruppe für dich</Text>
         </View>
         <View style={styles.visibilityBadge}>
-          <Text style={styles.visibilityBadgeText}>{suggestion.visibility === 'public' ? 'Öffentlich' : 'Privat'}</Text>
+          <Text style={styles.visibilityBadgeText}>{suggestion.visibility === 'public' ? 'Öffentlich' : 'Geschlossen'}</Text>
         </View>
       </View>
 

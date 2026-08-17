@@ -14,9 +14,15 @@ import { useGroups } from '@/context/groups-context';
 import { useModeration } from '@/context/moderation-context';
 import { useProfiles } from '@/context/profile-context';
 import { useReports } from '@/context/reports-context';
-import { getGroupMemberCount, isPlausibleRemoteGroupId } from '@/data/groups';
+import { getGroupMemberCount, isPlausibleRemoteGroupId, type GroupVisibility } from '@/data/groups';
 import { useSafetySelectors } from '@/hooks/use-safety-selectors';
 import { supabase } from '@/lib/supabase';
+
+const VISIBILITY_LABEL: Record<GroupVisibility, string> = {
+  public: 'Öffentlich',
+  closed: 'Geschlossen',
+  invite_only: 'Nur auf Einladung',
+};
 
 export default function GroupDetailScreen() {
   const router = useRouter();
@@ -37,6 +43,12 @@ export default function GroupDetailScreen() {
     refreshIncomingRequestsForGroup,
     isGroupActionSubmitting,
     fetchGroupDetail,
+    joinPublicGroup,
+    requestPrivateGroupJoin,
+    subgroupsByParentId,
+    isSubgroupsLoadingByParentId,
+    subgroupsErrorByParentId,
+    refreshSubgroups,
   } = useGroups();
   const { currentUser, getUserById } = useProfiles();
   const { hasReported } = useReports();
@@ -50,6 +62,7 @@ export default function GroupDetailScreen() {
   const [remoteMemberProfiles, setRemoteMemberProfiles] = useState<Record<string, { displayName: string; avatarUrl?: string }>>({});
   const [isCheckingGroupDetail, setIsCheckingGroupDetail] = useState(false);
   const [groupDetailError, setGroupDetailError] = useState<string | null>(null);
+  const [remoteJoinError, setRemoteJoinError] = useState<string | null>(null);
 
   const group = params.id ? getGroupById(params.id) : undefined;
   const isRemoteAdmin = group?.source === 'supabase' && group.myRole === 'admin';
@@ -89,6 +102,13 @@ export default function GroupDetailScreen() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isRemoteAdmin, group?.id]);
+
+  useEffect(() => {
+    if (group && group.groupType === 'parent') {
+      refreshSubgroups(group.id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [group?.id, group?.groupType]);
 
   const remoteIncoming = group && isRemoteAdmin ? (incomingJoinRequests[group.id] ?? []) : [];
 
@@ -150,9 +170,12 @@ export default function GroupDetailScreen() {
   // group.ownerId is a real Supabase UUID for remote groups — currentUser.id deliberately always
   // stays CURRENT_USER_ID (see profile-context.tsx), so it can never match a remote owner_id.
   // Local groups keep comparing against currentUser.id (unchanged, correct there); remote groups
-  // must compare against the actual signed-in auth user id instead.
+  // must compare against the actual signed-in auth user id instead. A non-member preview never
+  // carries ownerId at all (see get_group_detail's "never learn the owner's identity" comment), so
+  // this correctly evaluates to false there.
   const isOwner = group.source === 'supabase' ? authUserId !== null && group.ownerId === authUserId : group.ownerId === currentUser.id;
   const member = isMember(group.id);
+  const isRemoteNonMemberPreview = group.source === 'supabase' && group.isMember === false;
   const canManageGroup = group.source === 'supabase' && group.myRole === 'admin';
   const isRemoteOwner = group.source === 'supabase' && isOwner;
   const requestStatus = getJoinRequestStatus(group.id);
@@ -177,11 +200,31 @@ export default function GroupDetailScreen() {
     router.push({ pathname: '/group/[id]/transfer-ownership', params: { id: group.id } });
   };
 
+  const handleCreateSubgroup = () => {
+    router.push({
+      pathname: '/create-group',
+      params: { parentGroupId: group.id, parentGroupName: group.name, parentVisibility: group.visibility },
+    });
+  };
+
   const handleJoinAction = () => {
     if (group.visibility === 'public') {
       joinGroup(group.id);
     } else {
       requestToJoin(group.id);
+    }
+  };
+
+  const handleRemoteJoinAction = async () => {
+    if (isGroupActionSubmitting) {
+      return;
+    }
+
+    setRemoteJoinError(null);
+    const { error } = group.visibility === 'public' ? await joinPublicGroup(group.id) : await requestPrivateGroupJoin(group.id);
+
+    if (error) {
+      setRemoteJoinError(error);
     }
   };
 
@@ -230,7 +273,7 @@ export default function GroupDetailScreen() {
               </View>
             ) : (
               <View style={styles.visibilityBadge}>
-                <Text style={styles.visibilityBadgeText}>{group.visibility === 'public' ? 'Öffentlich' : 'Privat'}</Text>
+                <Text style={styles.visibilityBadgeText}>{VISIBILITY_LABEL[group.visibility]}</Text>
               </View>
             )}
             {!isOwner ? (
@@ -268,6 +311,7 @@ export default function GroupDetailScreen() {
           ) : null}
 
           {leaveError ? <Text style={styles.errorText}>{leaveError}</Text> : null}
+          {isRemoteNonMemberPreview && remoteJoinError ? <Text style={styles.errorText}>{remoteJoinError}</Text> : null}
 
           {!isOwner ? (
             member ? (
@@ -294,6 +338,22 @@ export default function GroupDetailScreen() {
                 accessibilityLabel={group.visibility === 'public' ? 'Gruppe beitreten' : 'Beitrittsanfrage senden'}
               >
                 <Text style={styles.actionButtonText}>{group.visibility === 'public' ? 'Beitreten' : 'Anfrage senden'}</Text>
+              </Pressable>
+            ) : isRemoteNonMemberPreview && group.hasPendingJoinRequest ? (
+              <View style={[styles.actionButton, styles.actionButtonActive]}>
+                <Text style={[styles.actionButtonText, styles.actionButtonTextActive]}>Anfrage ausstehend</Text>
+              </View>
+            ) : isRemoteNonMemberPreview ? (
+              <Pressable
+                onPress={() => void handleRemoteJoinAction()}
+                disabled={isGroupActionSubmitting}
+                style={[styles.actionButton, isGroupActionSubmitting && styles.actionButtonDisabled]}
+                accessibilityRole="button"
+                accessibilityLabel={group.visibility === 'public' ? 'Gruppe beitreten' : 'Beitrittsanfrage senden'}
+              >
+                <Text style={styles.actionButtonText}>
+                  {isGroupActionSubmitting ? 'Wird gesendet …' : group.visibility === 'public' ? 'Beitreten' : 'Anfrage senden'}
+                </Text>
               </Pressable>
             ) : null
           ) : null}
@@ -328,6 +388,52 @@ export default function GroupDetailScreen() {
             ) : null}
           </View>
         ) : null}
+
+        {group.groupType === 'parent' ? (() => {
+          const subgroupsForGroup = subgroupsByParentId[group.id] ?? [];
+          const subgroupsLoadingForGroup = isSubgroupsLoadingByParentId[group.id] ?? false;
+          const subgroupsErrorForGroup = subgroupsErrorByParentId[group.id] ?? null;
+
+          return (
+            <View style={styles.requestsCard}>
+              <Text style={styles.requestsTitle}>Untergruppen</Text>
+              {subgroupsErrorForGroup ? (
+                <Text style={styles.errorText}>
+                  {subgroupsForGroup.length > 0
+                    ? 'Die Untergruppenliste konnte nicht aktualisiert werden. Es werden möglicherweise nicht alle Untergruppen angezeigt.'
+                    : subgroupsErrorForGroup}
+                </Text>
+              ) : null}
+              {subgroupsForGroup.map((subgroup) => (
+                <Pressable
+                  key={subgroup.id}
+                  onPress={() => router.push({ pathname: '/group/[id]', params: { id: subgroup.id } })}
+                  style={styles.managementRow}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Untergruppe ${subgroup.name} öffnen`}
+                >
+                  <IconSymbol size={16} name="person.3.fill" color={FeedColors.textSecondary} />
+                  <Text style={styles.managementRowText}>{subgroup.name}</Text>
+                  <IconSymbol size={16} name="chevron.right" color={FeedColors.textSecondary} />
+                </Pressable>
+              ))}
+              {!subgroupsLoadingForGroup && !subgroupsErrorForGroup && subgroupsForGroup.length === 0 ? (
+                <Text style={styles.meta}>Noch keine Untergruppen.</Text>
+              ) : null}
+              {canManageGroup ? (
+                <Pressable
+                  onPress={handleCreateSubgroup}
+                  style={styles.managementRow}
+                  accessibilityRole="button"
+                  accessibilityLabel="Untergruppe erstellen"
+                >
+                  <IconSymbol size={16} name="plus" color={ClubColors.primary} />
+                  <Text style={[styles.managementRowText, styles.createSubgroupText]}>Untergruppe erstellen</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          );
+        })() : null}
 
         {group.source === 'supabase' && isRemoteAdmin ? (
           <View style={styles.requestsCard}>
@@ -569,6 +675,9 @@ const styles = StyleSheet.create({
     color: FeedColors.textPrimary,
     fontSize: FontSizes.body,
     fontWeight: '600',
+  },
+  createSubgroupText: {
+    color: ClubColors.primary,
   },
   requestRow: {
     flexDirection: 'row',

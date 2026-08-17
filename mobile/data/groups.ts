@@ -3,8 +3,18 @@ import { CURRENT_USER_ID } from './users';
 // Same real, live-verified OpenLigaDB team id used for local seed feed posts (data/feed-posts.ts).
 const ARMINIA_TEAM_ID = '83';
 
-export type GroupVisibility = 'public' | 'private';
+// Three independent visibility tiers (see supabase/migrations/
+// 20260829100000_add_group_visibility_tiers_and_subgroups.sql) — replaces the previous
+// public/private two-tier model. Existing 'private' groups were backfilled to 'closed' remotely
+// (the least-destructive mapping: 'private' already only ever supported request-to-join, exactly
+// what 'closed' means now — see that migration's own reasoning).
+export type GroupVisibility = 'public' | 'closed' | 'invite_only';
 export type GroupRole = 'admin' | 'member';
+
+// Independent of visibility (Vorgabe: "zwei voneinander unabhängige Eigenschaften"). A group is
+// 'standalone' by default; 'parent' groups may have 'subgroup' children (max one level deep — a
+// subgroup can never itself be a parent).
+export type GroupType = 'standalone' | 'parent' | 'subgroup';
 
 export type Group = {
   id: string;
@@ -13,7 +23,7 @@ export type Group = {
   clubId?: string;
   clubName: string;
   city?: string;
-  ownerId: string;
+  ownerId?: string;
   // Denormalized member list — only ever populated for local seed groups. Remote (source:
   // 'supabase') groups keep this empty; use memberCount for display and a dedicated
   // group_members query (see app/group/[id]/members.tsx) to actually list members, so a
@@ -21,12 +31,25 @@ export type Group = {
   memberIds: string[];
   createdAt: string;
   visibility: GroupVisibility;
+  groupType: GroupType;
+  // Set only for group_type: 'subgroup'.
+  parentGroupId?: string;
   // 'local' for seed groups (also the default when absent, same convention as FeedPost.source
   // etc.), 'supabase' for rows loaded from public.groups via get_my_groups().
   source?: 'local' | 'supabase';
   // Only ever set for source:'supabase' groups.
   memberCount?: number;
   myRole?: GroupRole;
+  // False only for a source:'supabase' group resolved via the get_group_detail() non-member
+  // preview path (a public/closed group opened by someone who isn't a member yet) — see
+  // fetchGroupDetail in GroupsContext. Always true for local seed groups and for every group
+  // reached through get_my_groups() (membership is what put it there). ownerId/myRole are
+  // deliberately never populated in the non-member preview case (see get_group_detail's own
+  // "never learn the owner's identity" comment) — check isMember, not their presence, to tell the
+  // two states apart.
+  isMember?: boolean;
+  // Only meaningful together with isMember === false and visibility === 'closed'.
+  hasPendingJoinRequest?: boolean;
   // Raw ISO timestamp for `createdAt` — set for both local seed groups (fixed literals, see
   // seedGroups below) and remote groups (from public.groups.created_at). Used as the fallback for
   // sortGroupsByRecentActivity below when a group has no messages yet; never derived from
@@ -41,6 +64,16 @@ export type Group = {
   lastMessageAtIso?: string;
   lastMessageSenderId?: string;
   unreadCount?: number;
+};
+
+// A row from get_subgroups() — deliberately thin, same reasoning as GroupSuggestion below (no
+// owner_id, no member list).
+export type Subgroup = {
+  id: string;
+  name: string;
+  description: string;
+  visibility: GroupVisibility;
+  memberCount: number;
 };
 
 // "Letzte Aktivität" = Zeitpunkt der neuesten Gruppennachricht, sonst created_at der Gruppe als
@@ -210,6 +243,7 @@ export const seedGroups: Group[] = [
     createdAt: 'vor 2 Monaten',
     createdAtIso: '2026-06-09T10:00:00.000Z',
     visibility: 'public',
+    groupType: 'standalone',
   },
   {
     id: 'group-2',
@@ -223,6 +257,7 @@ export const seedGroups: Group[] = [
     createdAt: 'vor 5 Monaten',
     createdAtIso: '2026-03-09T10:00:00.000Z',
     visibility: 'public',
+    groupType: 'standalone',
   },
   {
     id: 'group-3',
@@ -236,6 +271,7 @@ export const seedGroups: Group[] = [
     createdAt: 'vor 1 Jahr',
     createdAtIso: '2025-08-09T10:00:00.000Z',
     visibility: 'public',
+    groupType: 'standalone',
   },
   {
     id: 'group-4',
@@ -248,7 +284,8 @@ export const seedGroups: Group[] = [
     memberIds: ['user-luca-r', 'user-david-s'],
     createdAt: 'vor 3 Monaten',
     createdAtIso: '2026-05-09T10:00:00.000Z',
-    visibility: 'private',
+    visibility: 'closed',
+    groupType: 'standalone',
   },
   {
     id: 'group-5',
@@ -261,7 +298,8 @@ export const seedGroups: Group[] = [
     memberIds: [CURRENT_USER_ID],
     createdAt: 'vor 1 Monat',
     createdAtIso: '2026-07-09T10:00:00.000Z',
-    visibility: 'private',
+    visibility: 'closed',
+    groupType: 'standalone',
   },
 ];
 

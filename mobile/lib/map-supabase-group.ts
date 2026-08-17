@@ -7,7 +7,9 @@ import type {
   GroupMemberRecord,
   GroupPendingInvitation,
   GroupSuggestion,
+  GroupType,
   GroupVisibility,
+  Subgroup,
 } from '@/data/groups';
 import { formatRelativeGermanTime } from '@/lib/map-supabase-post';
 
@@ -18,6 +20,9 @@ export type SupabaseGroupMembershipRow = {
   name: string;
   description: string | null;
   visibility: string;
+  group_type: string;
+  parent_group_id: string | null;
+  team_id: string | null;
   created_at: string;
   updated_at: string;
   my_role: string;
@@ -30,6 +35,15 @@ export type SupabaseGroupMembershipRow = {
 
 // A row from get_group_suggestions() — deliberately narrower, no owner_id.
 export type SupabaseGroupSuggestionRow = {
+  id: string;
+  name: string;
+  description: string | null;
+  visibility: string;
+  member_count: number;
+};
+
+// A row from get_subgroups() — same thin shape as SupabaseGroupSuggestionRow, different source.
+export type SupabaseSubgroupRow = {
   id: string;
   name: string;
   description: string | null;
@@ -50,17 +64,27 @@ export type SupabaseGroupJoinRequestRow = {
   groups?: { name: string; visibility: string } | null;
 };
 
-// The jsonb shape returned by get_group_detail().
+// The jsonb shape returned by get_group_detail() — two distinct shapes depending on membership
+// (see that function's own comment): a member gets every field below; a non-member of a
+// public/closed group gets only the ones marked optional (never owner_id/my_role/created_at/
+// updated_at — "never learn the owner's identity through a non-member view", same principle
+// SupabaseGroupSuggestionRow already applies). is_member is what the client checks, not field
+// presence, to tell the two shapes apart.
 export type SupabaseGroupDetailResponse = {
   id: string;
-  owner_id: string;
+  owner_id?: string;
   name: string;
   description: string | null;
   visibility: string;
-  created_at: string;
-  updated_at: string;
-  my_role: string;
+  group_type: string;
+  parent_group_id: string | null;
+  team_id?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  my_role?: string;
   member_count: number;
+  is_member: boolean;
+  has_pending_join_request?: boolean;
 };
 
 // A raw group_members row — display_name is resolved separately via a batch profiles fetch, same
@@ -77,13 +101,17 @@ export function mapSupabaseGroupMembershipRow(row: SupabaseGroupMembershipRow): 
     name: row.name,
     description: row.description ?? '',
     clubName: 'Arminia Bielefeld',
+    clubId: row.team_id ?? undefined,
     ownerId: row.owner_id,
     memberIds: [],
     createdAt: formatRelativeGermanTime(row.created_at),
     visibility: row.visibility as GroupVisibility,
+    groupType: row.group_type as GroupType,
+    parentGroupId: row.parent_group_id ?? undefined,
     source: 'supabase',
     memberCount: row.member_count,
     myRole: row.my_role as Group['myRole'],
+    isMember: true,
     createdAtIso: row.created_at,
     lastMessagePreview: row.last_message_body ?? undefined,
     lastMessageAt: row.last_message_at ? formatRelativeGermanTime(row.last_message_at) : undefined,
@@ -101,6 +129,16 @@ export function mapSupabaseGroupSuggestionRow(row: SupabaseGroupSuggestionRow): 
     visibility: row.visibility as GroupVisibility,
     memberCount: row.member_count,
     source: 'supabase',
+  };
+}
+
+export function mapSupabaseSubgroupRow(row: SupabaseSubgroupRow): Subgroup {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description ?? '',
+    visibility: row.visibility as GroupVisibility,
+    memberCount: row.member_count,
   };
 }
 
@@ -125,13 +163,21 @@ export function mapSupabaseGroupDetailResponse(response: SupabaseGroupDetailResp
     name: response.name,
     description: response.description ?? '',
     clubName: 'Arminia Bielefeld',
+    clubId: response.team_id ?? undefined,
     ownerId: response.owner_id,
     memberIds: [],
-    createdAt: formatRelativeGermanTime(response.created_at),
+    // Only a member response carries created_at — "gerade eben" would be a wrong/invented
+    // timestamp for a non-member preview, so createdAt/createdAtIso are simply left unset there
+    // (nothing in the non-member preview UI ever needs them).
+    createdAt: response.created_at ? formatRelativeGermanTime(response.created_at) : '',
     visibility: response.visibility as GroupVisibility,
+    groupType: response.group_type as GroupType,
+    parentGroupId: response.parent_group_id ?? undefined,
     source: 'supabase',
     memberCount: response.member_count,
-    myRole: response.my_role as Group['myRole'],
+    myRole: response.my_role as Group['myRole'] | undefined,
+    isMember: response.is_member,
+    hasPendingJoinRequest: response.has_pending_join_request,
     createdAtIso: response.created_at,
   };
 }

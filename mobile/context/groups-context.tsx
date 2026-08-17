@@ -20,7 +20,9 @@ import {
   type GroupMessage,
   type GroupPendingInvitation,
   type GroupSuggestion,
+  type GroupType,
   type GroupVisibility,
+  type Subgroup,
 } from '@/data/groups';
 import { CURRENT_USER_ID } from '@/data/users';
 import { mapGroupError } from '@/lib/group-errors';
@@ -33,6 +35,7 @@ import {
   mapSupabaseGroupMembershipRow,
   mapSupabaseGroupPendingInvitationRow,
   mapSupabaseGroupSuggestionRow,
+  mapSupabaseSubgroupRow,
   type SupabaseGroupDetailResponse,
   type SupabaseGroupInvitationRow,
   type SupabaseGroupJoinRequestRow,
@@ -40,6 +43,7 @@ import {
   type SupabaseGroupMembershipRow,
   type SupabaseGroupPendingInvitationRow,
   type SupabaseGroupSuggestionRow,
+  type SupabaseSubgroupRow,
 } from '@/lib/map-supabase-group';
 import { mapSupabaseGroupMessageRow, type SupabaseGroupMessageRow } from '@/lib/map-supabase-group-message';
 import { supabase } from '@/lib/supabase';
@@ -60,6 +64,8 @@ type CreateGroupInput = {
   name: string;
   description: string;
   visibility: GroupVisibility;
+  groupType: GroupType;
+  parentGroupId?: string;
 };
 
 // Seeds each local group's lastMessagePreview/lastMessageAt/lastMessageAtIso from
@@ -140,10 +146,19 @@ type GroupsContextValue = {
   // never trust client role checks alone). Local seed groups never accept these; every function
   // fails closed via isPlausibleRemoteGroupId.
   updateGroup: (groupId: string, input: { name: string; description: string; visibility: GroupVisibility }) => Promise<ActionResult>;
+  setGroupType: (groupId: string, groupType: 'standalone' | 'parent') => Promise<ActionResult>;
+  deleteGroup: (groupId: string) => Promise<ActionResult>;
   removeGroupMember: (groupId: string, userId: string) => Promise<ActionResult>;
   promoteGroupMember: (groupId: string, userId: string) => Promise<ActionResult>;
   demoteGroupAdmin: (groupId: string, userId: string) => Promise<ActionResult>;
   transferGroupOwnership: (groupId: string, newOwnerId: string) => Promise<ActionResult>;
+
+  // Subgroups of a parent group — loaded on demand only (never eagerly for every group). Loading/
+  // error state is keyed per parent group id, not a single shared flag/message.
+  subgroupsByParentId: Record<string, Subgroup[]>;
+  isSubgroupsLoadingByParentId: Record<string, boolean>;
+  subgroupsErrorByParentId: Record<string, string | null>;
+  refreshSubgroups: (parentGroupId: string) => void;
 
   // Member list for a single remote group, loaded on demand (never eagerly for every group).
   groupMembers: Record<string, GroupMemberRecord[]>;
@@ -226,7 +241,7 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
         group.ownerId !== CURRENT_USER_ID &&
         !group.memberIds.includes(CURRENT_USER_ID) &&
         group.clubId === activeTeamId &&
-        group.visibility === 'public',
+        (group.visibility === 'public' || group.visibility === 'closed'),
     );
 
   const joinGroup = (groupId: string) => {
@@ -397,6 +412,8 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
       p_description: input.description.trim() || null,
       p_visibility: input.visibility,
       p_team_id: activeTeamId,
+      p_group_type: input.groupType,
+      p_parent_group_id: input.parentGroupId ?? null,
     });
 
     if (error) {
@@ -404,7 +421,18 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
     }
 
     const mapped = mapSupabaseGroupMembershipRow({
-      ...(data as { id: string; owner_id: string; name: string; description: string | null; visibility: string; created_at: string; updated_at: string }),
+      ...(data as {
+        id: string;
+        owner_id: string;
+        name: string;
+        description: string | null;
+        visibility: string;
+        group_type: string;
+        parent_group_id: string | null;
+        team_id: string | null;
+        created_at: string;
+        updated_at: string;
+      }),
       my_role: 'admin',
       member_count: 1,
       last_message_body: null,
@@ -414,6 +442,34 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
     });
 
     setRemoteGroups((current) => [mapped, ...current]);
+
+    // A freshly created subgroup must appear under its parent's "Untergruppen" section right away
+    // (Vorgabe 5), not only after the parent screen happens to remount and re-run get_subgroups —
+    // handleSubmit navigates straight to the new subgroup's own page, never back to the parent, so
+    // nothing else would ever trigger that refresh. Prepends into whatever's already held for that
+    // parent (empty array if never loaded yet) and dedups by id; a later refreshSubgroups() call
+    // always replaces the whole array with the authoritative server list anyway, so this can never
+    // leave a stale duplicate behind.
+    if (input.groupType === 'subgroup' && input.parentGroupId) {
+      const parentId = input.parentGroupId;
+      const asSubgroup: Subgroup = {
+        id: mapped.id,
+        name: mapped.name,
+        description: mapped.description,
+        visibility: mapped.visibility,
+        memberCount: mapped.memberCount ?? 1,
+      };
+
+      setSubgroupsByParentId((current) => {
+        const existing = current[parentId] ?? [];
+
+        if (existing.some((entry) => entry.id === asSubgroup.id)) {
+          return current;
+        }
+
+        return { ...current, [parentId]: [asSubgroup, ...existing] };
+      });
+    }
 
     return { id: mapped.id, error: null };
   };
@@ -434,10 +490,17 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
 
     const mapped = mapSupabaseGroupDetailResponse(data as SupabaseGroupDetailResponse);
 
-    setRemoteGroups((current) => {
-      const exists = current.some((group) => group.id === mapped.id);
-      return exists ? current.map((group) => (group.id === mapped.id ? mapped : group)) : [mapped, ...current];
-    });
+    // Only a real membership result ever gets merged into remoteGroups (the "Meine Gruppen"
+    // working set) -- a non-member preview (public/closed group someone is just browsing, not a
+    // member of) must never make that group appear to be one of theirs. The caller receives the
+    // preview Group directly and is responsible for holding it in its own local state instead
+    // (see app/group/[id].tsx).
+    if (mapped.isMember) {
+      setRemoteGroups((current) => {
+        const exists = current.some((group) => group.id === mapped.id);
+        return exists ? current.map((group) => (group.id === mapped.id ? mapped : group)) : [mapped, ...current];
+      });
+    }
 
     return { group: mapped, error: null };
   };
@@ -1138,6 +1201,9 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
       groupMessagesRequestSeq.current = {};
       setPendingInvitationsByGroup({});
       setIsPendingInvitationsLoading(false);
+      setSubgroupsByParentId({});
+      setIsSubgroupsLoadingByParentId({});
+      setSubgroupsErrorByParentId({});
     }
   }, [authUserId]);
 
@@ -1401,6 +1467,111 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
       inFlightGroupActionIds.current.delete(groupId);
       setIsGroupActionSubmitting(false);
     }
+  };
+
+  // setGroupType: standalone <-> parent only (see set_group_type's own comment for why a subgroup
+  // can never be retargeted here). Keyed separately from updateGroup's actionKey (a distinct
+  // action, both could in principle be triggered from the same settings screen).
+  const setGroupType = async (groupId: string, groupType: 'standalone' | 'parent'): Promise<ActionResult> => {
+    if (!isPlausibleRemoteGroupId(groupId)) {
+      return { error: 'Diese Gruppe ist nicht mehr verfügbar.' };
+    }
+
+    const actionKey = `setGroupType:${groupId}`;
+
+    if (inFlightGroupActionIds.current.has(actionKey)) {
+      return { error: null };
+    }
+
+    inFlightGroupActionIds.current.add(actionKey);
+    setIsGroupActionSubmitting(true);
+    setGroupActionError(null);
+
+    try {
+      const { data, error } = await supabase.rpc('set_group_type', { p_group_id: groupId, p_group_type: groupType });
+
+      if (error) {
+        const mapped = mapGroupError(error, 'setGroupType');
+        setGroupActionError(mapped);
+        return { error: mapped };
+      }
+
+      const row = data as { group_type: string };
+      setRemoteGroups((current) =>
+        current.map((group) => (group.id === groupId ? { ...group, groupType: row.group_type as GroupType } : group)),
+      );
+
+      return { error: null };
+    } finally {
+      inFlightGroupActionIds.current.delete(actionKey);
+      setIsGroupActionSubmitting(false);
+    }
+  };
+
+  // deleteGroup: owner only, rejected server-side while subgroups still exist (see delete_group's
+  // own comment) -- never cascades a subgroup deletion silently.
+  const deleteGroup = async (groupId: string): Promise<ActionResult> => {
+    if (!isPlausibleRemoteGroupId(groupId)) {
+      return { error: 'Diese Gruppe ist nicht mehr verfügbar.' };
+    }
+
+    if (inFlightGroupActionIds.current.has(groupId)) {
+      return { error: null };
+    }
+
+    inFlightGroupActionIds.current.add(groupId);
+    setIsGroupActionSubmitting(true);
+    setGroupActionError(null);
+
+    try {
+      const { error } = await supabase.rpc('delete_group', { p_group_id: groupId });
+
+      if (error) {
+        const mapped = mapGroupError(error, 'delete');
+        setGroupActionError(mapped);
+        return { error: mapped };
+      }
+
+      setRemoteGroups((current) => current.filter((group) => group.id !== groupId));
+
+      return { error: null };
+    } finally {
+      inFlightGroupActionIds.current.delete(groupId);
+      setIsGroupActionSubmitting(false);
+    }
+  };
+
+  // --- Subgroups of a parent group, loaded on demand only (same "never eagerly for every group"
+  // convention as groupMembers/pendingInvitationsByGroup above). Loading/error are keyed per parent
+  // (not a single shared flag/message) -- a single shared value would leak one parent's load error
+  // onto a completely different, already-successfully-loaded parent's screen if the user visits
+  // more than one Hauptgruppe in the same session (both screens can stay mounted at once, see
+  // app/group/[id].tsx). ---
+  const [subgroupsByParentId, setSubgroupsByParentId] = useState<Record<string, Subgroup[]>>({});
+  const [isSubgroupsLoadingByParentId, setIsSubgroupsLoadingByParentId] = useState<Record<string, boolean>>({});
+  const [subgroupsErrorByParentId, setSubgroupsErrorByParentId] = useState<Record<string, string | null>>({});
+
+  const refreshSubgroups = (parentGroupId: string) => {
+    if (!authUserId) {
+      return;
+    }
+
+    setIsSubgroupsLoadingByParentId((current) => ({ ...current, [parentGroupId]: true }));
+    setSubgroupsErrorByParentId((current) => ({ ...current, [parentGroupId]: null }));
+
+    supabase
+      .rpc('get_subgroups', { p_parent_group_id: parentGroupId })
+      .then(({ data, error }) => {
+        if (error) {
+          setSubgroupsErrorByParentId((current) => ({ ...current, [parentGroupId]: mapGroupError(error, 'load') }));
+          setIsSubgroupsLoadingByParentId((current) => ({ ...current, [parentGroupId]: false }));
+          return;
+        }
+
+        const mapped = ((data ?? []) as SupabaseSubgroupRow[]).map(mapSupabaseSubgroupRow);
+        setSubgroupsByParentId((current) => ({ ...current, [parentGroupId]: mapped }));
+        setIsSubgroupsLoadingByParentId((current) => ({ ...current, [parentGroupId]: false }));
+      });
   };
 
   // removeGroupMember/promoteGroupMember/demoteGroupAdmin: keyed by group+target (not just group)
@@ -1771,10 +1942,16 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
       requestPrivateGroupJoin,
       cancelJoinRequest,
       updateGroup,
+      setGroupType,
+      deleteGroup,
       removeGroupMember,
       promoteGroupMember,
       demoteGroupAdmin,
       transferGroupOwnership,
+      subgroupsByParentId,
+      isSubgroupsLoadingByParentId,
+      subgroupsErrorByParentId,
+      refreshSubgroups,
       groupMembers,
       isGroupMembersLoading,
       groupMembersError,
@@ -1831,6 +2008,9 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
       myGroupInvitations,
       pendingInvitationsByGroup,
       isPendingInvitationsLoading,
+      subgroupsByParentId,
+      isSubgroupsLoadingByParentId,
+      subgroupsErrorByParentId,
     ],
   );
 
