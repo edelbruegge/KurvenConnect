@@ -1,3 +1,6 @@
 .vscode/
 graphify-out/
 graphify-out-stuck-*/
+
+mobile/supabase/.temp/
+mobile/supabase/remote_schema_backup.sql
