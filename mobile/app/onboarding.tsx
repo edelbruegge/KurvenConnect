@@ -3,6 +3,7 @@ import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'rea
 
 import { ClubPicker } from '@/components/profile/club-picker';
 import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
+import { filterEnabledClubs } from '@/config/beta-clubs';
 import { useGames } from '@/context/games-context';
 import { useProfiles } from '@/context/profile-context';
 import type { KnownTeam } from '@/data/database-games';
@@ -72,7 +73,7 @@ export default function OnboardingScreen() {
             <Text style={styles.subtitle}>Wähle deinen Verein aus, damit wir dir passende Spiele und Inhalte zeigen können.</Text>
 
             <ClubPicker
-              knownTeams={knownTeams}
+              knownTeams={filterEnabledClubs(knownTeams)}
               selectedTeamId={selectedTeam?.externalTeamId ?? null}
               onSelect={(team) => {
                 setSelectedTeam(team);

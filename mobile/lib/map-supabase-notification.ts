@@ -35,6 +35,7 @@ const KNOWN_NOTIFICATION_TYPES: NotificationType[] = [
   'game_new_post',
   'game_new_trip',
   'game_new_meetup',
+  'warning_received',
 ];
 
 // Notification types whose title/body are fully resolved server-side at creation time (the group
@@ -142,6 +143,14 @@ export function getNotificationDisplayContent(
 
   if (notification.type === 'trip_request_rejected') {
     return { title: 'Fahrtanfrage abgelehnt', body: `Deine Anfrage für die Fahrt${routeSuffix} wurde abgelehnt.` };
+  }
+
+  // warning_received: title/body are fixed template text resolved server-side at creation (see
+  // apply_report_action) -- deliberately never includes the warning's actual reason/message here,
+  // that stays visible exclusively on the recipient's own profile (UserWarningsSection), which is
+  // also where tapping this notification navigates (reference: { type: 'profile', id: own id }).
+  if (notification.type === 'warning_received') {
+    return { title: notification.title ?? 'Verwarnung erhalten', body: notification.text };
   }
 
   // Group notifications: title/body were already fully resolved (group name, actor name) at

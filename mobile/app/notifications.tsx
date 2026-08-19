@@ -69,6 +69,8 @@ function getNotificationIcon(type: NotificationType): IconSymbolName {
       return 'sportscourt.fill';
     case 'system':
       return 'bell.fill';
+    case 'warning_received':
+      return 'flag.fill';
   }
 }
 

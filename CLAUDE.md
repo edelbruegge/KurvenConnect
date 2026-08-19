@@ -53,6 +53,35 @@ Tickettausch und Zahlungsfunktionen sind explizit **nicht** Teil des MVP und ers
 - Bereits vorhandene echte Supabase-Inhalte (insbesondere Posts, Fahrten, Treffen, Gesucht, Gruppen) dürfen bei keinem neuen Entwicklungsschritt gelöscht, überschrieben, versteckt oder durch Seed-/Fallback-Inhalte ersetzt werden — außer eine bestehende fachliche Regel verlangt ausdrücklich eine Sichtbarkeitsbeschränkung (z. B. falscher Verein, Moderation, Blockierung). Neue Features müssen bestehende Daten erhalten. Insbesondere: Ranking-/Sortierlogik darf die Reihenfolge verändern, aber nie die Kandidatenmenge filtern; ein Ladefehler bei einem Refresh darf bereits angezeigte echte Inhalte nicht durch einen leeren State ersetzen.
 - Personalisierungs- und Rankinglogik darf nur auf expliziten Discovery-Flächen wie dem Für-dich-Feed angewendet werden. Funktionale Übersichten wie Profilbeiträge, Stadion-Inhalte und spielbezogene Content-Ansichten müssen alle grundsätzlich sichtbaren Remote-Inhalte vollständig erreichbar halten. Vollständige Inhaltsübersichten wie Stadion → Beiträge, Profil → Beiträge und spielbezogene Inhaltsansichten müssen dafür ihre eigene vollständige Remote-Datenbasis verwenden — nicht den (ggf. auf die Feed-Arbeitsmenge begrenzten) State des personalisierten Feeds. Stadion → Beiträge zeigt alle grundsätzlich sichtbaren Beiträge des aktiven Vereins unabhängig von game_id und unabhängig vom personalisierten Feed.
 - Der personalisierte Für-dich-Feed ist niemals Source of Truth für andere Post-Ansichten. Post-Detailseiten müssen einen Post anhand seiner ID direkt aus der Remote-Datenquelle laden können, auch wenn der Post nicht im aktuellen Feed-State vorhanden ist. Stadion- und Game-Content verwenden vollständige Remote-Queries und niemals die personalisierte Feed-Ergebnismenge. Ranking beeinflusst ausschließlich Discovery, nicht die globale Erreichbarkeit bestehender Inhalte. Konkret gilt das für Post Detail, Profilbeiträge, Stadionbeiträge und Spielbeiträge: Post Detail lädt eine echte Supabase-ID immer unabhängig direkt, "Spiel → Beiträge" lädt vollständige Remote-Inhalte nach `game_id`. Remote-Fehler bei diesen Ladefunktionen (z. B. in `resolveContentByIds`) müssen klar behandelt/weitergereicht werden, nie stillschweigend als "0 Ergebnisse" erscheinen.
+- Ein Stadion-/Spielbesuch wird unabhängig von der Anzahl der zugehörigen Posts höchstens einmal pro Nutzer und `game_id` gezählt.
+- `user_game_attendance` ist die zentrale fachliche Datenquelle für besuchte Spiele und soll sowohl Stadionplan als auch Profilstatistik versorgen.
+- Abzeichen werden aus serverseitig nachvollziehbaren Statistikwerten abgeleitet und dürfen nicht als frei manipulierbare Profilwerte gespeichert werden.
+- Ein gelöschter oder ausgeblendeter Source-Post löscht einen bereits dokumentierten Attendance-Eintrag nicht automatisch.
+- Private Gruppen sind für Nicht-Mitglieder serverseitig verborgen und dürfen nicht über Discovery, Feed, direkte Routen oder Gruppeninhalte Informationen leaken.
+- `group_members` ist die Source of Truth für Gruppenmitgliedschaft; accepted `group_invitations` erzeugen atomar eine Membership.
+- Private Gruppenmitgliedschaft kann ausschließlich über autorisierte bestehende Mechanismen bzw. eine gültige Einladung entstehen.
+- Private Gruppenposts dürfen nur Mitgliedern im normalen Feed angezeigt werden.
+- Notification-Einladungen sind nicht selbst Source of Truth für Membership.
+- Sichtbarkeit (`public`/`closed`/`invite_only`) und Gruppenstruktur (`standalone`/`parent`/`subgroup`) einer Gruppe sind zwei voneinander unabhängige Eigenschaften und dürfen nie miteinander vermischt oder voneinander abgeleitet werden.
+- Die drei Gruppen-Sichtbarkeitsstufen sind exakt: `public` (auffindbar, direkter Beitritt), `closed` (auffindbar, Beitritt nur nach Freigabe durch einen Admin), `invite_only` (für Nicht-Mitglieder nicht auffindbar, Mitgliedschaft ausschließlich über Einladung).
+- Eine Untergruppe darf serverseitig nie weniger geschützt sein als ihre Hauptgruppe (Rangfolge `public` < `closed` < `invite_only`); das wird bei jeder Sichtbarkeitsänderung in beide Richtungen (Hauptgruppe vs. Untergruppen, Untergruppe vs. Hauptgruppe) geprüft.
+- Mitgliedschaft in einer Hauptgruppe und Mitgliedschaft in ihren Untergruppen sind unabhängig voneinander — Hauptgruppenmitglied zu sein bedeutet nicht automatisch, Mitglied einer bestimmten Untergruppe zu sein.
+- Eine Einladung zu oder ein Beitritt in eine Untergruppe setzt eine bestehende Mitgliedschaft in der zugehörigen Hauptgruppe voraus und wird serverseitig sowohl beim Einladen als auch beim Annehmen erneut geprüft.
+- Verlässt ein Nutzer eine Hauptgruppe oder wird er aus ihr entfernt, kaskadiert das atomar auf die Mitgliedschaft in allen ihren Untergruppen — nie umgekehrt, und nie nur teilweise.
+- `group_members` bleibt unabhängig von Sichtbarkeit und Struktur die alleinige Source of Truth für Gruppenmitgliedschaft; Sichtbarkeits-/Strukturfelder in `groups` regeln nur, wie eine Mitgliedschaft zustande kommen darf.
+- Der Match Lock richtet sich ausschließlich nach `profiles.favorite_team_id`, nicht nach `activeTeamId`.
+- Während eines bestätigten laufenden Spiels des Lieblingsvereins ersetzt der zentrale MatchLockGate den normalen App-Inhalt.
+- Match Lock arbeitet fail-open: unbekannter oder fehlgeschlagener Live-Status darf keinen neuen Lock erzeugen.
+- Der Match Lock darf nicht allein aus einer festen 90-Minuten-Zeitspanne abgeleitet werden.
+- Direkte Routen und Deep Links dürfen einen aktiven Match Lock nicht umgehen.
+- Nach beendetem Spiel muss die App ohne Neustart wieder freigegeben werden.
+- `public.user_warnings` ist die alleinige Source of Truth für Verwarnungen; `apply_report_action` ist der einzige Schreibpfad, der eine Verwarnung erzeugt (genau ein Insert pro Moderationsaktion).
+- Eine Verwarnung wird nie gelöscht, auch nicht nach „Zur Kenntnis genommen" — nur `acknowledged_at` wird gesetzt; die Zeile bleibt dauerhaft für die Moderationshistorie erhalten.
+- Eine unbestätigte Verwarnung (`acknowledged_at is null`) ist ausschließlich im eigenen Profil des betroffenen Nutzers sichtbar, nie im Profil eines anderen Nutzers.
+- Das Bestätigen einer Verwarnung geschieht ausschließlich über die serverseitige, idempotente Funktion `acknowledge_user_warning`, niemals über ein direktes Client-Update.
+- Jede über `apply_report_action` erzeugte Verwarnung erzeugt genau eine Notification (`warning_received`, über `create_notification`, `event_key` an die Warning-ID gebunden) — kein zweiter Erzeugungspfad.
+- Welche Vereine in der Beta auswählbar sind, wird ausschließlich über `BETA_ENABLED_CLUB_IDS`/`isClubEnabledForBeta`/`filterEnabledClubs` in `mobile/config/beta-clubs.ts` gesteuert — kein zweiter, paralleler Ort für diese Liste.
+- Die Beta-Vereinsfreigabe filtert nur an den Auswahl-Oberflächen (`ClubPicker`-Konsumenten); `GamesContext.knownTeams`/`getKnownTeamById` und `public.team_stadium_mappings` bleiben immer vollständig, damit bereits bestehende Profile/aktive Vereine außerhalb der Allowlist weiterhin korrekt aufgelöst werden.
 
 ## graphify
 

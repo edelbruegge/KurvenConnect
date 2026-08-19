@@ -5,6 +5,7 @@ import { Avatar } from '@/components/feed/avatar';
 import { ClubPicker } from '@/components/profile/club-picker';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
+import { filterEnabledClubs } from '@/config/beta-clubs';
 import { useActiveClub } from '@/context/active-club-context';
 import { useAuth } from '@/context/auth-context';
 import { useGames } from '@/context/games-context';
@@ -327,7 +328,7 @@ export default function EditProfileScreen() {
               {isClubPickerOpen ? (
                 <View style={styles.clubPickerWrapper}>
                   <ClubPicker
-                    knownTeams={knownTeams}
+                    knownTeams={filterEnabledClubs(knownTeams)}
                     selectedTeamId={currentFavoriteTeamId}
                     onSelect={(team) => {
                       setSelectedTeam(team);

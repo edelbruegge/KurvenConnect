@@ -42,7 +42,12 @@ export type NotificationType =
   // post/trip/meetup carrying that game_id, never for the creator's own content.
   | 'game_new_post'
   | 'game_new_trip'
-  | 'game_new_meetup';
+  | 'game_new_meetup'
+  // See supabase/migrations/20260902100000_add_user_warning_notifications.sql -- created once per
+  // moderator warning action (apply_report_action's warn_user/hide_and_warn branches), reference is
+  // always { type: 'profile', id: <the warned user's own id> } so tapping it opens the recipient's
+  // own profile, where public.user_warnings (never this notification row) is the source of truth.
+  | 'warning_received';
 
 export type NotificationReference =
   | { type: 'post' | 'trip' | 'request'; id: string }

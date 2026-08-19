@@ -7,3 +7,11 @@ project_id = "pumvmdmmmxgrhofxawnf"
 # end-user Supabase session/JWT that a scheduled server-side sync has no way to present.
 [functions.sync-football-games]
 verify_jwt = false
+
+# match-lock-status is the opposite case: it IS meant to be called by a normal signed-in app user
+# (mobile/context/match-lock-context.tsx), using their own Supabase session to determine whether
+# their own favorite team currently has a live match. verify_jwt = true is already the platform
+# default and this entry is only here to document that choice explicitly, the same way the
+# override above documents its own -- removing this block would not change behavior.
+[functions.match-lock-status]
+verify_jwt = true

@@ -7,6 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import 'react-native-reanimated';
 
 import { HeaderBackButton } from '@/components/navigation/header-back-button';
+import { MatchLockScreen } from '@/components/match-lock/match-lock-screen';
 import { FeedColors, FontSizes, Spacing } from '@/constants/theme';
 import { ActiveClubProvider } from '@/context/active-club-context';
 import { AuthProvider, useAuth } from '@/context/auth-context';
@@ -15,6 +16,7 @@ import { FeedPostsProvider } from '@/context/feed-posts-context';
 import { GameFollowsProvider } from '@/context/game-follows-context';
 import { GamesProvider } from '@/context/games-context';
 import { GroupsProvider } from '@/context/groups-context';
+import { MatchLockProvider, useMatchLock } from '@/context/match-lock-context';
 import { MessagesProvider } from '@/context/messages-context';
 import { ModerationProvider } from '@/context/moderation-context';
 import { NotificationsProvider } from '@/context/notifications-context';
@@ -55,6 +57,7 @@ function SupabaseNotConfiguredScreen() {
 function RootNavigator() {
   const { isLoading, isAuthenticated } = useAuth();
   const { ownProfile, isOwnProfileLoading } = useProfiles();
+  const { status: matchLockStatus, lockedGame } = useMatchLock();
 
   if (!isSupabaseConfigured) {
     return <SupabaseNotConfiguredScreen />;
@@ -73,6 +76,22 @@ function RootNavigator() {
   }
 
   const needsOnboarding = isAuthenticated && ownProfile !== null && !ownProfile.onboardingCompletedAt;
+
+  // Match Lock gate -- placed after onboarding is resolved (onboarding must always stay reachable
+  // for a user who hasn't completed it yet, though in practice a not-yet-onboarded user has no
+  // favorite_team_id set and could never be locked anyway) and before the <Stack> renders at all,
+  // mirroring AuthLoadingScreen's own early-return above. This is what makes the lock unavoidable
+  // for direct/deep-link routes too (Vorgabe 4/22) -- Expo Router mounts this whole component
+  // before resolving which specific route to render, exactly like the existing !isAuthenticated
+  // guard already relies on.
+  if (isAuthenticated && !needsOnboarding) {
+    if (matchLockStatus === 'initializing') {
+      return <AuthLoadingScreen />;
+    }
+    if (matchLockStatus === 'locked') {
+      return <MatchLockScreen game={lockedGame} />;
+    }
+  }
 
   return (
     <>
@@ -208,6 +227,7 @@ export default function RootLayout() {
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <AuthProvider>
         <ProfileProvider>
+          <MatchLockProvider>
           <GamesProvider>
             <ActiveClubProvider>
               <FeedPostsProvider>
@@ -239,6 +259,7 @@ export default function RootLayout() {
               </FeedPostsProvider>
             </ActiveClubProvider>
           </GamesProvider>
+          </MatchLockProvider>
         </ProfileProvider>
       </AuthProvider>
     </ThemeProvider>

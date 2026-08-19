@@ -4,6 +4,7 @@ import { Modal, Pressable, ScrollView, StyleProp, StyleSheet, Text, ViewStyle } 
 import { ClubPicker } from '@/components/profile/club-picker';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
+import { filterEnabledClubs } from '@/config/beta-clubs';
 import { useActiveClub } from '@/context/active-club-context';
 import { useGames } from '@/context/games-context';
 
@@ -35,7 +36,7 @@ export function ActiveClubBadge({ style }: { style?: StyleProp<ViewStyle> }) {
             <Text style={styles.cardTitle}>Verein wechseln</Text>
             <ScrollView style={styles.pickerScroll} keyboardShouldPersistTaps="handled">
               <ClubPicker
-                knownTeams={knownTeams}
+                knownTeams={filterEnabledClubs(knownTeams)}
                 selectedTeamId={activeTeamId}
                 onSelect={(team) => {
                   setActiveTeam(team);
