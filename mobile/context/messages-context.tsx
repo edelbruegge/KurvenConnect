@@ -84,6 +84,16 @@ const MESSAGE_CONTENT_MAX_LENGTH = 2000;
 const CONVERSATIONS_OVERVIEW_MESSAGES_LIMIT = 300;
 const CONVERSATION_MESSAGES_LIMIT = 100;
 
+// A single CHANNEL_ERROR/TIMED_OUT is a normal, expected part of Supabase Realtime's own
+// reconnect cycle (brief network blips, app backgrounding, token refresh) -- it is not itself
+// proof of a real failure. Retrying silently a few times before surfacing realtimeError to the
+// user avoids flashing the red "Live-Aktualisierung unterbrochen" banner (and, more importantly,
+// avoids leaving the channel silently stuck with no more INSERTs arriving) for what would
+// otherwise self-heal within a few seconds. A persistent failure still surfaces, just after a
+// short grace period instead of immediately.
+const REALTIME_SILENT_RECONNECT_ATTEMPTS = 3;
+const REALTIME_SILENT_RECONNECT_DELAY_MS = 3000;
+
 const CONVERSATIONS_SELECT_COLUMNS = 'id, conversation_type, direct_key, created_by, created_at, updated_at, last_message_at';
 const CONVERSATION_MEMBERS_SELECT_COLUMNS = 'conversation_id, user_id, joined_at, last_read_at';
 const MESSAGES_SELECT_COLUMNS = 'id, conversation_id, sender_id, content, reference_type, reference_id, reference_title, created_at';
@@ -127,6 +137,10 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
   // down and rebuilding the channel every time a chat is opened/closed or the status changes.
   const activeConversationIdRef = useRef<string | null>(null);
   const realtimeStatusRef = useRef<RealtimeStatus>('idle');
+  // Counts consecutive CHANNEL_ERROR/TIMED_OUT events across silent auto-retries within one
+  // realtime effect "session" (reset on SUBSCRIBED and on a fresh authUserId) -- see
+  // REALTIME_SILENT_RECONNECT_ATTEMPTS above.
+  const realtimeReconnectAttemptsRef = useRef(0);
 
   useEffect(() => {
     activeConversationIdRef.current = activeConversationId;
@@ -440,10 +454,12 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
     if (!authUserId) {
       setRealtimeStatus('idle');
       setRealtimeError(null);
+      realtimeReconnectAttemptsRef.current = 0;
       return;
     }
 
     let isCurrent = true;
+    let silentRetryTimeoutId: ReturnType<typeof setTimeout> | null = null;
     setRealtimeStatus((current) => (current === 'error' || current === 'closed' ? 'reconnecting' : 'connecting'));
     setRealtimeError(null);
 
@@ -461,11 +477,29 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
         if (!isCurrent) return;
 
         if (status === 'SUBSCRIBED') {
+          realtimeReconnectAttemptsRef.current = 0;
           setRealtimeStatus('subscribed');
           setRealtimeError(null);
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          setRealtimeStatus('error');
-          setRealtimeError(mapRealtimeError(err ?? new Error(status)));
+          realtimeReconnectAttemptsRef.current += 1;
+
+          if (__DEV__) {
+            console.error(`[messages:realtime] ${status} (attempt ${realtimeReconnectAttemptsRef.current})`, err);
+          }
+
+          if (realtimeReconnectAttemptsRef.current <= REALTIME_SILENT_RECONNECT_ATTEMPTS) {
+            // Expected transient reconnect state -- keep the UI quiet, retry automatically.
+            setRealtimeStatus('reconnecting');
+            silentRetryTimeoutId = setTimeout(() => {
+              if (isCurrent) {
+                setRealtimeReconnectToken((token) => token + 1);
+              }
+            }, REALTIME_SILENT_RECONNECT_DELAY_MS);
+          } else {
+            // Exhausted silent retries -- this is no longer treated as a normal blip.
+            setRealtimeStatus('error');
+            setRealtimeError(mapRealtimeError(err ?? new Error(status)));
+          }
         } else if (status === 'CLOSED') {
           setRealtimeStatus((current) => (current === 'error' ? current : 'closed'));
         }
@@ -473,6 +507,9 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       isCurrent = false;
+      if (silentRetryTimeoutId) {
+        clearTimeout(silentRetryTimeoutId);
+      }
       void supabase.removeChannel(channel);
     };
   }, [authUserId, realtimeReconnectToken]);
@@ -482,6 +519,7 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    realtimeReconnectAttemptsRef.current = 0;
     setRealtimeStatus('reconnecting');
     setRealtimeError(null);
     setRealtimeReconnectToken((token) => token + 1);

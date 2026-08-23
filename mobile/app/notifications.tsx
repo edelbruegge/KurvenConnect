@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -91,9 +91,40 @@ export default function NotificationsScreen() {
   const { isUserSuspended } = useModeration();
   const { isModeratedAway } = useSafetySelectors();
   const { isUserReported, hasReported } = useReports();
-  const { getInvitationStatusForGroup, respondToGroupInvitation } = useGroups();
+  const { getInvitationStatusForGroup, refreshMyGroupInvitations, respondToGroupInvitation } = useGroups();
   const [respondingInvitationGroupId, setRespondingInvitationGroupId] = useState<string | null>(null);
   const [invitationRespondErrorByGroupId, setInvitationRespondErrorByGroupId] = useState<Record<string, string>>({});
+
+  // Closes the "works only after an app restart" gap: a group_invitation notification's own
+  // Realtime channel already delivers it live, but Annehmen/Ablehnen depend on a SEPARATE state
+  // (GroupsContext's myGroupInvitations) that previously only loaded at sign-in and on foreground
+  // transitions. If a brand-new invitation notification appears while the app is already in the
+  // foreground, that group has no entry there yet, so getInvitationStatusForGroup returns null and
+  // the buttons don't render -- even though the invitation is genuinely pending server-side. Rather
+  // than a full app reload, this targets exactly the gap: whenever the (already realtime-updated)
+  // notifications list contains a group_invitation whose group isn't reflected in myGroupInvitations
+  // yet, run the existing refreshMyGroupInvitations() once for it. The ref guards against refetching
+  // the same group repeatedly (e.g. on every unrelated re-render) within this screen's lifetime.
+  const backfilledInvitationGroupIdsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    const missingGroupIds = notifications
+      .filter((notification): notification is AppNotification & { reference: { type: 'group'; id: string } } =>
+        notification.type === 'group_invitation' && notification.reference?.type === 'group',
+      )
+      .map((notification) => notification.reference.id)
+      .filter(
+        (groupId) => getInvitationStatusForGroup(groupId) === null && !backfilledInvitationGroupIdsRef.current.has(groupId),
+      );
+
+    if (missingGroupIds.length === 0) {
+      return;
+    }
+
+    missingGroupIds.forEach((groupId) => backfilledInvitationGroupIdsRef.current.add(groupId));
+    refreshMyGroupInvitations();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notifications]);
 
   const shouldHideNotification = (notification: AppNotification): boolean => {
     if (notification.actorId && (isUserSuspended(notification.actorId) || isUserReported(notification.actorId))) {

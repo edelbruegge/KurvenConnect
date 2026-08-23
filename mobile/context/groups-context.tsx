@@ -103,6 +103,12 @@ type GroupsRealtimeChangePayload = {
   old: Record<string, unknown>;
 };
 
+// See the identical constants/reasoning in messages-context.tsx and notifications-context.tsx: a
+// lone CHANNEL_ERROR/TIMED_OUT is an expected part of Supabase Realtime's own reconnect cycle, not
+// proof of a real failure -- retry silently a few times before treating the channel as broken.
+const REALTIME_SILENT_RECONNECT_ATTEMPTS = 3;
+const REALTIME_SILENT_RECONNECT_DELAY_MS = 3000;
+
 // Same minimal structural view, for the group_messages INSERT-only channel.
 type GroupMessageRealtimeChangePayload = {
   new: Record<string, unknown>;
@@ -203,6 +209,7 @@ type GroupsContextValue = {
   // The current account's own invitations, keyed by group id (latest one per group).
   myGroupInvitations: Record<string, GroupInvitation>;
   getInvitationStatusForGroup: (groupId: string) => GroupInvitationStatus | null;
+  refreshMyGroupInvitations: () => void;
   respondToGroupInvitation: (groupId: string, response: 'accepted' | 'declined') => Promise<ActionResult>;
   // Pending invitations for a group the caller administers — loaded on demand only, never eagerly
   // for every group (same convention as groupMembers above).
@@ -801,11 +808,19 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
       const updated = mapSupabaseGroupInvitationRow(data as SupabaseGroupInvitationRow);
       setMyGroupInvitations((current) => ({ ...current, [groupId]: updated }));
 
-      // Accepting creates real membership atomically server-side (Vorgabe 19/41) — this just makes
-      // "Meine Gruppen" reflect it immediately, same as every other own-mutation refresh in this
-      // file; the existing group_members realtime handler would not otherwise catch a brand-new
-      // membership (it only refreshes groups already present in remoteGroups).
+      // Accepting creates real membership atomically server-side (Vorgabe 19/41). Two
+      // complementary updates, neither a fake/guessed number:
+      //  1) fetchGroupDetail is a single, targeted get_group_detail() call -- it returns (and
+      //     merges into remoteGroups) the real, current member_count/isMember/myRole for exactly
+      //     this group, immediately, without waiting for the full "Meine Gruppen" list to reload.
+      //     This is what makes the group instantly accessible (group/[id].tsx reads the same
+      //     remoteGroups via getGroupById) and the member count instantly correct.
+      //  2) refreshMyGroups() still runs alongside it so the full list (unread counts, ordering,
+      //     last-message preview) stays consistent too -- the existing group_members realtime
+      //     handler would not otherwise catch this brand-new membership on its own (it only
+      //     refreshes groups already present in remoteGroups, which this one wasn't until now).
       if (response === 'accepted') {
+        void fetchGroupDetail(groupId);
         refreshMyGroups();
       }
 
@@ -1141,6 +1156,7 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
   const [groupMessagesRealtimeStatus, setGroupMessagesRealtimeStatus] = useState<RealtimeStatus>('idle');
   const [groupMessagesRealtimeReconnectToken, setGroupMessagesRealtimeReconnectToken] = useState(0);
   const groupMessagesRealtimeStatusRef = useRef<RealtimeStatus>('idle');
+  const groupMessagesRealtimeReconnectAttemptsRef = useRef(0);
 
   useEffect(() => {
     groupMessagesRealtimeStatusRef.current = groupMessagesRealtimeStatus;
@@ -1152,10 +1168,12 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!authUserId) {
       setGroupMessagesRealtimeStatus('idle');
+      groupMessagesRealtimeReconnectAttemptsRef.current = 0;
       return;
     }
 
     let isCurrent = true;
+    let silentRetryTimeoutId: ReturnType<typeof setTimeout> | null = null;
     setGroupMessagesRealtimeStatus((current) => (current === 'error' || current === 'closed' ? 'reconnecting' : 'connecting'));
 
     const channel = supabase
@@ -1164,13 +1182,29 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
         if (!isCurrent) return;
         handleGroupMessageInsertRef.current(payload as unknown as GroupMessageRealtimeChangePayload);
       })
-      .subscribe((status) => {
+      .subscribe((status, err) => {
         if (!isCurrent) return;
 
         if (status === 'SUBSCRIBED') {
+          groupMessagesRealtimeReconnectAttemptsRef.current = 0;
           setGroupMessagesRealtimeStatus('subscribed');
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          setGroupMessagesRealtimeStatus('error');
+          groupMessagesRealtimeReconnectAttemptsRef.current += 1;
+
+          if (__DEV__) {
+            console.error(`[group-messages:realtime] ${status} (attempt ${groupMessagesRealtimeReconnectAttemptsRef.current})`, err);
+          }
+
+          if (groupMessagesRealtimeReconnectAttemptsRef.current <= REALTIME_SILENT_RECONNECT_ATTEMPTS) {
+            setGroupMessagesRealtimeStatus('reconnecting');
+            silentRetryTimeoutId = setTimeout(() => {
+              if (isCurrent) {
+                setGroupMessagesRealtimeReconnectToken((token) => token + 1);
+              }
+            }, REALTIME_SILENT_RECONNECT_DELAY_MS);
+          } else {
+            setGroupMessagesRealtimeStatus('error');
+          }
         } else if (status === 'CLOSED') {
           setGroupMessagesRealtimeStatus((current) => (current === 'error' ? current : 'closed'));
         }
@@ -1178,6 +1212,9 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       isCurrent = false;
+      if (silentRetryTimeoutId) {
+        clearTimeout(silentRetryTimeoutId);
+      }
       void supabase.removeChannel(channel);
     };
   }, [authUserId, groupMessagesRealtimeReconnectToken]);
@@ -1737,6 +1774,7 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
   const [groupsRealtimeStatus, setGroupsRealtimeStatus] = useState<RealtimeStatus>('idle');
   const [groupsRealtimeReconnectToken, setGroupsRealtimeReconnectToken] = useState(0);
   const groupsRealtimeStatusRef = useRef<RealtimeStatus>('idle');
+  const groupsRealtimeReconnectAttemptsRef = useRef(0);
 
   useEffect(() => {
     groupsRealtimeStatusRef.current = groupsRealtimeStatus;
@@ -1805,6 +1843,26 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  // Keeps myGroupInvitations (the data notifications.tsx's getInvitationStatusForGroup reads) live
+  // -- previously this state only ever loaded once at sign-in and on foreground transitions, so a
+  // brand-new invitation created while the app was already foregrounded showed up as a notification
+  // (that channel is subscribed separately) but with no matching 'pending' status here yet, and its
+  // Annehmen/Ablehnen buttons silently failed to render. Applying the changed row directly (not a
+  // refetch) also keeps a status change made from another device/session in sync live.
+  const handleGroupInvitationChange = (payload: GroupsRealtimeChangePayload) => {
+    const row = payload.new && Object.keys(payload.new).length > 0 ? payload.new : payload.old;
+    const groupId = row.group_id;
+
+    if (typeof groupId !== 'string' || typeof row.status !== 'string') {
+      return;
+    }
+
+    setMyGroupInvitations((current) => ({
+      ...current,
+      [groupId]: mapSupabaseGroupInvitationRow(row as unknown as SupabaseGroupInvitationRow),
+    }));
+  };
+
   // Ref indirection so the long-lived channel subscription always calls the latest closures
   // without needing to reconnect the channel on every state change — same pattern already used in
   // ModerationContext/FeedPostsContext.
@@ -1814,14 +1872,18 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
   handleGroupJoinRequestChangeRef.current = handleGroupJoinRequestChange;
   const handleGroupsRowChangeRef = useRef(handleGroupsRowChange);
   handleGroupsRowChangeRef.current = handleGroupsRowChange;
+  const handleGroupInvitationChangeRef = useRef(handleGroupInvitationChange);
+  handleGroupInvitationChangeRef.current = handleGroupInvitationChange;
 
   useEffect(() => {
     if (!authUserId) {
       setGroupsRealtimeStatus('idle');
+      groupsRealtimeReconnectAttemptsRef.current = 0;
       return;
     }
 
     let isCurrent = true;
+    let silentRetryTimeoutId: ReturnType<typeof setTimeout> | null = null;
     setGroupsRealtimeStatus((current) => (current === 'error' || current === 'closed' ? 'reconnecting' : 'connecting'));
 
     const channel = supabase
@@ -1838,13 +1900,37 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
         if (!isCurrent) return;
         handleGroupsRowChangeRef.current(payload as unknown as GroupsRealtimeChangePayload);
       })
-      .subscribe((status) => {
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'group_invitations', filter: `invitee_id=eq.${authUserId}` },
+        (payload) => {
+          if (!isCurrent) return;
+          handleGroupInvitationChangeRef.current(payload as unknown as GroupsRealtimeChangePayload);
+        },
+      )
+      .subscribe((status, err) => {
         if (!isCurrent) return;
 
         if (status === 'SUBSCRIBED') {
+          groupsRealtimeReconnectAttemptsRef.current = 0;
           setGroupsRealtimeStatus('subscribed');
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          setGroupsRealtimeStatus('error');
+          groupsRealtimeReconnectAttemptsRef.current += 1;
+
+          if (__DEV__) {
+            console.error(`[groups:realtime] ${status} (attempt ${groupsRealtimeReconnectAttemptsRef.current})`, err);
+          }
+
+          if (groupsRealtimeReconnectAttemptsRef.current <= REALTIME_SILENT_RECONNECT_ATTEMPTS) {
+            setGroupsRealtimeStatus('reconnecting');
+            silentRetryTimeoutId = setTimeout(() => {
+              if (isCurrent) {
+                setGroupsRealtimeReconnectToken((token) => token + 1);
+              }
+            }, REALTIME_SILENT_RECONNECT_DELAY_MS);
+          } else {
+            setGroupsRealtimeStatus('error');
+          }
         } else if (status === 'CLOSED') {
           setGroupsRealtimeStatus((current) => (current === 'error' ? current : 'closed'));
         }
@@ -1852,6 +1938,9 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       isCurrent = false;
+      if (silentRetryTimeoutId) {
+        clearTimeout(silentRetryTimeoutId);
+      }
       void supabase.removeChannel(channel);
     };
   }, [authUserId, groupsRealtimeReconnectToken]);
@@ -1870,10 +1959,12 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (groupsRealtimeStatusRef.current !== 'subscribed') {
+        groupsRealtimeReconnectAttemptsRef.current = 0;
         setGroupsRealtimeReconnectToken((token) => token + 1);
       }
 
       if (groupMessagesRealtimeStatusRef.current !== 'subscribed') {
+        groupMessagesRealtimeReconnectAttemptsRef.current = 0;
         setGroupMessagesRealtimeReconnectToken((token) => token + 1);
       }
 
@@ -1974,6 +2065,7 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
       retryGroupMessagesRealtime,
       myGroupInvitations,
       getInvitationStatusForGroup,
+      refreshMyGroupInvitations,
       respondToGroupInvitation,
       pendingInvitationsByGroup,
       isPendingInvitationsLoading,

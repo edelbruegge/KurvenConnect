@@ -157,7 +157,7 @@ export default function PostDetailScreen() {
   }
 
   const handleSubmitComment = async () => {
-    if (!draftComment.trim() || isSubmittingComment) {
+    if (!draftComment.trim() || isSubmittingComment || isInteractionBlocked(post.userId)) {
       return;
     }
 
@@ -471,24 +471,33 @@ export default function PostDetailScreen() {
         <View style={styles.commentsSection} onLayout={(e) => setCommentsY(e.nativeEvent.layout.y)}>
           <Text style={styles.commentsTitle}>Kommentare</Text>
 
-          <View style={styles.commentComposer}>
-            <TextInput
-              value={draftComment}
-              onChangeText={setDraftComment}
-              placeholder="Kurz einen Kommentar schreiben…"
-              placeholderTextColor={FeedColors.textSecondary}
-              multiline
-              style={styles.commentInput}
-              ref={commentInputRef}
-            />
-            <Pressable
-              onPress={handleSubmitComment}
-              disabled={!isCommentInputValid || isSubmittingComment}
-              style={[styles.commentButton, (!isCommentInputValid || isSubmittingComment) && styles.commentButtonDisabled]}
-            >
-              <Text style={styles.commentButtonText}>{isSubmittingComment ? 'Wird gesendet …' : 'Senden'}</Text>
-            </Pressable>
-          </View>
+          {/* Mirrors the existing canMessageUser gating on the message button above -- the server
+              (post_comments' RLS insert policy, see 20260903100000_harden_blocked_comment_protection.sql)
+              already rejects a comment between blocked users in either direction; this only avoids
+              showing a composer that would just fail for the direction we can detect client-side
+              (isInteractionBlocked === "I blocked them"). */}
+          {!isOwnPost && isInteractionBlocked(post.userId) ? (
+            <Text style={styles.commentBlockedText}>Du kannst hier keinen Kommentar hinzufügen.</Text>
+          ) : (
+            <View style={styles.commentComposer}>
+              <TextInput
+                value={draftComment}
+                onChangeText={setDraftComment}
+                placeholder="Kurz einen Kommentar schreiben…"
+                placeholderTextColor={FeedColors.textSecondary}
+                multiline
+                style={styles.commentInput}
+                ref={commentInputRef}
+              />
+              <Pressable
+                onPress={handleSubmitComment}
+                disabled={!isCommentInputValid || isSubmittingComment}
+                style={[styles.commentButton, (!isCommentInputValid || isSubmittingComment) && styles.commentButtonDisabled]}
+              >
+                <Text style={styles.commentButtonText}>{isSubmittingComment ? 'Wird gesendet …' : 'Senden'}</Text>
+              </Pressable>
+            </View>
+          )}
 
           {commentError ? <Text style={styles.commentErrorText}>{commentError}</Text> : null}
 
@@ -840,6 +849,11 @@ const styles = StyleSheet.create({
     color: FeedColors.background,
     fontSize: FontSizes.meta,
     fontWeight: '700',
+  },
+  commentBlockedText: {
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.meta,
+    fontStyle: 'italic',
   },
   commentErrorText: {
     color: '#F87171',

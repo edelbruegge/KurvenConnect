@@ -71,8 +71,17 @@ async function openInMaps(address: string) {
 export default function MeetupDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string; focusComments?: string }>();
-  const { posts, toggleLike, addComment, toggleMeetupAttendance, isRemoteMeetupsLoading, getRemoteAuthorDisplay, joinRemoteMeetup, leaveRemoteMeetup } =
-    useFeedPosts();
+  const {
+    posts,
+    toggleLike,
+    addComment,
+    toggleMeetupAttendance,
+    isRemoteMeetupsLoading,
+    getRemoteAuthorDisplay,
+    joinRemoteMeetup,
+    leaveRemoteMeetup,
+    isContentHidden,
+  } = useFeedPosts();
   const { getOrCreateConversation, getOrCreateDirectConversation } = useMessages();
   const { isSaved, toggleSaved, getSavedContent } = useSaved();
   const { isInteractionBlocked } = useBlocks();
@@ -179,6 +188,15 @@ export default function MeetupDetailScreen() {
     return <NotFoundView title="Inhalt nicht verfügbar" message="Dieser Inhalt wurde moderativ ausgeblendet." />;
   }
 
+  // Parity with post/[id].tsx's third layer: a real, server-driven moderation signal
+  // (content_restrictions via the content-visibility realtime channel), distinct from
+  // isModeratedAway -- needed because `post` can come from getSavedContent's direct-fetch fallback,
+  // which queries the content tables directly and is therefore unaffected by the list-pruning that
+  // same channel already does for the normal `posts` array.
+  if (isContentHidden('meetup', post.id)) {
+    return <NotFoundView title="Inhalt nicht verfügbar" message="Dieser Inhalt wurde moderativ ausgeblendet." />;
+  }
+
   const meetup = post.meetupDetails;
   const author =
     post.source === 'supabase' && !isCurrentUserId(post.userId) ? getRemoteAuthorDisplay(post.userId) : getAuthorDisplay(post);
@@ -275,7 +293,7 @@ export default function MeetupDetailScreen() {
   };
 
   const handleSubmitComment = () => {
-    if (!draftComment.trim()) {
+    if (!draftComment.trim() || isInteractionBlocked(post.userId)) {
       return;
     }
 
@@ -475,24 +493,28 @@ export default function MeetupDetailScreen() {
             <View style={styles.commentsSection} onLayout={(e) => setCommentsY(e.nativeEvent.layout.y)}>
               <Text style={styles.sectionTitle}>Kommentare</Text>
 
-              <View style={styles.commentComposer}>
-                <TextInput
-                  value={draftComment}
-                  onChangeText={setDraftComment}
-                  placeholder="Kurz einen Kommentar schreiben…"
-                  placeholderTextColor={FeedColors.textSecondary}
-                  multiline
-                  style={styles.commentInput}
-                  ref={commentInputRef}
-                />
-                <Pressable
-                  onPress={handleSubmitComment}
-                  disabled={!isCommentInputValid}
-                  style={[styles.commentButton, !isCommentInputValid && styles.commentButtonDisabled]}
-                >
-                  <Text style={styles.commentButtonText}>Senden</Text>
-                </Pressable>
-              </View>
+              {!isOrganizer && isInteractionBlocked(post.userId) ? (
+                <Text style={styles.commentBlockedText}>Du kannst hier keinen Kommentar hinzufügen.</Text>
+              ) : (
+                <View style={styles.commentComposer}>
+                  <TextInput
+                    value={draftComment}
+                    onChangeText={setDraftComment}
+                    placeholder="Kurz einen Kommentar schreiben…"
+                    placeholderTextColor={FeedColors.textSecondary}
+                    multiline
+                    style={styles.commentInput}
+                    ref={commentInputRef}
+                  />
+                  <Pressable
+                    onPress={handleSubmitComment}
+                    disabled={!isCommentInputValid}
+                    style={[styles.commentButton, !isCommentInputValid && styles.commentButtonDisabled]}
+                  >
+                    <Text style={styles.commentButtonText}>Senden</Text>
+                  </Pressable>
+                </View>
+              )}
 
               {visibleComments.length > 0 ? (
                 visibleComments.map((comment) => {
@@ -825,6 +847,11 @@ const styles = StyleSheet.create({
     color: FeedColors.background,
     fontSize: FontSizes.meta,
     fontWeight: '700',
+  },
+  commentBlockedText: {
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.meta,
+    fontStyle: 'italic',
   },
   commentCard: {
     backgroundColor: FeedColors.imagePlaceholder,

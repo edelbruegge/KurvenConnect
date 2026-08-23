@@ -49,6 +49,16 @@ const NOTIFICATIONS_SELECT_COLUMNS =
   'id, recipient_id, actor_id, type, title, body, reference_type, reference_id, event_key, read_at, created_at';
 const REMOTE_NOTIFICATIONS_LIMIT = 100;
 
+// See the identical constants/reasoning in messages-context.tsx: a lone CHANNEL_ERROR/TIMED_OUT is
+// an expected part of Supabase Realtime's own reconnect cycle, not proof of a real failure -- retry
+// silently a few times before treating the channel as actually broken. This matters even though
+// notificationRealtimeError isn't rendered anywhere today: while realtimeStatus sits stuck at
+// 'error' the channel receives no further INSERTs at all, which is what makes a newly created
+// notification (e.g. a group invitation) show up only after the next foreground refresh instead of
+// live.
+const REALTIME_SILENT_RECONNECT_ATTEMPTS = 3;
+const REALTIME_SILENT_RECONNECT_DELAY_MS = 3000;
+
 const UNKNOWN_ACTOR_DISPLAY: AuthorDisplay = { displayName: 'Unbekanntes Mitglied', initials: '?' };
 
 function getNotificationTimeMs(notification: AppNotification): number {
@@ -76,6 +86,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   const [realtimeError, setRealtimeError] = useState<string | null>(null);
   const [realtimeReconnectToken, setRealtimeReconnectToken] = useState(0);
   const realtimeStatusRef = useRef<RealtimeStatus>('idle');
+  const realtimeReconnectAttemptsRef = useRef(0);
 
   useEffect(() => {
     realtimeStatusRef.current = realtimeStatus;
@@ -108,8 +119,11 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
       if (!isCurrent) return;
 
       if (error) {
+        // A reload error (foreground refresh, retry) must never wipe already-loaded notifications
+        // back to an empty state -- only the error/loading flags change. On the very first load
+        // remoteNotifications is already [] from its initial useState, so this stays correct there
+        // too; it only matters for every load after the first.
         setRemoteNotificationsError(mapNotificationError(error));
-        setRemoteNotifications([]);
         setIsRemoteNotificationsLoading(false);
         return;
       }
@@ -128,7 +142,6 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
 
       if (profilesError) {
         setRemoteNotificationsError(mapNotificationError(profilesError));
-        setRemoteNotifications([]);
         setIsRemoteNotificationsLoading(false);
         return;
       }
@@ -246,10 +259,12 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     if (!authUserId) {
       setRealtimeStatus('idle');
       setRealtimeError(null);
+      realtimeReconnectAttemptsRef.current = 0;
       return;
     }
 
     let isCurrent = true;
+    let silentRetryTimeoutId: ReturnType<typeof setTimeout> | null = null;
     setRealtimeStatus((current) => (current === 'error' || current === 'closed' ? 'reconnecting' : 'connecting'));
     setRealtimeError(null);
 
@@ -267,11 +282,27 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
         if (!isCurrent) return;
 
         if (status === 'SUBSCRIBED') {
+          realtimeReconnectAttemptsRef.current = 0;
           setRealtimeStatus('subscribed');
           setRealtimeError(null);
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          setRealtimeStatus('error');
-          setRealtimeError(mapNotificationRealtimeError(err ?? new Error(status)));
+          realtimeReconnectAttemptsRef.current += 1;
+
+          if (__DEV__) {
+            console.error(`[notifications:realtime] ${status} (attempt ${realtimeReconnectAttemptsRef.current})`, err);
+          }
+
+          if (realtimeReconnectAttemptsRef.current <= REALTIME_SILENT_RECONNECT_ATTEMPTS) {
+            setRealtimeStatus('reconnecting');
+            silentRetryTimeoutId = setTimeout(() => {
+              if (isCurrent) {
+                setRealtimeReconnectToken((token) => token + 1);
+              }
+            }, REALTIME_SILENT_RECONNECT_DELAY_MS);
+          } else {
+            setRealtimeStatus('error');
+            setRealtimeError(mapNotificationRealtimeError(err ?? new Error(status)));
+          }
         } else if (status === 'CLOSED') {
           setRealtimeStatus((current) => (current === 'error' ? current : 'closed'));
         }
@@ -279,6 +310,9 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
 
     return () => {
       isCurrent = false;
+      if (silentRetryTimeoutId) {
+        clearTimeout(silentRetryTimeoutId);
+      }
       void supabase.removeChannel(channel);
     };
   }, [authUserId, realtimeReconnectToken]);
@@ -288,6 +322,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
       return;
     }
 
+    realtimeReconnectAttemptsRef.current = 0;
     setRealtimeStatus('reconnecting');
     setRealtimeError(null);
     setRealtimeReconnectToken((token) => token + 1);
