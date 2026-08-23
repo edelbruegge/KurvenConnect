@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Keyboard, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Avatar } from '@/components/feed/avatar';
@@ -34,6 +34,7 @@ export default function PostDetailScreen() {
     getRemoteAuthorDisplay,
     createRemoteTripRequest,
     cancelRemoteTripRequest,
+    refreshOwnTripRequestForTrip,
     pendingRequestCountForTrip,
     fetchPostById,
     isContentHidden,
@@ -98,6 +99,20 @@ export default function PostDetailScreen() {
 
   const post = localPost ?? remoteFallback.post;
   const focusComments = params.focusComments === 'true';
+
+  // trip_requests has no realtime channel by design (see feed-posts-context.tsx's own comment on
+  // refreshRequestsForTrip) -- when the trip owner accepts/rejects from THEIR client, that never
+  // reaches the requester's already-mapped rideRequestStatus here. Refetching on every focus closes
+  // that gap for whoever is looking at this exact trip (e.g. coming back from "Anfragen verwalten"
+  // on the owner's side, or reopening the trip after being notified as the requester).
+  useFocusEffect(
+    useCallback(() => {
+      if (post?.category === 'Fahrt') {
+        void refreshOwnTripRequestForTrip(post.id);
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [post?.id, post?.category]),
+  );
 
   useEffect(() => {
     const show = Keyboard.addListener('keyboardDidShow', () => setKeyboardVisible(true));

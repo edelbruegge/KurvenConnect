@@ -84,9 +84,12 @@ export function TripCard({ post, onPress, onLikePress }: TripCardProps) {
         </View>
       </View>
 
-      {tripDetails.occasion ? (
+      {/* gameLabel (structured, via GameSelector) is the current source for this -- occasion is a
+          legacy free-text field the creation form no longer collects, kept only as a fallback so
+          trips created before this change don't lose their existing display. */}
+      {post.gameLabel ?? tripDetails.occasion ? (
         <View style={styles.occasionBox}>
-          <Text style={styles.occasionText}>{tripDetails.occasion}</Text>
+          <Text style={styles.occasionText}>{post.gameLabel ?? tripDetails.occasion}</Text>
         </View>
       ) : null}
 

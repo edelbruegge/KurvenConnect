@@ -18,8 +18,12 @@ export function PostMetadata({ post, variant = 'compact' }: PostMetadataProps) {
       { label: 'Freie Plätze', value: String(post.tripDetails.freeSeats) },
     ];
 
-    if (post.tripDetails.occasion) {
-      details.push({ label: 'Spiel oder Anlass', value: post.tripDetails.occasion });
+    // gameLabel (structured, via GameSelector) is the current source for this -- occasion is a
+    // legacy free-text field the creation form no longer collects, kept only as a fallback so
+    // trips created before this change don't lose their existing display.
+    const gameOrOccasion = post.gameLabel ?? post.tripDetails.occasion;
+    if (gameOrOccasion) {
+      details.push({ label: 'Spiel', value: gameOrOccasion });
     }
 
     return (

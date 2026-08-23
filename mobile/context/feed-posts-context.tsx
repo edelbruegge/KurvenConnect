@@ -140,6 +140,8 @@ type FeedPostsContextValue = {
   respondToRemoteTripRequest: (requestId: string, decision: 'accepted' | 'rejected') => Promise<{ error: string | null }>;
   requestsForOwnedTrips: SupabaseTripRequestRow[];
   getRequestsForTrip: (tripId: string) => SupabaseTripRequestRow[];
+  refreshRequestsForTrip: (tripId: string) => Promise<void>;
+  refreshOwnTripRequestForTrip: (tripId: string) => Promise<void>;
   pendingRequestCountForTrip: (tripId: string) => number;
 
   // Supabase-backed meetups ("Treffpunkt").
@@ -1962,6 +1964,63 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
   const getRequestsForTrip = (tripId: string): SupabaseTripRequestRow[] =>
     requestsForOwnedTrips.filter((row) => row.trip_id === tripId);
 
+  // Symmetric counterpart to refreshRequestsForTrip below, for the OTHER side of the same gap: the
+  // requester's own rideRequestSent/rideRequestStatus on `remoteTrips` (read by post/[id].tsx's
+  // "Mitfahren anfragen" button) is only ever set at the moment createRemoteTripRequest/
+  // cancelRemoteTripRequest run on THIS client -- when the trip owner accepts/rejects from their
+  // own client, that mutation has no way to reach back and update the requester's already-mapped
+  // FeedPost. Same fix shape as createRemoteTripRequest's own update below, just fetched instead of
+  // taken from a just-made request's response. Called from post/[id].tsx on focus.
+  const refreshOwnTripRequestForTrip = async (tripId: string): Promise<void> => {
+    if (!authUserId) {
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from('trip_requests')
+      .select(TRIP_REQUESTS_SELECT_COLUMNS)
+      .eq('trip_id', tripId)
+      .eq('requester_id', authUserId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error || !data) {
+      return;
+    }
+
+    const freshRequest = data as SupabaseTripRequestRow;
+    setRemoteTrips((current) =>
+      current.map((entry) =>
+        entry.id === tripId
+          ? { ...entry, rideRequestSent: freshRequest.status !== 'cancelled', rideRequestStatus: freshRequest.status, rideRequestId: freshRequest.id }
+          : entry,
+      ),
+    );
+    setOwnTripRequestByTripId((current) => ({ ...current, [tripId]: freshRequest }));
+  };
+
+  // trip_requests is deliberately NOT in the supabase_realtime publication (see
+  // 20260816100000_complete_realtime_publication.sql's own comment: the owner is already informed
+  // live via the notifications table, so raw table realtime was judged unnecessary) -- but nothing
+  // ever re-fetched requestsForOwnedTrips after its one-time load, so "Anfragen verwalten" stayed
+  // stale until the next full sign-in/foreground reload even though the owner's notification had
+  // already arrived live. This targets exactly that gap: trip/[id]/requests.tsx calls this on every
+  // focus, matching the same "no realtime channel, refetch on demand" convention already used
+  // elsewhere in this app (e.g. pendingInvitationsByGroup in GroupsContext). A failed refetch is
+  // silently ignored -- the screen simply keeps showing whatever it already had, same as every
+  // other on-demand refresh in this file never wiping already-loaded data on error.
+  const refreshRequestsForTrip = async (tripId: string): Promise<void> => {
+    const { data, error } = await supabase.from('trip_requests').select(TRIP_REQUESTS_SELECT_COLUMNS).eq('trip_id', tripId);
+
+    if (error || !data) {
+      return;
+    }
+
+    const freshRequests = data as SupabaseTripRequestRow[];
+    setRequestsForOwnedTrips((current) => [...current.filter((row) => row.trip_id !== tripId), ...freshRequests]);
+  };
+
   const pendingRequestCountForTrip = (tripId: string): number =>
     getRequestsForTrip(tripId).filter((row) => row.status === 'pending').length;
 
@@ -2827,6 +2886,8 @@ export function FeedPostsProvider({ children }: { children: React.ReactNode }) {
       respondToRemoteTripRequest,
       requestsForOwnedTrips,
       getRequestsForTrip,
+      refreshRequestsForTrip,
+      refreshOwnTripRequestForTrip,
       pendingRequestCountForTrip,
       remoteMeetups,
       isRemoteMeetupsLoading,

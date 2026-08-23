@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -38,7 +38,7 @@ const UNKNOWN_REQUESTER: RequesterDisplay = { displayName: 'Unbekanntes Mitglied
 export default function TripRequestsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string }>();
-  const { getPostById, getRequestsForTrip, respondToRemoteTripRequest } = useFeedPosts();
+  const { getPostById, getRequestsForTrip, refreshRequestsForTrip, respondToRemoteTripRequest } = useFeedPosts();
   const { isContentOwnedByCurrentUser } = useProfiles();
   const { getOrCreateDirectConversation } = useMessages();
   const { canMessageUser } = useSafetySelectors();
@@ -93,6 +93,21 @@ export default function TripRequestsScreen() {
       isCurrent = false;
     };
   }, [requesterIdsKey]);
+
+  // trip_requests has no realtime channel by design (see feed-posts-context.tsx's own comment on
+  // refreshRequestsForTrip) -- the owner's notification already arrives live, but this list itself
+  // only ever loaded once at sign-in/foreground, so a request made while this screen wasn't the one
+  // open stayed invisible here until the next full reload even though it existed server-side.
+  // Refetching on every focus (not just once on mount) also picks up a request that arrives while
+  // this exact screen is already open and the user navigates back to it.
+  useFocusEffect(
+    useCallback(() => {
+      if (params.id && isOwnedSupabaseTrip) {
+        void refreshRequestsForTrip(params.id);
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [params.id, isOwnedSupabaseTrip]),
+  );
 
   if (!trip || !isOwnedSupabaseTrip) {
     return <NotFoundView title="Fahrt nicht gefunden" message="Diese Anfragenübersicht ist nicht verfügbar." />;
