@@ -1,14 +1,14 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import 'react-native-reanimated';
 
 import { HeaderBackButton } from '@/components/navigation/header-back-button';
 import { MatchLockScreen } from '@/components/match-lock/match-lock-screen';
-import { FeedColors, FontSizes, Spacing } from '@/constants/theme';
+import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
 import { ActiveClubProvider } from '@/context/active-club-context';
 import { AuthProvider, useAuth } from '@/context/auth-context';
 import { BlocksProvider } from '@/context/blocks-context';
@@ -54,9 +54,27 @@ function SupabaseNotConfiguredScreen() {
   );
 }
 
+// A failed own-profile fetch (network/Supabase error, not "no row exists") must never be silently
+// treated the same as "onboarding not needed" -- without this, ownProfile stays null exactly like
+// the genuine missing-row edge case, and the guard below would let the user fall straight through
+// into the main app with no profile loaded and no indication anything went wrong. Shown only once
+// isOwnProfileLoading has settled with a real error, never during a normal brief loading flash.
+function ProfileLoadErrorScreen({ error, onRetry }: { error: string; onRetry: () => void }) {
+  return (
+    <SafeAreaView style={styles.loadingSafeArea}>
+      <View style={styles.loadingContent}>
+        <Text style={styles.notConfiguredText}>{error}</Text>
+        <Pressable onPress={onRetry} style={styles.retryButton} accessibilityRole="button" accessibilityLabel="Erneut versuchen">
+          <Text style={styles.retryButtonText}>Erneut versuchen</Text>
+        </Pressable>
+      </View>
+    </SafeAreaView>
+  );
+}
+
 function RootNavigator() {
   const { isLoading, isAuthenticated } = useAuth();
-  const { ownProfile, isOwnProfileLoading } = useProfiles();
+  const { ownProfile, isOwnProfileLoading, ownProfileError, refreshOwnProfile } = useProfiles();
   const { status: matchLockStatus, lockedGame } = useMatchLock();
 
   if (!isSupabaseConfigured) {
@@ -73,6 +91,14 @@ function RootNavigator() {
   // that stays a separate, already-handled fallback in app/(tabs)/profile.tsx.
   if (isAuthenticated && isOwnProfileLoading) {
     return <AuthLoadingScreen />;
+  }
+
+  // A genuine fetch error is NOT the same situation as "no profile row exists" -- both used to
+  // leave ownProfile === null and fall straight through to the main app below, silently skipping
+  // the onboarding decision entirely and leaving the user on a blank/incomplete profile with no way
+  // to retry. Only fires once loading has actually finished with a real error.
+  if (isAuthenticated && ownProfile === null && ownProfileError) {
+    return <ProfileLoadErrorScreen error={ownProfileError} onRetry={refreshOwnProfile} />;
   }
 
   const needsOnboarding = isAuthenticated && ownProfile !== null && !ownProfile.onboardingCompletedAt;
@@ -286,5 +312,20 @@ const styles = StyleSheet.create({
     fontSize: FontSizes.body,
     textAlign: 'center',
     lineHeight: 22,
+  },
+  retryButton: {
+    marginTop: Spacing.lg,
+    backgroundColor: ClubColors.primary,
+    borderRadius: Radii.round,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.sm,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  retryButtonText: {
+    color: ClubColors.secondary,
+    fontSize: FontSizes.body,
+    fontWeight: '700',
   },
 });
