@@ -822,13 +822,23 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
   const searchUsers = (query: string) => {
     const trimmedQuery = query.trim();
 
-    if (!authUserId || !trimmedQuery) return;
+    if (!trimmedQuery) return;
+
+    // Previously a silent no-op when not signed in -- state stayed at its EMPTY_USER_SEARCH_STATE
+    // default (isLoading: false, users: []), which search.tsx's own render logic then displayed as
+    // "Keine Nutzer gefunden." -- indistinguishable from a real, empty result. Surfacing it as an
+    // actual error makes an auth-state bug visible instead of looking like normal empty results.
+    if (!authUserId) {
+      setUserSearchState({ users: [], isLoading: false, error: 'Nicht angemeldet.', hasMore: false, query: trimmedQuery });
+      return;
+    }
 
     const requestId = ++userSearchRequestIdRef.current;
     setUserSearchState({ users: [], isLoading: true, error: null, hasMore: false, query: trimmedQuery });
 
-    supabase
-      .rpc('search_profiles', { p_query: trimmedQuery, p_limit: USER_SEARCH_PAGE_SIZE, p_offset: 0 })
+    // Wrapped in Promise.resolve() -- the Supabase query builder's own .then is a bare thenable,
+    // not a real Promise, so it has no .catch of its own (see the identical wrap in searchGroups).
+    Promise.resolve(supabase.rpc('search_profiles', { p_query: trimmedQuery, p_limit: USER_SEARCH_PAGE_SIZE, p_offset: 0 }))
       .then(({ data, error }) => {
         if (userSearchRequestIdRef.current !== requestId) return;
 
@@ -840,6 +850,19 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
         const rows = (data ?? []) as SupabaseProfileRow[];
         const users = rows.map((row) => mapProfileToUserProfile(mapSupabaseProfileRow(row)));
         setUserSearchState({ users, isLoading: false, error: null, hasMore: rows.length === USER_SEARCH_PAGE_SIZE, query: trimmedQuery });
+      })
+      .catch((err: unknown) => {
+        // A rejected promise (network failure before Supabase even responded, not a { error }
+        // result) previously left isLoading stuck true forever with no way out. Same fallback
+        // message shape as mapProfileError's own unknown-error case.
+        if (userSearchRequestIdRef.current !== requestId) return;
+        setUserSearchState({
+          users: [],
+          isLoading: false,
+          error: err instanceof Error ? err.message : 'Unbekannter Fehler bei der Suche.',
+          hasMore: false,
+          query: trimmedQuery,
+        });
       });
   };
 

@@ -33,13 +33,16 @@ export type SupabaseGroupMembershipRow = {
   unread_count: number;
 };
 
-// A row from get_group_suggestions() — deliberately narrower, no owner_id.
+// A row from get_group_suggestions() — deliberately narrower, no owner_id. Also reused for
+// search_groups() results, which additionally set is_member (absent/undefined here, since
+// get_group_suggestions never returns an already-a-member group in the first place).
 export type SupabaseGroupSuggestionRow = {
   id: string;
   name: string;
   description: string | null;
   visibility: string;
   member_count: number;
+  is_member?: boolean;
 };
 
 // A row from get_subgroups() — same thin shape as SupabaseGroupSuggestionRow, different source.
@@ -129,6 +132,7 @@ export function mapSupabaseGroupSuggestionRow(row: SupabaseGroupSuggestionRow): 
     visibility: row.visibility as GroupVisibility,
     memberCount: row.member_count,
     source: 'supabase',
+    isMember: row.is_member ?? false,
   };
 }
 

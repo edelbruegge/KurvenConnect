@@ -94,6 +94,10 @@ function deriveInitialLocalGroups(): Group[] {
 
 type ActionResult = { error: string | null };
 
+// Same shape as profile-context.tsx's UserSearchState, for search_groups().
+type GroupSearchState = { groups: GroupSuggestion[]; isLoading: boolean; error: string | null; hasMore: boolean; query: string | null };
+const EMPTY_GROUP_SEARCH_STATE: GroupSearchState = { groups: [], isLoading: false, error: null, hasMore: false, query: null };
+
 type RealtimeStatus = 'idle' | 'connecting' | 'subscribed' | 'reconnecting' | 'error' | 'closed';
 
 // A minimal structural view of the postgres_changes payload — only the fields the handlers below
@@ -109,6 +113,9 @@ type GroupsRealtimeChangePayload = {
 const REALTIME_SILENT_RECONNECT_ATTEMPTS = 3;
 const REALTIME_SILENT_RECONNECT_DELAY_MS = 3000;
 
+const GROUP_SUGGESTIONS_LIMIT = 3;
+const GROUP_SEARCH_PAGE_SIZE = 24;
+
 // Same minimal structural view, for the group_messages INSERT-only channel.
 type GroupMessageRealtimeChangePayload = {
   new: Record<string, unknown>;
@@ -118,7 +125,6 @@ type GroupsContextValue = {
   groups: Group[];
   getGroupById: (id: string) => Group | undefined;
   getMyGroups: () => Group[];
-  getRecommendedGroups: () => Group[];
   isMember: (groupId: string) => boolean;
   joinGroup: (groupId: string) => void;
   leaveGroup: (groupId: string) => Promise<ActionResult>;
@@ -143,6 +149,9 @@ type GroupsContextValue = {
   groupActionError: string | null;
   refreshMyGroups: () => void;
   refreshGroupSuggestions: () => void;
+  groupSearchState: GroupSearchState;
+  searchGroups: (query: string) => void;
+  loadMoreGroupSearch: () => void;
   refreshIncomingRequestsForGroup: (groupId: string) => void;
   joinPublicGroup: (groupId: string) => Promise<ActionResult>;
   requestPrivateGroupJoin: (groupId: string) => Promise<ActionResult>;
@@ -238,18 +247,6 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
     const group = getLocalGroupById(groupId);
     return group ? group.memberIds.includes(CURRENT_USER_ID) : false;
   };
-
-  // Same visibility gap found and fixed server-side in get_group_suggestions() (see the migration)
-  // existed here too for local seed groups -- a private seed group (e.g. "Nur geladene Gäste") was
-  // being suggested to every non-member, exactly the discoverability leak Vorgabe 4 forbids.
-  const getRecommendedGroups = () =>
-    localGroups.filter(
-      (group) =>
-        group.ownerId !== CURRENT_USER_ID &&
-        !group.memberIds.includes(CURRENT_USER_ID) &&
-        group.clubId === activeTeamId &&
-        (group.visibility === 'public' || group.visibility === 'closed'),
-    );
 
   const joinGroup = (groupId: string) => {
     setLocalGroups((current) =>
@@ -531,7 +528,7 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
     setGroupSuggestionsError(null);
 
     supabase
-      .rpc('get_group_suggestions', { p_limit: 5, p_team_id: activeTeamId })
+      .rpc('get_group_suggestions', { p_limit: GROUP_SUGGESTIONS_LIMIT, p_team_id: activeTeamId })
       .then(({ data, error }) => {
         if (!isCurrent) return;
 
@@ -554,6 +551,95 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
   const refreshGroupSuggestions = () => {
     setGroupSuggestionsReloadToken((token) => token + 1);
   };
+
+  // --- Global, club-independent group name search (app/(tabs)/search.tsx) -- same shape as
+  // profile-context.tsx's searchUsers/search_profiles, via search_groups(). Deliberately excludes
+  // groups the caller already belongs to (this is a find-a-new-group search, not a second "Meine
+  // Gruppen" listing) and reuses GroupSuggestion/SupabaseGroupSuggestionRow/
+  // RemoteGroupSuggestionCard as-is since search_groups() returns the identical column shape. ---
+  const [groupSearchState, setGroupSearchState] = useState<GroupSearchState>(EMPTY_GROUP_SEARCH_STATE);
+  const groupSearchRequestIdRef = useRef(0);
+
+  const searchGroups = (query: string) => {
+    const trimmedQuery = query.trim();
+
+    if (!trimmedQuery) return;
+
+    // Previously a silent no-op when not signed in -- see the identical fix/reasoning in
+    // profile-context.tsx's searchUsers.
+    if (!authUserId) {
+      setGroupSearchState({ groups: [], isLoading: false, error: 'Nicht angemeldet.', hasMore: false, query: trimmedQuery });
+      return;
+    }
+
+    const requestId = ++groupSearchRequestIdRef.current;
+    setGroupSearchState({ groups: [], isLoading: true, error: null, hasMore: false, query: trimmedQuery });
+
+    // Wrapped in Promise.resolve() -- the Supabase query builder's own .then is a bare thenable,
+    // not a real Promise, so it has no .catch of its own.
+    Promise.resolve(supabase.rpc('search_groups', { p_query: trimmedQuery, p_limit: GROUP_SEARCH_PAGE_SIZE, p_offset: 0 }))
+      .then(({ data, error }) => {
+        if (groupSearchRequestIdRef.current !== requestId) return;
+
+        if (error) {
+          setGroupSearchState({ groups: [], isLoading: false, error: mapGroupError(error, 'load'), hasMore: false, query: trimmedQuery });
+          return;
+        }
+
+        const rows = (data ?? []) as SupabaseGroupSuggestionRow[];
+        const groups = rows.map(mapSupabaseGroupSuggestionRow);
+        setGroupSearchState({ groups, isLoading: false, error: null, hasMore: rows.length === GROUP_SEARCH_PAGE_SIZE, query: trimmedQuery });
+      })
+      .catch((err: unknown) => {
+        // Same network-level-rejection safety net as profile-context.tsx's searchUsers -- a
+        // rejected promise (not a { error } result) previously left isLoading stuck true forever.
+        if (groupSearchRequestIdRef.current !== requestId) return;
+        setGroupSearchState({
+          groups: [],
+          isLoading: false,
+          error: err instanceof Error ? err.message : 'Unbekannter Fehler bei der Suche.',
+          hasMore: false,
+          query: trimmedQuery,
+        });
+      });
+  };
+
+  const loadMoreGroupSearch = () => {
+    const { query, groups, isLoading, hasMore } = groupSearchState;
+
+    if (!query || isLoading || !hasMore) return;
+
+    const requestId = ++groupSearchRequestIdRef.current;
+    setGroupSearchState((current) => ({ ...current, isLoading: true }));
+
+    supabase
+      .rpc('search_groups', { p_query: query, p_limit: GROUP_SEARCH_PAGE_SIZE, p_offset: groups.length })
+      .then(({ data, error }) => {
+        if (groupSearchRequestIdRef.current !== requestId) return;
+
+        if (error) {
+          setGroupSearchState((current) => ({ ...current, isLoading: false, error: mapGroupError(error, 'load') }));
+          return;
+        }
+
+        const rows = (data ?? []) as SupabaseGroupSuggestionRow[];
+        const newGroups = rows.map(mapSupabaseGroupSuggestionRow);
+        setGroupSearchState((current) => ({
+          ...current,
+          groups: [...current.groups, ...newGroups],
+          isLoading: false,
+          hasMore: rows.length === GROUP_SEARCH_PAGE_SIZE,
+        }));
+      });
+  };
+
+  // Never let account B inherit account A's search results (same convention as
+  // profile-context.tsx's userSearchState reset).
+  useEffect(() => {
+    if (!authUserId) {
+      setGroupSearchState(EMPTY_GROUP_SEARCH_STATE);
+    }
+  }, [authUserId]);
 
   // --- My own pending join requests. ---
   const [myJoinRequests, setMyJoinRequests] = useState<GroupJoinRequestRecord[]>([]);
@@ -1820,6 +1906,25 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  // A brand-new group is, by definition, never already in remoteGroups/groupMembers, so
+  // handleGroupsRowChange above (previously also the only handler for this table, and previously
+  // only ever subscribed to UPDATE, never INSERT) had no way to react to it. get_group_suggestions
+  // itself already correctly excludes groups the caller owns/is already a member of, so simply
+  // re-running it here is safe and cheap -- no need to inspect the inserted row's team_id/visibility
+  // client-side first, the RPC's own WHERE clause is the single source of truth for what qualifies.
+  //
+  // Also re-runs the active group search, if any: search.tsx only re-triggers searchGroups when its
+  // query text itself changes (same debounce guard as the pre-existing user search), so a group
+  // created while the search screen already has a query typed in -- and the tab just stays mounted,
+  // as usual for a bottom tab -- would otherwise never be picked up without the user retyping.
+  const handleGroupInsert = () => {
+    refreshGroupSuggestions();
+
+    if (groupSearchState.query) {
+      searchGroups(groupSearchState.query);
+    }
+  };
+
   const handleGroupJoinRequestChange = (payload: GroupsRealtimeChangePayload) => {
     const row = payload.new && Object.keys(payload.new).length > 0 ? payload.new : payload.old;
     const groupId = row.group_id;
@@ -1872,6 +1977,8 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
   handleGroupJoinRequestChangeRef.current = handleGroupJoinRequestChange;
   const handleGroupsRowChangeRef = useRef(handleGroupsRowChange);
   handleGroupsRowChangeRef.current = handleGroupsRowChange;
+  const handleGroupInsertRef = useRef(handleGroupInsert);
+  handleGroupInsertRef.current = handleGroupInsert;
   const handleGroupInvitationChangeRef = useRef(handleGroupInvitationChange);
   handleGroupInvitationChangeRef.current = handleGroupInvitationChange;
 
@@ -1899,6 +2006,10 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'groups' }, (payload) => {
         if (!isCurrent) return;
         handleGroupsRowChangeRef.current(payload as unknown as GroupsRealtimeChangePayload);
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'groups' }, () => {
+        if (!isCurrent) return;
+        handleGroupInsertRef.current();
       })
       .on(
         'postgres_changes',
@@ -2005,7 +2116,6 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
       groups,
       getGroupById,
       getMyGroups,
-      getRecommendedGroups,
       isMember,
       joinGroup,
       leaveGroup,
@@ -2028,6 +2138,9 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
       groupActionError,
       refreshMyGroups,
       refreshGroupSuggestions,
+      groupSearchState,
+      searchGroups,
+      loadMoreGroupSearch,
       refreshIncomingRequestsForGroup,
       joinPublicGroup,
       requestPrivateGroupJoin,
@@ -2085,6 +2198,7 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
       remoteGroupsError,
       isGroupSuggestionsLoading,
       groupSuggestionsError,
+      groupSearchState,
       isGroupActionSubmitting,
       groupActionError,
       groupMembers,

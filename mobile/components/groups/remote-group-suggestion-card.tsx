@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { IconSymbol } from '@/components/ui/icon-symbol';
@@ -8,12 +9,16 @@ import type { GroupSuggestion } from '@/data/groups';
 
 type RemoteGroupSuggestionCardProps = {
   suggestion: GroupSuggestion;
+  // Defaults to the original "Gruppe für dich" recommendation framing (Feed tab). search.tsx passes
+  // a plain "Gruppe" label instead -- these are real search matches, not a personalized suggestion.
+  badgeLabel?: string;
 };
 
 // Deliberately does not navigate anywhere on tap — a non-member has no full group page to see
-// (see app/group/[id].tsx's membership guard), so unlike the local GroupRecommendationCard this
-// card is not wrapped in a Pressable-that-opens-the-group. Only the action button does anything.
-export function RemoteGroupSuggestionCard({ suggestion }: RemoteGroupSuggestionCardProps) {
+// (see app/group/[id].tsx's membership guard), so this card is not wrapped in a
+// Pressable-that-opens-the-group. Only the action button does anything.
+export function RemoteGroupSuggestionCard({ suggestion, badgeLabel = 'Gruppe für dich' }: RemoteGroupSuggestionCardProps) {
+  const router = useRouter();
   const { joinPublicGroup, requestPrivateGroupJoin, cancelJoinRequest, myJoinRequests, isGroupActionSubmitting } = useGroups();
   const [localError, setLocalError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -57,7 +62,7 @@ export function RemoteGroupSuggestionCard({ suggestion }: RemoteGroupSuggestionC
       <View style={styles.badgeRow}>
         <View style={styles.recommendationBadge}>
           <IconSymbol size={14} name="person.3.fill" color={ClubColors.text} />
-          <Text style={styles.recommendationBadgeText}>Gruppe für dich</Text>
+          <Text style={styles.recommendationBadgeText}>{badgeLabel}</Text>
         </View>
         <View style={styles.visibilityBadge}>
           <Text style={styles.visibilityBadgeText}>{suggestion.visibility === 'public' ? 'Öffentlich' : 'Geschlossen'}</Text>
@@ -79,7 +84,16 @@ export function RemoteGroupSuggestionCard({ suggestion }: RemoteGroupSuggestionC
           <Text style={styles.memberCountText}>{suggestion.memberCount} Mitglieder</Text>
         </View>
 
-        {pendingRequest ? (
+        {suggestion.isMember ? (
+          <Pressable
+            onPress={() => router.push({ pathname: '/group/[id]', params: { id: suggestion.id } })}
+            style={styles.actionButton}
+            accessibilityRole="button"
+            accessibilityLabel={`${suggestion.name} öffnen`}
+          >
+            <Text style={styles.actionButtonText}>Öffnen</Text>
+          </Pressable>
+        ) : pendingRequest ? (
           <Pressable
             onPress={() => void handleCancel()}
             disabled={isGroupActionSubmitting && isSubmitting}

@@ -4,7 +4,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { FeedPostCard } from '@/components/feed/feed-post-card';
-import { GroupRecommendationCard } from '@/components/groups/group-recommendation-card';
 import { RemoteGroupSuggestionCard } from '@/components/groups/remote-group-suggestion-card';
 import { ActiveClubBadge } from '@/components/navigation/active-club-badge';
 import { MessagesButton } from '@/components/navigation/messages-button';
@@ -41,13 +40,12 @@ export default function HomeScreen() {
     isRemoteMeetupsLoading,
     isRemoteWantedEntriesLoading,
   } = useFeedPosts();
-  const { getRecommendedGroups, groupSuggestions } = useGroups();
+  const { groupSuggestions, refreshGroupSuggestions } = useGroups();
   const { followingIds, isConnectionsLoading, connectionsError, refreshConnections } = useProfiles();
   const { activeTeamId } = useActiveClub();
   const [feedMode, setFeedMode] = useState<FeedMode>('for-you');
   const scrollViewRef = useRef<ScrollView>(null);
 
-  const recommendedGroups = getRecommendedGroups();
   const visiblePosts = useVisiblePosts(posts);
 
   const isForYouLoading = isRemotePostsLoading || isRemoteTripsLoading || isRemoteMeetupsLoading || isRemoteWantedEntriesLoading;
@@ -124,6 +122,13 @@ export default function HomeScreen() {
     contentVisibilityRealtimeStatus === 'subscribed' && contentChangesRealtimeStatus === 'subscribed',
   );
 
+  // groupSuggestions (public.groups via get_group_suggestions) has no realtime channel at all --
+  // it only ever loaded once (sign-in, or when activeTeamId/remoteGroups changed for THIS account,
+  // see groups-context.tsx) with no way to learn about a group another account just created. Passing
+  // `false` for isRealtimeHealthy makes this fire on every focus rather than only as a fallback,
+  // since there is no live channel here to prefer over it.
+  useRefreshOnFocus(refreshGroupSuggestions, false);
+
   const handleOpenPost = (post: FeedPost) => {
     router.push({ pathname: getPostDetailPathname(post), params: { id: post.id } });
   };
@@ -184,12 +189,9 @@ export default function HomeScreen() {
 
         {feedMode === 'for-you' ? (
           <>
-            {recommendedGroups.length > 0 || groupSuggestions.length > 0 ? (
+            {groupSuggestions.length > 0 ? (
               <View style={styles.recommendationsSection}>
                 <Text style={styles.recommendationsTitle}>Gruppen für dich</Text>
-                {recommendedGroups.map((group) => (
-                  <GroupRecommendationCard key={group.id} group={group} />
-                ))}
                 {groupSuggestions.map((suggestion) => (
                   <RemoteGroupSuggestionCard key={suggestion.id} suggestion={suggestion} />
                 ))}

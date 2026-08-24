@@ -152,6 +152,9 @@ export type GroupSuggestion = {
   visibility: GroupVisibility;
   memberCount: number;
   source: 'supabase';
+  // Only ever set (and meaningful) for search_groups() results -- get_group_suggestions() rows
+  // never include an already-a-member group in the first place, so this is simply absent there.
+  isMember?: boolean;
 };
 
 export type GroupJoinRequestStatus = 'pending' | 'accepted' | 'rejected' | 'cancelled';
