@@ -15,6 +15,7 @@ type AuthContextValue = {
   signIn: (email: string, password: string) => Promise<AuthResult>;
   signUp: (email: string, password: string, displayName: string) => Promise<SignUpResult>;
   signOut: () => Promise<void>;
+  deleteOwnAccount: () => Promise<AuthResult>;
 };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -87,6 +88,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await supabase.auth.signOut();
   };
 
+  // Calls delete_own_account() (20260908100000_add_self_service_account_deletion.sql), which only
+  // ever operates on auth.uid() -- there is no id parameter to pass, by design, so this can never
+  // target another account. auth.signOut() runs afterwards regardless of the RPC's own outcome:
+  // once the row is gone server-side, the locally cached session must not linger either way.
+  const deleteOwnAccount = async (): Promise<AuthResult> => {
+    if (!isSupabaseConfigured) {
+      return { error: SUPABASE_NOT_CONFIGURED_MESSAGE };
+    }
+
+    const { error } = await supabase.rpc('delete_own_account');
+    await supabase.auth.signOut();
+
+    return { error: error ? mapAuthError(error) : null };
+  };
+
   const value = useMemo<AuthContextValue>(
     () => ({
       session,
@@ -96,6 +112,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signIn,
       signUp,
       signOut,
+      deleteOwnAccount,
     }),
     [session, isLoading],
   );

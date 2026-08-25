@@ -49,6 +49,7 @@ const MAPPING = {
   'square.grid.2x2.fill': 'dashboard',
   'person.fill.questionmark': 'person-search',
   photo: 'image',
+  'trash.fill': 'delete',
 } as const satisfies IconMapping;
 
 /**

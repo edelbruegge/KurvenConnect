@@ -7,9 +7,12 @@ import { useAuth } from '@/context/auth-context';
 import { usePushNotifications } from '@/context/push-notifications-context';
 
 export function AccountSection() {
-  const { user, signOut } = useAuth();
+  const { user, signOut, deleteOwnAccount } = useAuth();
   const { deactivatePushTokenBeforeSignOut } = usePushNotifications();
   const [confirmingSignOut, setConfirmingSignOut] = useState(false);
+  const [confirmingDeleteAccount, setConfirmingDeleteAccount] = useState(false);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+  const [deleteAccountError, setDeleteAccountError] = useState<string | null>(null);
 
   if (!user) {
     return null;
@@ -21,6 +24,30 @@ export function AccountSection() {
     // this account server-side.
     await deactivatePushTokenBeforeSignOut();
     await signOut();
+  };
+
+  const handleConfirmDeleteAccount = async () => {
+    if (isDeletingAccount) {
+      return;
+    }
+
+    setIsDeletingAccount(true);
+    setDeleteAccountError(null);
+    // Same ordering requirement as sign-out above: must run while auth.uid() still resolves.
+    await deactivatePushTokenBeforeSignOut();
+    const { error } = await deleteOwnAccount();
+    setIsDeletingAccount(false);
+
+    if (error) {
+      // deleteOwnAccount() already calls signOut() regardless of outcome (see auth-context.tsx),
+      // so on a genuine failure the user is logged out anyway -- surfacing this would show on a
+      // screen they're about to leave. Kept for the rare case the screen re-renders before the
+      // auth-state redirect kicks in.
+      setDeleteAccountError(error);
+      return;
+    }
+
+    setConfirmingDeleteAccount(false);
   };
 
   return (
@@ -62,6 +89,47 @@ export function AccountSection() {
         >
           <IconSymbol size={16} name="xmark.circle.fill" color={StatusColors.error} />
           <Text style={styles.signOutButtonText}>Abmelden</Text>
+        </Pressable>
+      )}
+
+      {deleteAccountError ? <Text style={styles.deleteErrorText}>{deleteAccountError}</Text> : null}
+
+      {confirmingDeleteAccount ? (
+        <View style={[styles.confirmBlock, styles.deleteConfirmBlock]}>
+          <Text style={styles.confirmText}>
+            Möchtest du dein Konto wirklich unwiderruflich löschen? Deine Beiträge, Fahrten,
+            Treffpunkte, Gesuche, Nachrichten und Gruppenmitgliedschaften werden dauerhaft entfernt.
+          </Text>
+          <View style={styles.confirmActions}>
+            <Pressable
+              onPress={() => void handleConfirmDeleteAccount()}
+              disabled={isDeletingAccount}
+              style={[styles.destructiveButton, isDeletingAccount && styles.destructiveButtonDisabled]}
+              accessibilityRole="button"
+              accessibilityLabel="Konto endgültig löschen"
+            >
+              <Text style={styles.destructiveButtonText}>{isDeletingAccount ? 'Wird gelöscht …' : 'Endgültig löschen'}</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => setConfirmingDeleteAccount(false)}
+              disabled={isDeletingAccount}
+              style={styles.cancelButton}
+              accessibilityRole="button"
+              accessibilityLabel="Abbrechen"
+            >
+              <Text style={styles.cancelButtonText}>Abbrechen</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : (
+        <Pressable
+          onPress={() => setConfirmingDeleteAccount(true)}
+          style={[styles.signOutButton, styles.deleteAccountButton]}
+          accessibilityRole="button"
+          accessibilityLabel="Konto löschen"
+        >
+          <IconSymbol size={16} name="trash.fill" color={StatusColors.error} />
+          <Text style={styles.signOutButtonText}>Konto löschen</Text>
         </Pressable>
       )}
     </View>
@@ -108,6 +176,17 @@ const styles = StyleSheet.create({
     fontSize: FontSizes.body,
     fontWeight: '600',
   },
+  deleteAccountButton: {
+    marginTop: Spacing.sm,
+  },
+  deleteConfirmBlock: {
+    marginTop: Spacing.sm,
+  },
+  deleteErrorText: {
+    color: StatusColors.error,
+    fontSize: FontSizes.meta,
+    marginTop: Spacing.sm,
+  },
   confirmBlock: {
     gap: Spacing.sm,
   },
@@ -128,6 +207,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(248, 113, 113, 0.12)',
     borderWidth: 1,
     borderColor: 'rgba(248, 113, 113, 0.4)',
+  },
+  destructiveButtonDisabled: {
+    opacity: 0.5,
   },
   destructiveButtonText: {
     color: StatusColors.error,
