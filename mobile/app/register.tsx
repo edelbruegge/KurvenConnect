@@ -17,6 +17,7 @@ export default function RegisterScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [hasAcceptedTerms, setHasAcceptedTerms] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [needsEmailConfirmation, setNeedsEmailConfirmation] = useState(false);
@@ -36,7 +37,8 @@ export default function RegisterScreen() {
     displayName.trim().length > 0 &&
     EMAIL_PATTERN.test(email.trim()) &&
     password.length >= MIN_PASSWORD_LENGTH &&
-    password === confirmPassword;
+    password === confirmPassword &&
+    hasAcceptedTerms;
 
   const handleSubmit = async () => {
     if (isSubmitting) {
@@ -66,10 +68,15 @@ export default function RegisterScreen() {
       return;
     }
 
+    if (!hasAcceptedTerms) {
+      setErrorMessage('Bitte stimme den Nutzungsbedingungen und der Datenschutzerklärung zu.');
+      return;
+    }
+
     setErrorMessage(null);
     setIsSubmitting(true);
 
-    const { error, needsEmailConfirmation: pendingConfirmation } = await signUp(trimmedEmail, password, trimmedName);
+    const { error, needsEmailConfirmation: pendingConfirmation } = await signUp(trimmedEmail, password, trimmedName, hasAcceptedTerms);
 
     setIsSubmitting(false);
 
@@ -170,6 +177,29 @@ export default function RegisterScreen() {
               />
             </View>
 
+            <Pressable
+              onPress={() => setHasAcceptedTerms((current) => !current)}
+              style={styles.consentRow}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: hasAcceptedTerms }}
+              accessibilityLabel="Nutzungsbedingungen und Datenschutzerklärung akzeptieren"
+            >
+              <View style={[styles.checkbox, hasAcceptedTerms && styles.checkboxChecked]}>
+                {hasAcceptedTerms ? <IconSymbol size={14} name="checkmark.circle.fill" color={ClubColors.secondary} /> : null}
+              </View>
+              <Text style={styles.consentText}>
+                Ich akzeptiere die{' '}
+                <Text style={styles.consentLink} onPress={() => router.push('/legal/nutzungsbedingungen')}>
+                  Nutzungsbedingungen
+                </Text>{' '}
+                und die{' '}
+                <Text style={styles.consentLink} onPress={() => router.push('/legal/datenschutz')}>
+                  Datenschutzerklärung
+                </Text>
+                .
+              </Text>
+            </Pressable>
+
             {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
 
             <Pressable
@@ -253,6 +283,36 @@ const styles = StyleSheet.create({
     color: '#F87171',
     fontSize: FontSizes.meta,
     marginBottom: Spacing.md,
+  },
+  consentRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.sm,
+    marginBottom: Spacing.md,
+  },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: FeedColors.cardBorder,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 1,
+  },
+  checkboxChecked: {
+    backgroundColor: ClubColors.primary,
+    borderColor: ClubColors.primary,
+  },
+  consentText: {
+    flex: 1,
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.meta,
+    lineHeight: 19,
+  },
+  consentLink: {
+    color: ClubColors.text,
+    fontWeight: '600',
   },
   submitButton: {
     backgroundColor: ClubColors.primary,

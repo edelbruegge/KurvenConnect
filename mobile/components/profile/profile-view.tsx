@@ -6,7 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { FeedPostCard } from '@/components/feed/feed-post-card';
 import { MessagesButton } from '@/components/navigation/messages-button';
 import { NotificationsButton } from '@/components/navigation/notifications-button';
-import { AccountSection } from '@/components/profile/account-section';
+import { SettingsButton } from '@/components/navigation/settings-button';
 import { ProfileHeader } from '@/components/profile/profile-header';
 import { PushNotificationsSection } from '@/components/profile/push-notifications-section';
 import { UserWarningsSection } from '@/components/profile/user-warnings-section';
@@ -233,8 +233,11 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
     <SafeAreaView style={styles.safeArea}>
       {isOwnProfile ? (
         <View style={styles.headerRow}>
-          <NotificationsButton />
-          <MessagesButton />
+          <SettingsButton />
+          <View style={styles.headerRowRight}>
+            <NotificationsButton />
+            <MessagesButton />
+          </View>
         </View>
       ) : null}
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
@@ -266,24 +269,6 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
                 <Text style={styles.editButtonText}>Meine Aktivitäten</Text>
               </Pressable>
             </View>
-            <Pressable
-              onPress={() => router.push('/blocked-users')}
-              style={styles.editButton}
-              accessibilityRole="button"
-              accessibilityLabel="Blockierte Nutzer öffnen"
-            >
-              <IconSymbol size={18} name="nosign" color={FeedColors.textPrimary} />
-              <Text style={styles.editButtonText}>Blockierte Nutzer</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => router.push('/moderation/demo')}
-              style={styles.editButton}
-              accessibilityRole="button"
-              accessibilityLabel="Moderation – lokale Demo öffnen"
-            >
-              <IconSymbol size={18} name="shield.fill" color={FeedColors.textPrimary} />
-              <Text style={styles.editButtonText}>Moderation – lokale Demo</Text>
-            </Pressable>
             {!isModeratorStatusLoading && isModerator ? (
               <Pressable
                 onPress={() => router.push('/moderation')}
@@ -296,7 +281,6 @@ export function ProfileView({ profile, isOwnProfile, onEditPress }: ProfileViewP
               </Pressable>
             ) : null}
             <UserWarningsSection />
-            <AccountSection />
             <PushNotificationsSection />
           </>
         ) : (
@@ -497,9 +481,13 @@ const styles = StyleSheet.create({
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'flex-end',
+    justifyContent: 'space-between',
     paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.xs,
+  },
+  headerRowRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   scroll: {
     flex: 1,

@@ -13,7 +13,7 @@ type AuthContextValue = {
   isLoading: boolean;
   isAuthenticated: boolean;
   signIn: (email: string, password: string) => Promise<AuthResult>;
-  signUp: (email: string, password: string, displayName: string) => Promise<SignUpResult>;
+  signUp: (email: string, password: string, displayName: string, hasAcceptedTerms: boolean) => Promise<SignUpResult>;
   signOut: () => Promise<void>;
   deleteOwnAccount: () => Promise<AuthResult>;
 };
@@ -62,15 +62,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return { error: error ? mapAuthError(error) : null };
   };
 
-  const signUp = async (email: string, password: string, displayName: string): Promise<SignUpResult> => {
+  const signUp = async (
+    email: string,
+    password: string,
+    displayName: string,
+    hasAcceptedTerms: boolean,
+  ): Promise<SignUpResult> => {
     if (!isSupabaseConfigured) {
       return { error: SUPABASE_NOT_CONFIGURED_MESSAGE, needsEmailConfirmation: false };
     }
 
+    // Read by handle_new_user() (20260909100000_add_terms_acceptance.sql) to stamp
+    // profiles.terms_accepted_at -- only ever 'true' here, register.tsx's own submit guard already
+    // prevents calling signUp() at all before the checkbox is checked.
     const { data, error } = await supabase.auth.signUp({
       email: email.trim(),
       password,
-      options: { data: { display_name: displayName.trim() } },
+      options: { data: { display_name: displayName.trim(), terms_accepted: hasAcceptedTerms ? 'true' : 'false' } },
     });
 
     if (error) {

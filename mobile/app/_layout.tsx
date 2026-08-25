@@ -206,8 +206,8 @@ function RootNavigator() {
             options={{ title: 'Blockierte Nutzer', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
           />
           <Stack.Screen
-            name="moderation/demo"
-            options={{ title: 'Moderation – lokale Demo', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
+            name="settings"
+            options={{ title: 'Einstellungen', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
           />
           <Stack.Screen
             name="moderation/index"
@@ -239,6 +239,21 @@ function RootNavigator() {
           <Stack.Screen name="login" options={{ headerShown: false }} />
           <Stack.Screen name="register" options={{ headerShown: false }} />
         </Stack.Protected>
+
+        {/* Outside every Stack.Protected guard on purpose: reachable both from the unauthenticated
+            register screen's consent checkbox and from the signed-in profile's "Konto" section. */}
+        <Stack.Screen
+          name="legal/datenschutz"
+          options={{ title: 'Datenschutzerklärung', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
+        />
+        <Stack.Screen
+          name="legal/impressum"
+          options={{ title: 'Impressum', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
+        />
+        <Stack.Screen
+          name="legal/nutzungsbedingungen"
+          options={{ title: 'Nutzungsbedingungen', headerLeft: () => <HeaderBackButton />, headerBackVisible: false }}
+        />
       </Stack>
       <StatusBar style="auto" />
     </>

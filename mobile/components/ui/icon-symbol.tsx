@@ -50,6 +50,7 @@ const MAPPING = {
   'person.fill.questionmark': 'person-search',
   photo: 'image',
   'trash.fill': 'delete',
+  'gearshape.fill': 'settings',
 } as const satisfies IconMapping;
 
 /**
