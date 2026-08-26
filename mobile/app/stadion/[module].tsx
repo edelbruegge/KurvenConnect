@@ -450,7 +450,7 @@ const styles = StyleSheet.create({
   gameFollowButton: {
     marginTop: Spacing.sm,
     alignSelf: 'flex-start',
-    minHeight: 36,
+    minHeight: 44,
     minWidth: 120,
     alignItems: 'center',
     justifyContent: 'center',

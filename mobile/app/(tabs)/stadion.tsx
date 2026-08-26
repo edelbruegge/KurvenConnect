@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ActiveClubBadge } from '@/components/navigation/active-club-badge';
@@ -24,7 +24,7 @@ const TABS: { key: GameTab; label: string }[] = [
 
 export default function StadionScreen() {
   const router = useRouter();
-  const { games } = useGames();
+  const { games, isGamesLoading } = useGames();
   const { activeTeamId, activeTeam } = useActiveClub();
   const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<GameTab>('all');
@@ -127,7 +127,9 @@ export default function StadionScreen() {
           </View>
 
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow} style={styles.filterScroll}>
-            {teamGames.length === 0 ? (
+            {isGamesLoading ? (
+              <ActivityIndicator size="small" color={FeedColors.textSecondary} style={styles.gamesLoadingIndicator} />
+            ) : teamGames.length === 0 ? (
               <Text style={styles.noGamesText}>Keine Spiele für {activeTeam?.teamName ?? 'diesen Verein'} gefunden.</Text>
             ) : (
               groupedGames.map((group) =>
@@ -256,6 +258,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: Spacing.md,
     gap: Spacing.sm,
+  },
+  gamesLoadingIndicator: {
+    paddingVertical: Spacing.xs,
   },
   noGamesText: {
     color: FeedColors.textSecondary,

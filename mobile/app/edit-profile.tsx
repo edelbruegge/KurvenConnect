@@ -4,7 +4,7 @@ import { Keyboard, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, Scro
 import { Avatar } from '@/components/feed/avatar';
 import { ClubPicker } from '@/components/profile/club-picker';
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import { FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
+import { FeedColors, FontSizes, Radii, Spacing, StatusColors } from '@/constants/theme';
 import { filterEnabledClubs } from '@/config/beta-clubs';
 import { useActiveClub } from '@/context/active-club-context';
 import { useAuth } from '@/context/auth-context';
@@ -452,7 +452,7 @@ const styles = StyleSheet.create({
     marginTop: Spacing.xs,
   },
   charCountExceeded: {
-    color: '#F87171',
+    color: StatusColors.error,
   },
   clubSummaryRow: {
     flexDirection: 'row',
@@ -478,7 +478,7 @@ const styles = StyleSheet.create({
     marginTop: Spacing.sm,
   },
   errorText: {
-    color: '#F87171',
+    color: StatusColors.error,
     fontSize: FontSizes.meta,
     marginBottom: Spacing.md,
   },

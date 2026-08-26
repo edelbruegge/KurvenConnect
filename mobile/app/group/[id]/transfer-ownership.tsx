@@ -15,7 +15,8 @@ export default function TransferGroupOwnershipScreen() {
   const params = useLocalSearchParams<{ id?: string }>();
   const { user } = useAuth();
   const authUserId = user?.id ?? null;
-  const { getGroupById, groupMembers, refreshGroupMembers, transferGroupOwnership, isGroupActionSubmitting } = useGroups();
+  const { getGroupById, groupMembers, groupMembersError, refreshGroupMembers, transferGroupOwnership, isGroupActionSubmitting } =
+    useGroups();
 
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -41,6 +42,22 @@ export default function TransferGroupOwnershipScreen() {
   }
 
   if (remoteMembers === undefined) {
+    if (groupMembersError) {
+      return (
+        <View style={styles.loadingContainer}>
+          <Text style={styles.errorText}>{groupMembersError}</Text>
+          <Pressable
+            onPress={() => refreshGroupMembers(group.id)}
+            style={styles.retryButton}
+            accessibilityRole="button"
+            accessibilityLabel="Erneut versuchen"
+          >
+            <Text style={styles.retryButtonText}>Erneut versuchen</Text>
+          </Pressable>
+        </View>
+      );
+    }
+
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={FeedColors.textPrimary} />
@@ -139,6 +156,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: FeedColors.background,
+    paddingHorizontal: Spacing.lg,
+    gap: Spacing.md,
+  },
+  errorText: {
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.body,
+    textAlign: 'center',
+  },
+  retryButton: {
+    minHeight: 44,
+    paddingHorizontal: Spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: Radii.round,
+    backgroundColor: ClubColors.primary,
+  },
+  retryButtonText: {
+    color: ClubColors.secondary,
+    fontSize: FontSizes.meta,
+    fontWeight: '700',
   },
   scrollContent: {
     padding: Spacing.md,

@@ -4,7 +4,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ProfileView } from '@/components/profile/profile-view';
-import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
+import { ClubColors, FeedColors, FontSizes, Radii, Spacing, StatusColors } from '@/constants/theme';
 import { useProfiles } from '@/context/profile-context';
 
 export default function ProfileScreen() {
@@ -99,7 +99,7 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   stateErrorText: {
-    color: '#F87171',
+    color: StatusColors.error,
     fontSize: FontSizes.meta,
     textAlign: 'center',
   },

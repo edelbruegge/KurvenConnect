@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { FeedPostCard } from '@/components/feed/feed-post-card';
@@ -15,7 +15,7 @@ import { useVisiblePosts } from '@/hooks/use-visible-posts';
 export default function MeetupsScreen() {
   const router = useRouter();
   const { games } = useGames();
-  const { posts, toggleLike, remoteMeetupsError, refreshRemoteMeetups } = useFeedPosts();
+  const { posts, toggleLike, remoteMeetupsError, refreshRemoteMeetups, isRemoteMeetupsLoading } = useFeedPosts();
   const visiblePosts = useVisiblePosts(posts);
   const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
 
@@ -80,7 +80,11 @@ export default function MeetupsScreen() {
         </View>
       ) : null}
 
-      {filteredMeetups.length === 0 ? (
+      {isRemoteMeetupsLoading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={FeedColors.textPrimary} />
+        </View>
+      ) : filteredMeetups.length === 0 ? (
         <View style={styles.emptyState}>
           <Text style={styles.emptyTitle}>Noch keine Treffpunkte vorhanden.</Text>
           <Text style={styles.emptyText}>Über den Plus-Button kannst du direkt einen neuen Treffpunkt anlegen.</Text>
@@ -173,6 +177,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.md,
     paddingTop: Spacing.sm,
     paddingBottom: Spacing.xl,
+  },
+  loadingContainer: {
+    paddingVertical: Spacing.xl,
+    alignItems: 'center',
   },
   emptyState: {
     flex: 1,

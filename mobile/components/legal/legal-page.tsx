@@ -1,7 +1,7 @@
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { FeedColors, FontSizes, Spacing } from '@/constants/theme';
+import { FeedColors, FontSizes, Spacing, StatusColors } from '@/constants/theme';
 
 type LegalPageProps = {
   updatedAt: string;
@@ -116,7 +116,7 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.md,
   },
   draftNoticeText: {
-    color: '#F87171',
+    color: StatusColors.error,
     fontSize: FontSizes.meta,
     fontWeight: '600',
   },

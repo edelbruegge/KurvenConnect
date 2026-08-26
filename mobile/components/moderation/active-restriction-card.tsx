@@ -135,7 +135,7 @@ const styles = StyleSheet.create({
   },
   openButton: {
     flex: 1,
-    minHeight: 40,
+    minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: Radii.round,
@@ -150,7 +150,7 @@ const styles = StyleSheet.create({
   },
   restoreButton: {
     flex: 1,
-    minHeight: 40,
+    minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: Radii.round,
@@ -170,7 +170,7 @@ const styles = StyleSheet.create({
   },
   confirmButton: {
     flex: 1,
-    minHeight: 40,
+    minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: Radii.round,
@@ -183,7 +183,7 @@ const styles = StyleSheet.create({
   },
   cancelButton: {
     flex: 1,
-    minHeight: 40,
+    minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: Radii.round,

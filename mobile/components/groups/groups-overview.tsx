@@ -269,7 +269,7 @@ const styles = StyleSheet.create({
   },
   cancelRequestButton: {
     marginTop: Spacing.sm,
-    minHeight: 36,
+    minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: Radii.round,

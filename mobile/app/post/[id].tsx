@@ -683,7 +683,7 @@ const styles = StyleSheet.create({
     marginTop: Spacing.md,
   },
   messageErrorText: {
-    color: '#F87171',
+    color: StatusColors.error,
     fontSize: FontSizes.meta,
     marginBottom: Spacing.sm,
   },
@@ -871,7 +871,7 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
   commentErrorText: {
-    color: '#F87171',
+    color: StatusColors.error,
     fontSize: FontSizes.meta,
     marginBottom: Spacing.sm,
   },

@@ -447,7 +447,7 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
   },
   invitationAcceptButton: {
-    minHeight: 36,
+    minHeight: 44,
     paddingHorizontal: Spacing.md,
     borderRadius: Radii.round,
     alignItems: 'center',
@@ -460,7 +460,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   invitationDeclineButton: {
-    minHeight: 36,
+    minHeight: 44,
     paddingHorizontal: Spacing.md,
     borderRadius: Radii.round,
     alignItems: 'center',

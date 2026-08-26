@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ActivityRow } from '@/components/activity/activity-row';
@@ -12,9 +12,17 @@ import { useVisiblePosts } from '@/hooks/use-visible-posts';
 
 export default function ActivityScreen() {
   const router = useRouter();
-  const { posts } = useFeedPosts();
+  const {
+    posts,
+    isRemotePostsLoading,
+    isRemoteTripsLoading,
+    isRemoteMeetupsLoading,
+    remotePostsError,
+    refreshRemotePosts,
+  } = useFeedPosts();
   const { isCurrentUserId, isContentOwnedByCurrentUser } = useProfiles();
   const visiblePosts = useVisiblePosts(posts);
+  const isLoading = isRemotePostsLoading || isRemoteTripsLoading || isRemoteMeetupsLoading;
 
   const ownPosts = visiblePosts.filter((post) => isContentOwnedByCurrentUser({ source: post.source, ownerId: post.userId }));
   const likedPosts = visiblePosts.filter((post) => post.likedByCurrentUser);
@@ -40,6 +48,20 @@ export default function ActivityScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
+      {remotePostsError ? (
+        <View style={styles.remoteErrorBanner}>
+          <Text style={styles.remoteErrorText}>{remotePostsError}</Text>
+          <Pressable onPress={refreshRemotePosts} accessibilityRole="button" accessibilityLabel="Erneut versuchen">
+            <Text style={styles.remoteErrorRetry}>Erneut versuchen</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {isLoading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={FeedColors.textPrimary} />
+        </View>
+      ) : (
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         {sections.map((section) => (
           <View key={section.title} style={styles.section}>
@@ -68,6 +90,7 @@ export default function ActivityScreen() {
           </View>
         ))}
       </ScrollView>
+      )}
     </SafeAreaView>
   );
 }
@@ -109,5 +132,28 @@ const styles = StyleSheet.create({
     color: FeedColors.textSecondary,
     fontSize: FontSizes.meta,
     fontWeight: '600',
+  },
+  loadingContainer: {
+    paddingVertical: Spacing.xl,
+    alignItems: 'center',
+  },
+  remoteErrorBanner: {
+    backgroundColor: FeedColors.cardBackground,
+    borderRadius: Spacing.sm,
+    borderWidth: 1,
+    borderColor: FeedColors.cardBorder,
+    padding: Spacing.sm,
+    marginHorizontal: Spacing.md,
+    marginTop: Spacing.sm,
+  },
+  remoteErrorText: {
+    color: FeedColors.textSecondary,
+    fontSize: FontSizes.meta,
+    marginBottom: Spacing.xs,
+  },
+  remoteErrorRetry: {
+    color: FeedColors.textPrimary,
+    fontSize: FontSizes.meta,
+    fontWeight: '700',
   },
 });

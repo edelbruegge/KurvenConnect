@@ -5,7 +5,7 @@ import { Keyboard, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, Scro
 
 import { GameSelector } from '@/components/stadion/game-selector';
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import { CategoryLabels, ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
+import { CategoryLabels, ClubColors, FeedColors, FontSizes, Radii, Spacing, StatusColors } from '@/constants/theme';
 import { useActiveClub } from '@/context/active-club-context';
 import { useAuth } from '@/context/auth-context';
 import { useFeedPosts } from '@/context/feed-posts-context';
@@ -637,7 +637,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   imageErrorText: {
-    color: '#F87171',
+    color: StatusColors.error,
     fontSize: FontSizes.meta,
     marginTop: Spacing.xs,
   },
@@ -647,7 +647,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   errorText: {
-    color: '#F87171',
+    color: StatusColors.error,
     fontSize: FontSizes.meta,
     marginBottom: Spacing.md,
   },

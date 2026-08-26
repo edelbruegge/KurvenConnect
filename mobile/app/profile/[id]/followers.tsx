@@ -95,8 +95,9 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.md,
   },
   retryButton: {
+    minHeight: 44,
     paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
+    justifyContent: 'center',
   },
   retryButtonText: {
     color: FeedColors.textPrimary,

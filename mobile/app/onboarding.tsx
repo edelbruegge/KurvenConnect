@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { ClubPicker } from '@/components/profile/club-picker';
 import { IconSymbol } from '@/components/ui/icon-symbol';
@@ -86,7 +86,8 @@ export default function OnboardingScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.container}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardView}>
+      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         {step === 'welcome' ? (
           <View style={styles.welcomeContent}>
             <Text style={styles.title}>Willkommen bei Kurvenconnect</Text>
@@ -193,6 +194,7 @@ export default function OnboardingScreen() {
           </View>
         )}
       </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -201,6 +203,9 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: FeedColors.background,
+  },
+  keyboardView: {
+    flex: 1,
   },
   container: {
     flexGrow: 1,
@@ -266,7 +271,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   errorText: {
-    color: '#F87171',
+    color: StatusColors.error,
     fontSize: FontSizes.meta,
     marginTop: Spacing.md,
   },
@@ -302,6 +307,6 @@ const styles = StyleSheet.create({
     marginTop: Spacing.xs,
   },
   charCountExceeded: {
-    color: '#F87171',
+    color: StatusColors.error,
   },
 });

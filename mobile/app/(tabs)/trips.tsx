@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { MessagesButton } from '@/components/navigation/messages-button';
@@ -12,7 +12,7 @@ import { useVisiblePosts } from '@/hooks/use-visible-posts';
 
 export default function TripsScreen() {
   const router = useRouter();
-  const { posts, toggleLike, remoteTripsError, refreshRemoteTrips } = useFeedPosts();
+  const { posts, toggleLike, remoteTripsError, refreshRemoteTrips, isRemoteTripsLoading } = useFeedPosts();
   const visiblePosts = useVisiblePosts(posts);
 
   const trips = visiblePosts.filter((post) => post.category === 'Fahrt');
@@ -45,7 +45,11 @@ export default function TripsScreen() {
         </View>
       ) : null}
 
-      {trips.length === 0 ? (
+      {isRemoteTripsLoading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={FeedColors.textPrimary} />
+        </View>
+      ) : trips.length === 0 ? (
         <View style={styles.emptyState}>
           <Text style={styles.emptyTitle}>Noch keine Fahrten vorhanden.</Text>
           <Text style={styles.emptyText}>Über den Plus-Button kannst du direkt eine neue Fahrt anlegen.</Text>
@@ -107,6 +111,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.md,
     paddingTop: Spacing.sm,
     paddingBottom: Spacing.xl,
+  },
+  loadingContainer: {
+    paddingVertical: Spacing.xl,
+    alignItems: 'center',
   },
   emptyState: {
     flex: 1,

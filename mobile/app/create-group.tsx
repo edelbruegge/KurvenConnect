@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Keyboard, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { ClubColors, FeedColors, FontSizes, Radii, Spacing } from '@/constants/theme';
+import { ClubColors, FeedColors, FontSizes, Radii, Spacing, StatusColors } from '@/constants/theme';
 import { useActiveClub } from '@/context/active-club-context';
 import { useGroups } from '@/context/groups-context';
 import type { GroupType, GroupVisibility } from '@/data/groups';
@@ -471,7 +471,7 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.sm,
   },
   errorText: {
-    color: '#F87171',
+    color: StatusColors.error,
     fontSize: FontSizes.meta,
     marginBottom: Spacing.md,
   },

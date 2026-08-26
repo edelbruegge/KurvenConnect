@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { NotFoundView } from '@/components/navigation/not-found-view';
@@ -365,6 +365,7 @@ export default function ModerationReportDetailScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flexOne}>
       <Pressable style={styles.flexOne} onPress={dismissKeyboardOnNative}>
         <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
           <View style={styles.badgeRow}>
@@ -690,6 +691,7 @@ export default function ModerationReportDetailScreen() {
           ) : null}
         </ScrollView>
       </Pressable>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

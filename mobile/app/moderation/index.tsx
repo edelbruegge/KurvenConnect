@@ -394,7 +394,7 @@ const styles = StyleSheet.create({
     borderRadius: Radii.round,
     paddingHorizontal: Spacing.sm,
     paddingVertical: Spacing.xs,
-    minHeight: 36,
+    minHeight: 44,
     justifyContent: 'center',
   },
   filterChipActive: {

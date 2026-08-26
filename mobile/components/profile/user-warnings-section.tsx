@@ -117,7 +117,7 @@ const styles = StyleSheet.create({
   },
   acknowledgeButton: {
     marginTop: Spacing.sm,
-    minHeight: 40,
+    minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: Radii.round,
