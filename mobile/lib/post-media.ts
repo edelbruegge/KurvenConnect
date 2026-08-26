@@ -1,3 +1,4 @@
+import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { Platform } from 'react-native';
 
@@ -8,6 +9,14 @@ export const POST_MEDIA_BUCKET = 'post-media';
 export const MAX_POST_IMAGES = 4;
 export const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 export const ALLOWED_IMAGE_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
+
+// Longest edge a post image is ever stored at. 1600px already fills a typical phone screen width
+// several times over -- comfortably "good resolution" for a feed image people view on a phone,
+// while a raw modern smartphone photo (often 3000-4000px+) shrinks by several times over. Aspect
+// ratio is always preserved (unlike the square-cropped avatar); a source image already smaller
+// than this is only re-compressed, never upscaled.
+const MAX_POST_IMAGE_DIMENSION = 1600;
+const POST_IMAGE_COMPRESSION_QUALITY = 0.8;
 
 // Signed URLs are refreshed on every load (bulk feed fetch + realtime insert), so this only needs
 // to comfortably outlive a single screen visit -- not a long-lived cache lifetime.
@@ -60,12 +69,43 @@ function extensionForMimeType(mimeType: string): string {
 }
 
 /**
+ * Downscales to at most MAX_POST_IMAGE_DIMENSION on the longest edge (aspect ratio preserved, never
+ * upscaled) and re-compresses as JPEG -- same purpose and shape as avatar-media.ts's
+ * processAvatarImage, minus the square crop. Runs once per picked image, right after picking (same
+ * point in the flow avatars already process at), so everything downstream (the 6 MB/format guard
+ * above already ran on the original asset; the actual upload always sees the already-shrunk file).
+ */
+async function processPostImage(image: {
+  uri: string;
+  width: number | null;
+  height: number | null;
+}): Promise<{ uri: string; width: number; height: number } | null> {
+  try {
+    const actions: ImageManipulator.Action[] = [];
+
+    if (image.width && image.height && Math.max(image.width, image.height) > MAX_POST_IMAGE_DIMENSION) {
+      const scale = MAX_POST_IMAGE_DIMENSION / Math.max(image.width, image.height);
+      actions.push({ resize: { width: Math.round(image.width * scale), height: Math.round(image.height * scale) } });
+    }
+
+    const result = await ImageManipulator.manipulateAsync(image.uri, actions, {
+      compress: POST_IMAGE_COMPRESSION_QUALITY,
+      format: ImageManipulator.SaveFormat.JPEG,
+    });
+
+    return { uri: result.uri, width: result.width, height: result.height };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Opens the media library picker, limited to still images and to the number of remaining slots
  * (out of MAX_POST_IMAGES). Handles permission requests/denials (with a clear German message, no
  * crash) uniformly for native and web -- on web, expo-image-picker uses a plain `<input
  * type="file">` under the hood and the permission call resolves trivially, no separate branch
- * needed. Assets that fail the MIME-type or size check are dropped with an explanatory message
- * instead of being silently included.
+ * needed. Assets that fail the MIME-type or size check, or that fail to compress, are dropped with
+ * an explanatory message instead of being silently included.
  */
 export async function pickPostImages(remainingSlots: number): Promise<{ images: PickedPostImage[]; error: string | null }> {
   if (remainingSlots <= 0) {
@@ -110,18 +150,28 @@ export async function pickPostImages(remainingSlots: number): Promise<{ images: 
       continue;
     }
 
+    const processed = await processPostImage({ uri: asset.uri, width: asset.width || null, height: asset.height || null });
+
+    if (!processed) {
+      hadInvalidAsset = true;
+      continue;
+    }
+
+    // Always JPEG after processing (manipulateAsync's SaveFormat.JPEG above), regardless of the
+    // original format -- fileSize is intentionally left null rather than the original asset's
+    // now-inaccurate byte count; nothing downstream reads it after this point.
     images.push({
-      uri: asset.uri,
-      mimeType,
-      width: asset.width || null,
-      height: asset.height || null,
-      fileSize: asset.fileSize ?? null,
+      uri: processed.uri,
+      mimeType: 'image/jpeg',
+      width: processed.width,
+      height: processed.height,
+      fileSize: null,
     });
   }
 
   return {
     images,
-    error: hadInvalidAsset ? 'Ein oder mehrere Bilder wurden übersprungen (nicht unterstütztes Format oder größer als 6 MB).' : null,
+    error: hadInvalidAsset ? 'Ein oder mehrere Bilder wurden übersprungen (nicht unterstütztes Format, größer als 6 MB oder ein Fehler bei der Verarbeitung).' : null,
   };
 }
 
@@ -152,6 +202,11 @@ export async function uploadPostImage(params: {
   const uploadResult = await supabase.storage.from(POST_MEDIA_BUCKET).upload(storagePath, arrayBuffer, {
     contentType: image.mimeType,
     upsert: false,
+    // storagePath is a fresh UUID every time (never reused/overwritten -- upsert: false above
+    // guarantees that), so this exact URL's content can never change. A 1-year cache lets the
+    // device/CDN stop re-downloading an already-seen image on every reload instead of hitting
+    // Supabase egress again for identical bytes -- pure bandwidth savings, no staleness risk.
+    cacheControl: '31536000',
   });
 
   if (uploadResult.error) {

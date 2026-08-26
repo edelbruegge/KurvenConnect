@@ -91,6 +91,11 @@ export async function uploadAvatarImage(params: { authUserId: string; uri: strin
   const uploadResult = await supabase.storage.from(AVATAR_BUCKET).upload(storagePath, arrayBuffer, {
     contentType: 'image/jpeg',
     upsert: false,
+    // Same reasoning as post-media.ts's own upload call: storagePath is a fresh UUID every time
+    // (upsert: false guarantees it's never overwritten in place), so this exact URL's content is
+    // permanently immutable -- safe to cache for a full year instead of Supabase's 1-hour default,
+    // cutting repeated-view egress with zero staleness risk.
+    cacheControl: '31536000',
   });
 
   if (uploadResult.error) {
