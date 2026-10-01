@@ -1,3 +1,4 @@
+import { useHeaderHeight } from "expo-router/react-navigation";
 import { useEffect, useRef, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
@@ -69,6 +70,7 @@ async function openInMaps(address: string) {
 }
 
 export default function MeetupDetailScreen() {
+  const headerHeight = useHeaderHeight();
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string; focusComments?: string }>();
   const {
@@ -141,10 +143,9 @@ export default function MeetupDetailScreen() {
 
     let isCurrent = true;
 
-    supabase
-      .from('profiles')
-      .select(ATTENDEE_PROFILE_SELECT_COLUMNS)
-      .in('id', unresolvedIds)
+    Promise.resolve(
+      supabase.from('profiles').select(ATTENDEE_PROFILE_SELECT_COLUMNS).in('id', unresolvedIds),
+    )
       .then(({ data }) => {
         if (!isCurrent) return;
 
@@ -161,6 +162,9 @@ export default function MeetupDetailScreen() {
           };
         });
         setRemoteAttendeeProfiles(map);
+      })
+      .catch(() => {
+        // Best-effort stub resolution -- see blocked-users.tsx's identical comment.
       });
 
     return () => {
@@ -305,7 +309,7 @@ export default function MeetupDetailScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+      <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={headerHeight} style={{ flex: 1 }}>
         <Pressable style={{ flex: 1 }} onPress={dismissKeyboardOnNative}>
           <ScrollView ref={scrollRef} contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
             <View style={styles.header}>
@@ -879,7 +883,7 @@ const styles = StyleSheet.create({
   },
   commentTimestamp: {
     color: FeedColors.textSecondary,
-    fontSize: 11,
+    fontSize: FontSizes.badge,
     marginTop: 2,
   },
   commentText: {

@@ -7,7 +7,6 @@ import { ProfileView } from '@/components/profile/profile-view';
 import { FeedColors } from '@/constants/theme';
 import { useModeration } from '@/context/moderation-context';
 import { useProfiles } from '@/context/profile-context';
-import { useReports } from '@/context/reports-context';
 import type { UserProfile } from '@/data/users';
 import { getInitialsFromName, mapSupabaseProfileRow } from '@/lib/map-supabase-profile';
 import { supabase } from '@/lib/supabase';
@@ -19,27 +18,28 @@ export default function PublicProfileScreen() {
   const params = useLocalSearchParams<{ id?: string }>();
   const { getUserById } = useProfiles();
   const { isUserSuspended } = useModeration();
-  const { isUserReported } = useReports();
 
   const localProfile = params.id ? getUserById(params.id) : undefined;
   const [remoteProfile, setRemoteProfile] = useState<UserProfile | null>(null);
   const [isLoadingRemoteProfile, setIsLoadingRemoteProfile] = useState(false);
+  const [remoteProfileError, setRemoteProfileError] = useState<string | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
     if (!params.id || localProfile) {
       setRemoteProfile(null);
       setIsLoadingRemoteProfile(false);
+      setRemoteProfileError(null);
       return;
     }
 
     let isCurrent = true;
     setIsLoadingRemoteProfile(true);
+    setRemoteProfileError(null);
 
-    supabase
-      .from('profiles')
-      .select(PROFILE_SELECT_COLUMNS)
-      .eq('id', params.id)
-      .maybeSingle()
+    Promise.resolve(
+      supabase.from('profiles').select(PROFILE_SELECT_COLUMNS).eq('id', params.id).maybeSingle(),
+    )
       .then(({ data }) => {
         if (!isCurrent) return;
 
@@ -62,12 +62,17 @@ export default function PublicProfileScreen() {
         }
 
         setIsLoadingRemoteProfile(false);
+      })
+      .catch(() => {
+        if (!isCurrent) return;
+        setRemoteProfileError('Profil konnte nicht geladen werden.');
+        setIsLoadingRemoteProfile(false);
       });
 
     return () => {
       isCurrent = false;
     };
-  }, [params.id, localProfile]);
+  }, [params.id, localProfile, reloadToken]);
 
   const profile = localProfile ?? remoteProfile;
 
@@ -82,11 +87,17 @@ export default function PublicProfileScreen() {
       );
     }
 
-    return <NotFoundView title="Profil nicht gefunden" message="Das angeforderte Profil konnte nicht gefunden werden." />;
-  }
+    if (remoteProfileError) {
+      return (
+        <NotFoundView
+          title="Profil nicht verfügbar"
+          message={remoteProfileError}
+          onRetry={() => setReloadToken((token) => token + 1)}
+        />
+      );
+    }
 
-  if (isUserReported(profile.id)) {
-    return <NotFoundView title="Profil nicht verfügbar" message="Dieses Profil wurde von dir gemeldet und wird nicht mehr angezeigt." />;
+    return <NotFoundView title="Profil nicht gefunden" message="Das angeforderte Profil konnte nicht gefunden werden." />;
   }
 
   if (isUserSuspended(profile.id)) {

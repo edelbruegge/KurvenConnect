@@ -113,7 +113,7 @@ export default function RegisterScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardView}>
+      <KeyboardAvoidingView behavior="padding" style={styles.keyboardView}>
         <Pressable style={{ flex: 1 }} onPress={dismissKeyboardOnNative}>
           <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
             <Text style={styles.title}>Konto erstellen</Text>

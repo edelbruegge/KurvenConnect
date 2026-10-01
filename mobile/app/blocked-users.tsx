@@ -49,10 +49,9 @@ export default function BlockedUsersScreen() {
 
     let isCurrent = true;
 
-    supabase
-      .from('profiles')
-      .select(PROFILE_SELECT_COLUMNS)
-      .in('id', ids)
+    Promise.resolve(
+      supabase.from('profiles').select(PROFILE_SELECT_COLUMNS).in('id', ids),
+    )
       .then(({ data }) => {
         if (!isCurrent) return;
 
@@ -68,6 +67,10 @@ export default function BlockedUsersScreen() {
           };
         });
         setRemoteProfiles(map);
+      })
+      .catch(() => {
+        // Best-effort stub resolution -- a network failure just leaves the existing placeholder
+        // (e.g. "Unbekannter Nutzer") in place instead of an unhandled promise rejection.
       });
 
     return () => {

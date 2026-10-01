@@ -1,3 +1,4 @@
+import { useHeaderHeight } from "expo-router/react-navigation";
 import { useEffect, useState } from 'react';
 import { Keyboard, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
@@ -19,6 +20,7 @@ const BIO_MAX_LENGTH = 160;
 
 export default function EditProfileScreen() {
   const goBack = useSafeBack();
+  const headerHeight = useHeaderHeight();
   const { currentUser, ownProfile, updateOwnProfile } = useProfiles();
   const { knownTeams, isKnownTeamsLoading, knownTeamsError, refreshKnownTeams } = useGames();
   const { setActiveTeam } = useActiveClub();
@@ -242,7 +244,7 @@ export default function EditProfileScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardView}>
+      <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={headerHeight} style={styles.keyboardView}>
         <Pressable style={{ flex: 1 }} onPress={dismissKeyboardOnNative}>
           <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
             <Text style={styles.title}>Profil bearbeiten</Text>

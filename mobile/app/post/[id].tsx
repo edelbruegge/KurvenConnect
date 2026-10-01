@@ -1,3 +1,4 @@
+import { useHeaderHeight } from "expo-router/react-navigation";
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Keyboard, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -24,6 +25,7 @@ import { useSafetySelectors } from '@/hooks/use-safety-selectors';
 import { dismissKeyboardOnNative } from '@/lib/dismiss-keyboard';
 
 export default function PostDetailScreen() {
+  const headerHeight = useHeaderHeight();
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string; focusComments?: string }>();
   const {
@@ -368,7 +370,7 @@ export default function PostDetailScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+      <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={headerHeight} style={{ flex: 1 }}>
         <Pressable style={{ flex: 1 }} onPress={dismissKeyboardOnNative}>
           <ScrollView ref={scrollRef} contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
         <View style={styles.header}>
@@ -901,7 +903,7 @@ const styles = StyleSheet.create({
   },
   commentTimestamp: {
     color: FeedColors.textSecondary,
-    fontSize: 11,
+    fontSize: FontSizes.badge,
     marginTop: 2,
   },
   commentText: {

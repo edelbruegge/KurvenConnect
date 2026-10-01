@@ -57,7 +57,7 @@ export function ReportModal({ visible, onClose, title, targetType, targetId, sou
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.backdropWrapper}>
+      <KeyboardAvoidingView behavior="padding" style={styles.backdropWrapper}>
         <Pressable style={styles.backdrop} onPress={handleClose}>
           <Pressable style={styles.card} onPress={dismissKeyboardOnNative}>
             {submitted ? (

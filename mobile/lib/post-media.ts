@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { Platform } from 'react-native';
@@ -18,9 +19,85 @@ export const ALLOWED_IMAGE_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'
 const MAX_POST_IMAGE_DIMENSION = 1600;
 const POST_IMAGE_COMPRESSION_QUALITY = 0.8;
 
-// Signed URLs are refreshed on every load (bulk feed fetch + realtime insert), so this only needs
-// to comfortably outlive a single screen visit -- not a long-lived cache lifetime.
-const SIGNED_URL_TTL_SECONDS = 60 * 60;
+// Every call to Storage's createSignedUrl(s) mints a fresh token/URL for the same path, even if
+// called again a second later -- so however long the underlying object's Cache-Control header
+// says to cache for (see uploadPostImage below), a client that requests a *different* URL each
+// time can never actually reuse that cache; it's a full re-download every time. This used to be
+// refreshed on every feed/profile load (bulk fetch + realtime insert) on the assumption that a
+// short TTL was fine since it "just" got re-signed each time -- that assumption is exactly what
+// caused continued high Storage Egress during testing even after the Cache-Control fix, since
+// every reload (pull-to-refresh, app restart, club switch) re-fetched every image byte again
+// regardless. Fixed by the signedUrlCache below: the same path now resolves to the same URL for
+// this TTL, so a client that already has the bytes cached under that URL never re-downloads them.
+// 7 days is long enough that a normal testing/usage session never re-signs the same image twice,
+// short enough to still function as a revocable, access-controlled credential (not a permanently
+// public URL like avatars', which is why post images stay signed rather than switching to
+// getPublicUrl() the way avatar-media.ts does).
+const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24 * 7;
+// Hand back a cached URL only while it still has this much life left, so a client is never handed
+// a URL that expires moments after being cached.
+const SIGNED_URL_REFRESH_MARGIN_SECONDS = 60 * 10;
+
+const signedUrlCache = new Map<string, { url: string; expiresAt: number }>();
+
+// Persisted across app restarts (AsyncStorage, already a project dependency) -- an in-memory-only
+// cache would still re-sign (and therefore re-download) every image on every fresh app launch,
+// which is exactly the repeated-restart pattern active testing produces most often. Best-effort
+// throughout: any failure here just falls back to the pre-cache behaviour (fresh signing every
+// time), never a user-facing error.
+const SIGNED_URL_CACHE_STORAGE_KEY = 'post-media-signed-url-cache-v1';
+let hydrationPromise: Promise<void> | null = null;
+
+function ensureCacheHydrated(): Promise<void> {
+  if (!hydrationPromise) {
+    hydrationPromise = AsyncStorage.getItem(SIGNED_URL_CACHE_STORAGE_KEY)
+      .then((raw) => {
+        if (!raw) return;
+        const entries = JSON.parse(raw) as [string, { url: string; expiresAt: number }][];
+        const now = Date.now();
+        entries.forEach(([path, entry]) => {
+          if (entry.expiresAt > now) {
+            signedUrlCache.set(path, entry);
+          }
+        });
+      })
+      .catch(() => {
+        // Corrupt/missing persisted cache -- every path just gets freshly signed again.
+      });
+  }
+  return hydrationPromise;
+}
+
+let persistTimeout: ReturnType<typeof setTimeout> | null = null;
+
+// Debounced so a batch of N newly-signed paths (getPostMediaSignedUrls) triggers one write, not N.
+function schedulePersistCache(): void {
+  if (persistTimeout) return;
+  persistTimeout = setTimeout(() => {
+    persistTimeout = null;
+    const now = Date.now();
+    // Drop expired entries instead of persisting them forever -- keeps the stored blob bounded to
+    // roughly "images resolved within the last SIGNED_URL_TTL_SECONDS", not every image ever seen.
+    Array.from(signedUrlCache.entries()).forEach(([path, entry]) => {
+      if (entry.expiresAt <= now) signedUrlCache.delete(path);
+    });
+    AsyncStorage.setItem(SIGNED_URL_CACHE_STORAGE_KEY, JSON.stringify(Array.from(signedUrlCache.entries()))).catch(() => {
+      // Best-effort -- a failed write just means this session's cache doesn't survive the next
+      // app restart, not a functional problem.
+    });
+  }, 500);
+}
+
+function getFreshCachedSignedUrl(storagePath: string): string | null {
+  const entry = signedUrlCache.get(storagePath);
+  if (!entry) return null;
+  return entry.expiresAt - SIGNED_URL_REFRESH_MARGIN_SECONDS * 1000 > Date.now() ? entry.url : null;
+}
+
+function cacheSignedUrl(storagePath: string, url: string): void {
+  signedUrlCache.set(storagePath, { url, expiresAt: Date.now() + SIGNED_URL_TTL_SECONDS * 1000 });
+  schedulePersistCache();
+}
 
 export type PickedPostImage = {
   uri: string;
@@ -246,26 +323,60 @@ export async function removePostMediaFile(storagePath: string): Promise<void> {
 }
 
 export async function getPostMediaSignedUrl(storagePath: string): Promise<string | null> {
+  await ensureCacheHydrated();
+
+  const cached = getFreshCachedSignedUrl(storagePath);
+  if (cached) {
+    return cached;
+  }
+
   const { data, error } = await supabase.storage.from(POST_MEDIA_BUCKET).createSignedUrl(storagePath, SIGNED_URL_TTL_SECONDS);
-  return error ? null : data.signedUrl;
+  if (error) {
+    return null;
+  }
+
+  cacheSignedUrl(storagePath, data.signedUrl);
+  return data.signedUrl;
 }
 
-/** Batched signed-url resolution for N storage paths in a single Storage API call (no N+1). */
+/**
+ * Batched signed-url resolution for N storage paths in a single Storage API call (no N+1) --
+ * paths with a still-fresh cached URL (see signedUrlCache above) are served from cache and never
+ * hit Storage at all; only genuinely new or expiring paths go into that one batched call.
+ */
 export async function getPostMediaSignedUrls(storagePaths: string[]): Promise<Record<string, string>> {
   if (storagePaths.length === 0) {
     return {};
   }
 
-  const { data, error } = await supabase.storage.from(POST_MEDIA_BUCKET).createSignedUrls(storagePaths, SIGNED_URL_TTL_SECONDS);
-
-  if (error || !data) {
-    return {};
-  }
+  await ensureCacheHydrated();
 
   const urlByPath: Record<string, string> = {};
+  const pathsNeedingFreshUrl: string[] = [];
+
+  storagePaths.forEach((path) => {
+    const cached = getFreshCachedSignedUrl(path);
+    if (cached) {
+      urlByPath[path] = cached;
+    } else {
+      pathsNeedingFreshUrl.push(path);
+    }
+  });
+
+  if (pathsNeedingFreshUrl.length === 0) {
+    return urlByPath;
+  }
+
+  const { data, error } = await supabase.storage.from(POST_MEDIA_BUCKET).createSignedUrls(pathsNeedingFreshUrl, SIGNED_URL_TTL_SECONDS);
+
+  if (error || !data) {
+    return urlByPath; // Still return whatever was already resolved from cache.
+  }
+
   data.forEach((entry) => {
     if (entry.path && entry.signedUrl) {
       urlByPath[entry.path] = entry.signedUrl;
+      cacheSignedUrl(entry.path, entry.signedUrl);
     }
   });
   return urlByPath;

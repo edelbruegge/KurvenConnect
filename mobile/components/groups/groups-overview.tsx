@@ -242,7 +242,7 @@ const styles = StyleSheet.create({
   },
   unreadBadgeText: {
     color: ClubColors.secondary,
-    fontSize: 11,
+    fontSize: FontSizes.badge,
     fontWeight: '700',
   },
   memberBadge: {

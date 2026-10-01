@@ -123,10 +123,9 @@ export default function GroupDetailScreen() {
 
     let isCurrent = true;
 
-    supabase
-      .from('profiles')
-      .select('id, display_name, avatar_url')
-      .in('id', ids)
+    Promise.resolve(
+      supabase.from('profiles').select('id, display_name, avatar_url').in('id', ids),
+    )
       .then(({ data }) => {
         if (!isCurrent) return;
 
@@ -135,6 +134,9 @@ export default function GroupDetailScreen() {
           map[row.id] = { displayName: row.display_name?.trim() || 'Neues Mitglied', avatarUrl: row.avatar_url ?? undefined };
         });
         setRemoteMemberProfiles((current) => ({ ...current, ...map }));
+      })
+      .catch(() => {
+        // Best-effort stub resolution -- see blocked-users.tsx's identical comment.
       });
 
     return () => {

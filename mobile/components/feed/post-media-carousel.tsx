@@ -115,6 +115,7 @@ export function PostMediaCarousel({ media, maxHeight }: PostMediaCarouselProps) 
           source={{ uri: media[0].url }}
           style={[styles.image, { width: containerWidth || undefined, height: mediaHeight }]}
           contentFit="contain"
+          cachePolicy="disk"
         />
       ) : (
         <>
@@ -140,7 +141,7 @@ export function PostMediaCarousel({ media, maxHeight }: PostMediaCarouselProps) 
           >
             {media.map((item) => (
               <View key={item.id} style={{ width: containerWidth, height: mediaHeight }}>
-                <Image source={{ uri: item.url }} style={styles.image} contentFit="contain" />
+                <Image source={{ uri: item.url }} style={styles.image} contentFit="contain" cachePolicy="disk" />
               </View>
             ))}
           </ScrollView>

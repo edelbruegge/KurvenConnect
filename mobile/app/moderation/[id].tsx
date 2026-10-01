@@ -1,3 +1,4 @@
+import { useHeaderHeight } from "expo-router/react-navigation";
 import { useEffect, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -41,6 +42,7 @@ const MODERATION_ACTION_BUTTON_LABEL: Record<ReportActionType, string> = {
 };
 
 export default function ModerationReportDetailScreen() {
+  const headerHeight = useHeaderHeight();
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string }>();
   const {
@@ -196,10 +198,9 @@ export default function ModerationReportDetailScreen() {
 
     let isCurrent = true;
 
-    supabase
-      .from('profiles')
-      .select('id, display_name')
-      .in('id', ids)
+    Promise.resolve(
+      supabase.from('profiles').select('id, display_name').in('id', ids),
+    )
       .then(({ data }) => {
         if (!isCurrent) return;
 
@@ -208,6 +209,9 @@ export default function ModerationReportDetailScreen() {
           map[row.id] = row.display_name?.trim() || 'Neues Mitglied';
         });
         setProfileNames((current) => ({ ...current, ...map }));
+      })
+      .catch(() => {
+        // Best-effort stub resolution -- see blocked-users.tsx's identical comment.
       });
 
     return () => {
@@ -365,7 +369,7 @@ export default function ModerationReportDetailScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flexOne}>
+      <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={headerHeight} style={styles.flexOne}>
       <Pressable style={styles.flexOne} onPress={dismissKeyboardOnNative}>
         <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
           <View style={styles.badgeRow}>

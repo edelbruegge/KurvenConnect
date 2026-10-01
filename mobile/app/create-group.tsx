@@ -1,3 +1,4 @@
+import { useHeaderHeight } from "expo-router/react-navigation";
 import { useEffect, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Keyboard, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -32,6 +33,7 @@ const VISIBILITY_OPTIONS: { value: GroupVisibility; label: string; hint: string 
 ];
 
 export default function CreateGroupScreen() {
+  const headerHeight = useHeaderHeight();
   const router = useRouter();
   const params = useLocalSearchParams<{ parentGroupId?: string; parentGroupName?: string; parentVisibility?: string }>();
   const { createGroup, getMyGroups } = useGroups();
@@ -184,7 +186,7 @@ export default function CreateGroupScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardView}>
+      <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={headerHeight} style={styles.keyboardView}>
         <Pressable style={{ flex: 1 }} onPress={dismissKeyboardOnNative}>
           <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
             <Text style={styles.title}>{isCreatingSubgroup ? 'Untergruppe erstellen' : 'Neue Gruppe erstellen'}</Text>

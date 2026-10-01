@@ -86,7 +86,7 @@ export default function OnboardingScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardView}>
+      <KeyboardAvoidingView behavior="padding" style={styles.keyboardView}>
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         {step === 'welcome' ? (
           <View style={styles.welcomeContent}>

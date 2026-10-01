@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "mobile",
+    "name": "Kurvenconnect",
     "slug": "mobile",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -43,7 +43,11 @@
           }
         }
       ],
-      "expo-notifications"
+      "expo-notifications",
+      "expo-font",
+      "expo-image",
+      "expo-status-bar",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,

@@ -1,3 +1,4 @@
+import { useHeaderHeight } from "expo-router/react-navigation";
 import { useEffect, useRef, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
@@ -50,6 +51,7 @@ function referenceFromParams(params: { referenceType?: string; referenceId?: str
 }
 
 export default function MessageConversationScreen() {
+  const headerHeight = useHeaderHeight();
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string; referenceType?: string; referenceId?: string; referenceTitle?: string }>();
   const { user } = useAuth();
@@ -216,7 +218,7 @@ export default function MessageConversationScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+      <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={headerHeight} style={{ flex: 1 }}>
         <Pressable style={{ flex: 1 }} onPress={dismissKeyboardOnNative}>
           <View style={styles.header}>
             <View style={styles.headerTopRow}>
@@ -490,7 +492,7 @@ const styles = StyleSheet.create({
   },
   bubbleTime: {
     color: FeedColors.textSecondary,
-    fontSize: 11,
+    fontSize: FontSizes.badge,
   },
   bubbleTimeOwn: {
     textAlign: 'right',

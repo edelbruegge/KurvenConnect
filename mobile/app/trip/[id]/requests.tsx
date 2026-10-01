@@ -68,10 +68,9 @@ export default function TripRequestsScreen() {
 
     let isCurrent = true;
 
-    supabase
-      .from('profiles')
-      .select(PROFILE_SELECT_COLUMNS)
-      .in('id', requesterIds)
+    Promise.resolve(
+      supabase.from('profiles').select(PROFILE_SELECT_COLUMNS).in('id', requesterIds),
+    )
       .then(({ data }) => {
         if (!isCurrent) return;
 
@@ -87,6 +86,9 @@ export default function TripRequestsScreen() {
           };
         });
         setRequesterProfiles(map);
+      })
+      .catch(() => {
+        // Best-effort stub resolution -- see blocked-users.tsx's identical comment.
       });
 
     return () => {

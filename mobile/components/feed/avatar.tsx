@@ -25,6 +25,7 @@ export function Avatar({ initials, avatarUrl, size = 40, backgroundColor }: Avat
         source={{ uri: avatarUrl }}
         style={[styles.avatar, { width: size, height: size, borderRadius: size / 2, backgroundColor: Colors.dark.tint }]}
         contentFit="cover"
+        cachePolicy="disk"
       />
     );
   }

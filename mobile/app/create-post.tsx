@@ -1,3 +1,4 @@
+import { useHeaderHeight } from "expo-router/react-navigation";
 import { Image } from 'expo-image';
 import React, { useEffect, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -54,6 +55,7 @@ const initialFormState: CreatePostFormState = {
 };
 
 export default function CreatePostScreen() {
+  const headerHeight = useHeaderHeight();
   const router = useRouter();
   const params = useLocalSearchParams<{ gameId?: string; gameLabel?: string }>();
   const { createRemotePost, createRemoteTrip, createRemoteMeetup, createRemoteWantedEntry, appendRemotePostMedia } = useFeedPosts();
@@ -371,7 +373,7 @@ export default function CreatePostScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardView}>
+      <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={headerHeight} style={styles.keyboardView}>
         <Pressable style={{ flex: 1 }} onPress={dismissKeyboardOnNative}>
           <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
           <Text style={styles.title}>Neuen Beitrag erstellen</Text>

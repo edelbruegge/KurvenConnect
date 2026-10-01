@@ -7,7 +7,12 @@ import { generateUuidV4 } from '@/lib/post-media';
 import { supabase } from '@/lib/supabase';
 
 export const AVATAR_BUCKET = 'avatars';
-export const AVATAR_TARGET_SIZE = 512;
+// The largest an avatar is ever actually rendered anywhere in the app is 96px (edit-profile.tsx's
+// own preview) -- most places show 36-40px. 256px still gives that biggest case ~2.7x oversampling
+// (crisp on any real device pixel density) while storing/serving a quarter of the pixel data of
+// the previous 512px target. Avatars are by far the most frequently *served* image in the app
+// (rendered in every feed/comment/list/message row), so this meaningfully cuts Storage Egress.
+export const AVATAR_TARGET_SIZE = 256;
 
 export type PickedAvatarImage = {
   uri: string;

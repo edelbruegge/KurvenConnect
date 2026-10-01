@@ -155,10 +155,9 @@ export default function GroupChatScreen() {
 
     let isCurrent = true;
 
-    supabase
-      .from('profiles')
-      .select('id, display_name')
-      .in('id', ids)
+    Promise.resolve(
+      supabase.from('profiles').select('id, display_name').in('id', ids),
+    )
       .then(({ data }) => {
         if (!isCurrent) return;
 
@@ -167,6 +166,9 @@ export default function GroupChatScreen() {
           map[row.id] = row.display_name?.trim() || 'Unbekanntes Mitglied';
         });
         setUnresolvedNames((current) => ({ ...current, ...map }));
+      })
+      .catch(() => {
+        // Best-effort stub resolution -- see blocked-users.tsx's identical comment.
       });
 
     return () => {
@@ -229,7 +231,7 @@ export default function GroupChatScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+      <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
         <Pressable style={{ flex: 1 }} onPress={dismissKeyboardOnNative}>
           <View style={styles.header}>
             <Pressable
@@ -408,7 +410,7 @@ const styles = StyleSheet.create({
   },
   bubbleTime: {
     color: FeedColors.textSecondary,
-    fontSize: 11,
+    fontSize: FontSizes.badge,
     marginTop: 2,
   },
   bubbleTimeOwn: {

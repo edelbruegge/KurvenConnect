@@ -81,10 +81,9 @@ export default function ModerationQueueScreen() {
 
     let isCurrent = true;
 
-    supabase
-      .from('profiles')
-      .select(PROFILE_NAME_SELECT_COLUMNS)
-      .in('id', ids)
+    Promise.resolve(
+      supabase.from('profiles').select(PROFILE_NAME_SELECT_COLUMNS).in('id', ids),
+    )
       .then(({ data }) => {
         if (!isCurrent) return;
 
@@ -93,6 +92,9 @@ export default function ModerationQueueScreen() {
           map[row.id] = row.display_name?.trim() || 'Neues Mitglied';
         });
         setProfileNames((current) => ({ ...current, ...map }));
+      })
+      .catch(() => {
+        // Best-effort stub resolution -- see blocked-users.tsx's identical comment.
       });
 
     return () => {
