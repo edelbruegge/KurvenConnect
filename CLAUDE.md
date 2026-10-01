@@ -83,6 +83,17 @@ Tickettausch und Zahlungsfunktionen sind explizit **nicht** Teil des MVP und ers
 - Welche Vereine in der Beta auswählbar sind, wird ausschließlich über `BETA_ENABLED_CLUB_IDS`/`isClubEnabledForBeta`/`filterEnabledClubs` in `mobile/config/beta-clubs.ts` gesteuert — kein zweiter, paralleler Ort für diese Liste.
 - Die Beta-Vereinsfreigabe filtert nur an den Auswahl-Oberflächen (`ClubPicker`-Konsumenten); `GamesContext.knownTeams`/`getKnownTeamById` und `public.team_stadium_mappings` bleiben immer vollständig, damit bereits bestehende Profile/aktive Vereine außerhalb der Allowlist weiterhin korrekt aufgelöst werden.
 
+## Zusammenarbeit (mehrere Entwickler)
+
+An Kurvenconnect arbeiten mehrere Personen parallel, jeweils mit eigenem Claude Code. Damit sich niemand in die Quere kommt:
+
+- Nie direkt auf `main` committen oder pushen. Jede Aufgabe auf einem eigenen Feature-Branch (`<name>/<kurze-beschreibung>`), vorher `main` pullen.
+- Änderungen kommen ausschließlich per Pull Request nach `main`; der jeweils andere reviewt. PRs klein halten (eine Funktion pro PR) und zügig mergen.
+- Zentrale Dateien (`mobile/app/_layout.tsx`, globale Contexts, `mobile/config/beta-clubs.ts`, `mobile/package.json`) nur nach Absprache ändern.
+- Supabase-Migrationen (`mobile/supabase/migrations/`) nur per PR hinzufügen; vor dem Anlegen einer neuen Migration `main` pullen, damit der Zeitstempel nach allen bestehenden liegt.
+- `supabase db push` auf das Produktivprojekt führt ausschließlich der Projektinhaber (Emil) nach dem Merge aus. Andere Entwickler testen Migrationen in ihrem eigenen Supabase-Dev-Projekt — niemals Migrationen oder Datenänderungen direkt gegen das Produktivprojekt ausführen.
+- `.env` wird nie committet und Zugangsdaten werden nie in Code, Commits, PRs oder Issues geschrieben; nur der `anon`-Key wird geteilt, nie der `service_role`-Key.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
