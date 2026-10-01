@@ -88,6 +88,7 @@ Tickettausch und Zahlungsfunktionen sind explizit **nicht** Teil des MVP und ers
 An Kurvenconnect arbeiten mehrere Personen parallel, jeweils mit eigenem Claude Code. Damit sich niemand in die Quere kommt:
 
 - Nie direkt auf `main` committen oder pushen. Jede Aufgabe auf einem eigenen Feature-Branch (`<name>/<kurze-beschreibung>`), vorher `main` pullen.
+- Einmal pro Klon den Push-Schutz aktivieren: `git config core.hooksPath .githooks` — der Hook `.githooks/pre-push` blockiert dann jeden Push auf `main` (GitHub setzt Branch Protection für dieses private Repo nicht durch). Den Hook nicht umgehen (kein `--no-verify`).
 - Änderungen kommen ausschließlich per Pull Request nach `main`; der jeweils andere reviewt. PRs klein halten (eine Funktion pro PR) und zügig mergen.
 - Zentrale Dateien (`mobile/app/_layout.tsx`, globale Contexts, `mobile/config/beta-clubs.ts`, `mobile/package.json`) nur nach Absprache ändern.
 - Supabase-Migrationen (`mobile/supabase/migrations/`) nur per PR hinzufügen; vor dem Anlegen einer neuen Migration `main` pullen, damit der Zeitstempel nach allen bestehenden liegt.
