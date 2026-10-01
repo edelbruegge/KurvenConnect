@@ -144,7 +144,6 @@ export default function HomeScreen() {
         <View style={styles.headerRow}>
           <View style={styles.headerText}>
             <Text style={styles.title}>Kurvenconnect Feed</Text>
-            <Text style={styles.subtitle}>Aktuelle Community-Updates aus dem Stadionalltag</Text>
           </View>
           <View style={styles.headerActions}>
             <NotificationsButton />
@@ -267,7 +266,7 @@ const styles = StyleSheet.create({
   },
   headerRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
   },
   headerActions: {
@@ -281,11 +280,6 @@ const styles = StyleSheet.create({
     color: FeedColors.textPrimary,
     fontSize: FontSizes.title,
     fontWeight: '700',
-  },
-  subtitle: {
-    color: FeedColors.textSecondary,
-    fontSize: FontSizes.subtitle,
-    marginTop: 4,
   },
   feedModeRow: {
     flexDirection: 'row',
